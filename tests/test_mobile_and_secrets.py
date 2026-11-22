@@ -601,11 +601,11 @@ def test_two_line_labels_with_two_char_indent():
 
 
 def test_seg_selected_is_accent_filled():
-    # 选中项用主题色填充白字，未选中项不动（透明底、灰框、灰字）
-    assert ".seg button.seg-on { border:2px solid var(--accent); color:#fff; background:var(--accent);" in CSS
+    # 选中项用主题色边框+浅底深色字（填充太难看已改回），未选中项不动（透明底、灰框、灰字）
+    assert ".seg button.seg-on { border:2px solid var(--accent); color:var(--accent-text); background:var(--accent-soft);" in CSS
     assert ".seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted);" in CSS
-    # 选中成员按键里的 IP 用浅白字，在主题色底上可读
-    assert ".seg button.seg-on .member-ip { color:rgba(255,255,255,0.85); }" in CSS
+    # 填充已取消，选中成员按键里的 IP 不再用浅白字
+    assert ".seg button.seg-on .member-ip" not in CSS
 
 
 def test_controls_align_with_indented_labels():

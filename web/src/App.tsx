@@ -65,7 +65,7 @@ const TZ_FALLBACK = [
   { value: "Australia/Sydney", label: "悉尼 Australia/Sydney" },
 ];
 
-// 按键式选择（全站统一）：选中主题色填充白字、未选灰框，见 styles.css 的 .seg。
+// 按键式选择（全站统一）：选中主题色边框+浅底深色字、未选灰框，见 styles.css 的 .seg。
 // value 为 "" 时表示“未选/跟随全局”，所有按钮都是灰框（分组新建时无默认选中）。
 function Seg({ value, options, onChange }: {
   value: string;
