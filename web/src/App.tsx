@@ -1235,7 +1235,6 @@ export default function App() {
                       <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
                       <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
-                      <div className="stat"><span>{t("使用率")}</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
                       <div className="stat"><span>{t("费用")}</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
                       <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
@@ -1280,7 +1279,6 @@ export default function App() {
                 <div className="stat"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
                 <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
-                <div className="stat"><span>{t("使用率")}</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
                 <div className="stat"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>

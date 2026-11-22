@@ -145,7 +145,6 @@ export const EN: Record<string, string> = {
   地域: "Region",
   "实例 ID": "Instance ID",
   流量: "Traffic",
-  使用率: "Usage",
   费用: "Cost",
   实时费用: "Real-time cost",
   站点: "Site",
