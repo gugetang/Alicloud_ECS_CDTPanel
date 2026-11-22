@@ -1295,7 +1295,7 @@ export default function App() {
       {tab === "dash" && (
         <>
           <div className="grid3">
-            <div className="card" style={{ fontSize: 14 }}><h3>{t("实例状态")}</h3>
+            <div className="card" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("实例状态")}</h3>
               <div style={{ marginTop: 6 }}>{t("服务器总数 {count}", { count: accounts.length })}</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 8 }}>
                 <div>{dotEl("green")}{t("在线状态 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
@@ -1309,15 +1309,15 @@ export default function App() {
                   <div>{dotEl("green_pulse")}{t("启动中 {count}", { count: accounts.filter((a) => a.status_dot === "green_pulse").length })}</div>
                 )}
               </div>
-              <div style={{ marginTop: 8, color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
+              <div style={{ marginTop: "auto", paddingTop: 8, color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
             </div>
-            <div className="card"><h3>{t("本月流量")}</h3>
+            <div className="card" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
               <div className="big">{fmtGb(status?.total_used_gb ?? 0)} GiB / {fmtNum(totalQuota)} GiB{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</div>
-              <div style={{ color: "var(--accent)", fontSize: 14 }}>{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
+              <div style={{ color: "var(--accent)", fontSize: 14, marginTop: "auto", paddingTop: 8 }}>{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
             </div>
-            <div className="card"><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
+            <div className="card" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
               <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
-              <div style={{ color: "var(--accent)", fontSize: 14 }}>{costConverted ? t("已查询 {a} / {b} 个账户账单，按汇率 {rate} 换算成 {currency}", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0, rate: costConverted.rate, currency: costConverted.cur }) : t("已查询 {a} / {b} 个账户账单，按币种汇总", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
+              <div style={{ color: "var(--accent)", fontSize: 14, marginTop: "auto", paddingTop: 8 }}>{costConverted ? t("已查询 {a} / {b} 个账户账单，按汇率 {rate} 换算成 {currency}", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0, rate: costConverted.rate, currency: costConverted.cur }) : t("已查询 {a} / {b} 个账户账单，按币种汇总", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
             </div>
           </div>
           <div className="card">
@@ -1331,7 +1331,7 @@ export default function App() {
             {viewMode === "card" ? (
               <div className="grid3" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
-                  <div className="card" key={a.id as number} style={{ marginBottom: 0 }}>
+                  <div className="card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
@@ -1341,7 +1341,7 @@ export default function App() {
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                       <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
-                    {a.status_detail ? <div className="muted" style={{ marginTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
+                    {a.status_detail ? <div className="muted" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
                 ))}
               </div>
@@ -1372,7 +1372,7 @@ export default function App() {
           )}
           {accounts.map((a) => (
             <div className="card" key={a.id as number}
-              style={{ marginTop: 12, cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
+              style={{ marginTop: 12, display: "flex", flexDirection: "column", cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
               {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
@@ -1387,7 +1387,7 @@ export default function App() {
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
-              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 12 }}>
                 {a.status_detail ? <div className="muted" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span />}
                 <ActionButtons a={a} />
               </div>

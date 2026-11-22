@@ -288,7 +288,7 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     # 状态详情（在线/排队）用主题色，不再是绿色
     assert 'var(--dot-green)" : undefined' not in tsx
     # 实例状态卡片字体缩小一号：卡片 fontSize 14
-    assert '<div className="card" style={{ fontSize: 14 }}><h3>{t("实例状态")}</h3>' in tsx
+    assert '<div className="card" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("实例状态")}</h3>' in tsx
     # 本月流量“已取得”与当前费用“已查询”小字都用主题色、14px
     assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
     assert 'className="muted" style={{ fontSize: 14 }}' not in tsx
@@ -385,27 +385,28 @@ def test_header_lang_toggle_and_logout():
 def test_traffic_obtained_line_uses_theme_color():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 本月流量卡片的“已取得 X / Y 个账户用量”用主题色（与“已查询 X / Y 个账户账单”一致），
-    # 出现在卡片左下角（左对齐，默认）
+    # 钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）
     line = [l for l in tsx.splitlines() if "已取得 {a} / {b} 个账户用量" in l]
     assert len(line) == 1
     assert 'color: "var(--accent)"' in line[0]
+    assert 'marginTop: "auto"' in line[0]
     assert 'textAlign' not in line[0]
     assert 'className="muted"' not in line[0]
 
 
 def test_theme_lines_alignment_dash_left_accounts_left():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行概览：主题字体的小字行都出现在卡片左下角（左对齐，默认）——
+    # 运行概览：主题字体的小字行都钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）——
     # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”、服务器卡片状态详情
-    assert 'marginTop: 8, color: "var(--accent)"' in tsx
+    assert 'marginTop: "auto", paddingTop: 8, color: "var(--accent)"' in tsx
     assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
-    assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
+    assert tsx.count('color: "var(--accent)", fontSize: 14, marginTop: "auto"') >= 2
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
-    dash_detail = [l for l in tsx.splitlines() if "marginTop: 6" in l and "status_detail" in l]
+    dash_detail = [l for l in tsx.splitlines() if 'marginTop: "auto"' in l and "status_detail" in l]
     assert len(dash_detail) == 1 and 'textAlign' not in dash_detail[0]
     # 账户管理：状态详情行移到卡片左下角——与操作按钮同一行、居左，
     # 操作按钮在右；不再是单独一行放在按钮上面
-    assert 'justifyContent: "space-between", alignItems: "center", marginTop: 12' in tsx
+    assert 'justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 12' in tsx
     assert 'marginTop: 4, color: (a.status_dot' not in tsx
     assert 'justifyContent: "flex-end", marginTop: 12 }}><ActionButtons' not in tsx
 
