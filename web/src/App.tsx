@@ -65,7 +65,7 @@ const TZ_FALLBACK = [
   { value: "Australia/Sydney", label: "悉尼 Australia/Sydney" },
 ];
 
-// 按键式选择（全站统一）：选中蓝框、未选灰框，见 styles.css 的 .seg。
+// 按键式选择（全站统一）：选中主题色填充白字、未选灰框，见 styles.css 的 .seg。
 // value 为 "" 时表示“未选/跟随全局”，所有按钮都是灰框（分组新建时无默认选中）。
 function Seg({ value, options, onChange }: {
   value: string;
@@ -393,6 +393,14 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   );
 }
 
+// ---------------- 两行标签：第一行父项，第二行子项缩进 2 字符 ----------------
+function TwoLineLabel({ parent, child, req }: { parent: string; child: string; req?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <label className={req ? "req" : "lbl"}>{t(parent)}<br /><span style={{ paddingLeft: "2em" }}>{t(child)}</span></label>
+  );
+}
+
 // ---------------- 密码输入框：带显示/隐藏切换（眼睛图标） ----------------
 function PasswordField({ value, onChange, placeholder, onKeyDown }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void }) {
   const { t } = useI18n();
@@ -581,7 +589,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
           <div className="form2">
-            <div><label className="lbl">{t("间隔切换周期")}</label>
+            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
               <Seg value={interval} options={[
                 { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
                 { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
@@ -590,7 +598,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               ]} onChange={(v) => { setInterval(v); savePatch(v === "0" ? { interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) } : { interval_hours: Number(v) || 6, custom_interval_minutes: 0 }); }} /></div>
           </div>
           {interval === "0" && (
-            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}><label className="lbl">{t("自定义间隔")}</label>
+            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
               <div className="row" style={{ alignItems: "center" }}>
                 <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: 120 }} />
                 <Seg value={custUnit} options={[
@@ -600,22 +608,22 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
                 ]} onChange={changeCustUnit} />
               </div></div>)}
           <div style={{ marginTop: 12 }}>
-            <label className="lbl">{t("开始时间")}</label>
+            <label className="lbl" style={{ paddingLeft: "2em" }}>{t("开始时间")}</label>
             <input type="time" step="1" value={startTime} onChange={(e) => setStartTime(e.target.value)} onBlur={() => savePatch({ interval_start_time: startTime || "00:00:00" })} />
           </div>
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <label className="lbl">{t("负载均衡切换阀值")}</label>
+          <TwoLineLabel parent="负载均衡" child="切换阀值" />
           <Seg value={diffMode} options={[
             { value: "percent", label: t("百分比（%）") },
             { value: "gb", label: t("固定流量（GB）") },
           ]} onChange={(m) => { setDiffMode(m); savePatch({ switch_diff_mode: m }); }} />
           <div className="form2">
             {diffMode === "percent" ? (
-              <div><label className="lbl">{t("负载均衡切换阀值（%）")}</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div>
+              <div><TwoLineLabel parent="负载均衡" child="切换阀值（%）" /><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div>
             ) : (
-              <div><label className="lbl">{t("负载均衡切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
+              <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
             )}
           </div>
           <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6 }}>{t("不适用定时轮巡。")}</div>
@@ -1698,15 +1706,15 @@ export default function App() {
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
             <div className="form2">
-              <div><label className="req">{t("负载均衡切换阀值 *")}</label>
+              <div><TwoLineLabel parent="负载均衡" child="切换阀值 *" req />
                 <Seg value={sDiffMode} options={[
                   { value: "percent", label: t("百分比（%）") },
                   { value: "gb", label: t("固定流量（GB）") },
                 ]} onChange={(v) => { setSDiffMode(v); saveParamSettings({ switch_diff_mode: v }); }} /></div>
               {sDiffMode === "percent" ? (
-                <div><label className="req">{t("负载均衡切换阀值 *（%）")}</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div>
+                <div><TwoLineLabel parent="负载均衡" child="切换阀值 *（%）" req /><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div>
               ) : (
-                <div><label className="lbl">{t("负载均衡切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
+                <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
               )}
             </div>
             <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6 }}>{t("不适用定时轮巡。")}</div>
@@ -1728,7 +1736,7 @@ export default function App() {
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
             <div className="form2">
-              <div><label className="lbl">{t("轮巡周期")}</label>
+              <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
                 <Seg value={sInterval} options={[
                   { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
                   { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
@@ -1736,7 +1744,7 @@ export default function App() {
                   { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
                 ]} onChange={(v) => { setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div>
               {sInterval === "0" && (
-              <div onBlur={() => saveParamSettings()}><label className="lbl">{t("自定义间隔")}</label>
+              <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
                 <div className="row" style={{ alignItems: "center" }}>
                   <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: 120 }} />
                   <Seg value={sCustUnit} options={[

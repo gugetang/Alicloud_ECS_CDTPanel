@@ -7,7 +7,7 @@
 - 分组页：外层卡片框体取消，“+ 新建分组”移到右下角。
 - 手机端（≤800px）：单列卡片、指标两列、表格横向滚动、触控目标放大、
   输入框 16px（防 iOS 聚焦缩放）；电脑端保持 1200px 三列布局。
-- 夜间底色不再是纯黑 #000000，改成深蓝灰 #0b1220。
+- 夜间底色不再是纯黑 #000000，改成更柔和的深蓝灰 #1e293b（原 #0b1220 仍太黑）。
 """
 import re
 from pathlib import Path
@@ -90,7 +90,7 @@ def test_mobile_media_query():
 def test_dark_bg_is_not_pure_black():
     m = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', CSS)
     assert m, "dark theme block missing"
-    assert "--bg:#0b1220" in m.group(1).replace(" ", "")
+    assert "--bg:#1e293b" in m.group(1).replace(" ", "")
     assert "#000000" not in CSS
 
 
@@ -98,10 +98,14 @@ def test_light_card_is_30pct_transparent():
     m = re.search(r'html\[data-theme="light"\]\s*\{([^}]*)\}', CSS)
     assert m, "light theme block missing"
     body = m.group(1).replace(" ", "")
-    # 白天卡片磨砂更明显：白底透明度 30%（alpha 0.3），夜间灰卡不动
-    assert "--card:rgba(255,255,255,0.3)" in body
-    assert "--card2:rgba(255,255,255,0.3)" in body
+    # 卡片毛玻璃加深：白天卡片 alpha 0.5（原 0.3 太透、不够突出），夜间灰卡 0.65
+    assert "--card:rgba(255,255,255,0.5)" in body
+    assert "--card2:rgba(255,255,255,0.5)" in body
     assert "rgba(255,255,255,0.7)" not in CSS
+    dm = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', CSS)
+    assert dm, "dark theme block missing"
+    dbody = dm.group(1).replace(" ", "")
+    assert "--card:rgba(71,85,105,0.65)" in dbody
 
 
 def test_google_sans_font_self_hosted():
@@ -576,3 +580,25 @@ def test_dash_footer_has_pause_resume_button():
     assert 'post("/api/schedule/pause"' in tsx
     assert 't("恢复调度")' in tsx
     assert 't("暂停调度")' in tsx
+
+
+def test_two_line_labels_with_two_char_indent():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 复合标签分两行：第一行父项，第二行子项缩进 2 字符（全局设置 + 分组设置）
+    assert "function TwoLineLabel" in tsx
+    assert 'paddingLeft: "2em"' in tsx
+    # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
+    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
+    assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
+    assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' in tsx
+    # 定时轮巡子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组间隔切换周期/自定义间隔/开始时间）
+    for label in ("轮巡周期", "间隔切换周期", "自定义间隔", "开始时间"):
+        assert f'style={{{{ paddingLeft: "2em" }}}}>{{t("{label}")}}' in tsx, label
+
+
+def test_seg_selected_is_accent_filled():
+    # 选中项用主题色填充白字，未选中项不动（透明底、灰框、灰字）
+    assert ".seg button.seg-on { border:2px solid var(--accent); color:#fff; background:var(--accent);" in CSS
+    assert ".seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted);" in CSS
+    # 选中成员按键里的 IP 用浅白字，在主题色底上可读
+    assert ".seg button.seg-on .member-ip { color:rgba(255,255,255,0.85); }" in CSS
