@@ -1449,7 +1449,8 @@ export default function App() {
                   { value: "60", label: t("60 分钟") },
                   { value: "custom", label: t("自定义") },
                 ]} onChange={setSRefresh} />
-                <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} />
+                {sRefresh === "custom" && (
+                <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} />)}
                 <p className="muted">{t("多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。")}</p></div>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
