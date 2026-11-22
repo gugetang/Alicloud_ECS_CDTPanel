@@ -845,6 +845,13 @@ export default function App() {
   const [editDomGroup, setEditDomGroup] = useState("");
   const [acting, setActing] = useState<Record<number, string>>({});
 
+  // 消息提示 5 秒后自动隐藏；新消息进来重新计时。
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(""), 5000);
+    return () => clearTimeout(t);
+  }, [msg]);
+
   // ---------- 语言：中英切换，默认英文（localStorage `cdt-lang`） ----------
   const { lang, setLang, t } = useI18n();
 
