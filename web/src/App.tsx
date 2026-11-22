@@ -1483,18 +1483,6 @@ export default function App() {
               ]} onChange={setSRecovery} />
               <p className="muted">{t("每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。")}</p>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <label className="lbl">{t("货币结算")}</label>
-              <Seg value={sCurrency} options={[
-                { value: "USD", label: "USD" },
-                { value: "CNY", label: "CNY" },
-              ]} onChange={setSCurrency} />
-              <div style={{ marginTop: 8 }}>
-                <label className="lbl">{t("汇率")}</label>
-                <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} /><span>&nbsp;CNY</span></div>
-              </div>
-              <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
-            </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
             <div className="form2">
@@ -1516,6 +1504,18 @@ export default function App() {
                   ]} onChange={changeCustUnit} />
                 </div></div>)}
             </div>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label className="lbl">{t("货币结算")}</label>
+              <Seg value={sCurrency} options={[
+                { value: "USD", label: "USD" },
+                { value: "CNY", label: "CNY" },
+              ]} onChange={setSCurrency} />
+              <div style={{ marginTop: 8 }}>
+                <label className="lbl">{t("汇率")}</label>
+                <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} /><span>&nbsp;CNY</span></div>
+              </div>
+              <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
             </div>
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
               <button className="icon-btn green" title={t("保存")} onClick={() => saveSettings({
