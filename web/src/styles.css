@@ -1,5 +1,5 @@
 /* 主题：亮 / 暗 / 跟随系统。尺寸与旧版一致，只换颜色与磨砂质感。
-   色值角色（用户定）：底色=磨砂玻璃（亮色 70% 透明，夜间灰 50% 透明）；
+   色值角色（用户定）：白天白底、黑夜黑底；卡片/框体=磨砂玻璃（亮色 70% 透明，夜间灰 50% 透明）；
    蓝色=按键边框色（--accent）；浅蓝=按键选中色（#dbeafe 底 + 蓝字）。
    蓝色只作边框/文字色，不作填充色（危险操作红按钮除外）。
    主题由 <html data-theme="light|dark"> 控制，App.tsx 里跟随系统用
@@ -9,12 +9,12 @@
   --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6;
 }
 html[data-theme="dark"] {
-  --bg:#0b1220; --card:rgba(71,85,105,0.5); --card2:rgba(71,85,105,0.5);
+  --bg:#000000; --card:rgba(71,85,105,0.5); --card2:rgba(71,85,105,0.5);
   --border:rgba(148,163,184,0.35); --text:#e6edf7; --muted:#8ea0bf;
   --input:rgba(11,21,38,0.55); --seg-off:#9AA0A6;
 }
 html[data-theme="light"] {
-  --bg:#dbeafe; --card:rgba(255,255,255,0.7); --card2:rgba(255,255,255,0.7);
+  --bg:#ffffff; --card:rgba(255,255,255,0.7); --card2:rgba(255,255,255,0.7);
   --border:rgba(37,99,235,0.25); --text:#0f172a; --muted:#64748b;
   --input:rgba(255,255,255,0.75); --seg-off:#9AA0A6;
 }
@@ -22,11 +22,7 @@ html[data-theme="light"] {
 body {
   margin:0; color:var(--text);
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
-  background:
-    radial-gradient(1200px 500px at 85% -10%, rgba(37,99,235,0.25), transparent 60%),
-    radial-gradient(900px 500px at -10% 0%, rgba(96,165,250,0.18), transparent 55%),
-    var(--bg);
-  background-attachment:fixed;
+  background:var(--bg);
 }
 a { color:#7aa5ff; }
 html[data-theme="light"] a { color:#1d4ed8; }
