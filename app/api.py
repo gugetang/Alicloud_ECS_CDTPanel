@@ -651,13 +651,14 @@ def status(_: bool = Depends(_admin_required)):
             total_cost[cur] = round(total_cost.get(cur, 0) + a["billing_month_cost"], 6)
     events = db.list_events(20)
     month = scheduler._now().strftime("%Y-%m")
+    # 刷新时间 0=不刷新，相当于调度已暂停（见 scheduler._refresh_minutes）。
+    _refresh_min = scheduler._refresh_minutes(settings)
     return {
         "switch_mode": settings.get("switch_mode") or "both",
         "scheduler": {
-            "paused": settings.get("scheduler_paused") == "1",
+            "paused": settings.get("scheduler_paused") == "1" or _refresh_min == 0,
             # API 刷新时间（已与旧 check_interval_minutes 合并为同一项）
-            "api_refresh_minutes": int(settings.get(
-                "api_refresh_minutes", settings.get("check_interval_minutes", 60))),
+            "api_refresh_minutes": _refresh_min,
             "check_interval_minutes": int(settings.get("check_interval_minutes", 60)),
             "last_run": scheduler.last_run(),
         },
@@ -950,8 +951,9 @@ def _validate_settings(data: dict) -> None:
                 v = int(float(data[key]))
             except (TypeError, ValueError):
                 raise HTTPException(400, f"{key} 必须是分钟数")
-            if not 1 <= v <= 1440:
-                raise HTTPException(400, f"{key} 必须在 1–1440 分钟之间")
+            # 0=不刷新，相当于关闭调度；1–1440=按分钟数调度。
+            if not 0 <= v <= 1440:
+                raise HTTPException(400, f"{key} 必须在 0–1440 分钟之间（0=不刷新）")
     if ("threshold_recovery_action" in data
             and data["threshold_recovery_action"] not in ("start", "keep_stopped")):
         raise HTTPException(400, "threshold_recovery_action 只能是 start/keep_stopped")

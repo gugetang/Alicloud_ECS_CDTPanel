@@ -385,6 +385,7 @@ export const EN: Record<string, string> = {
   "15 分钟": "15 min",
   "30 分钟": "30 min",
   "60 分钟": "60 min",
+  不刷新: "Don't refresh",
   自定义: "Custom",
   自定义分钟数: "Custom minutes",
   "多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。": "How often to check Alibaba Cloud CDT/ECS/BSS status and re-evaluate. The next schedule uses the new interval after saving (merged with the old check interval).",

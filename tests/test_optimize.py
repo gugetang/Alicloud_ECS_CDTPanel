@@ -318,3 +318,60 @@ def test_notify_proxy_default_is_empty():
     # 部署上 Telegram 通知全部失败（代理不存在，连接被拒）。
     assert DEFAULT_SETTINGS["notify_proxy"] == ""
     assert Notifier(DEFAULT_SETTINGS)._proxies() == {}
+
+
+def test_refresh_zero_means_off_and_accounts_follow_global():
+    from app.scheduler import _eff_refresh_minutes, _refresh_minutes
+    # 0=不刷新，相当于关闭调度。
+    assert _refresh_minutes({"api_refresh_minutes": "0"}) == 0
+    assert _refresh_minutes({"api_refresh_minutes": "5"}) == 5
+    # 实例级刷新时间已取消：即使账户存了自定义值，也强制跟随全局。
+    assert _eff_refresh_minutes(
+        {"api_refresh_minutes": "5"}, {"api_refresh_minutes": "10"}) == 10
+    assert _eff_refresh_minutes(
+        {"api_refresh_minutes": "5"}, {"api_refresh_minutes": "0"}) == 0
+    assert _eff_refresh_minutes({}, {"api_refresh_minutes": "10"}) == 10
+
+
+def test_validate_settings_allows_zero_refresh():
+    from app.api import _validate_settings
+    # 0=不刷新，不应报错；正常分钟数也不应报错。
+    _validate_settings({"api_refresh_minutes": "0"})
+    _validate_settings({"api_refresh_minutes": "5"})
+    _validate_settings({"check_interval_minutes": "0"})
+    with pytest.raises(Exception):
+        _validate_settings({"api_refresh_minutes": "-1"})
+    with pytest.raises(Exception):
+        _validate_settings({"api_refresh_minutes": "1441"})
+    with pytest.raises(Exception):
+        _validate_settings({"api_refresh_minutes": "abc"})
+
+
+def test_put_settings_accepts_zero_refresh(tmpdb):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    client = TestClient(create_app())
+    # 选“不刷新”应能保存为 0（旧校验只允许 1–1440，会 400）。
+    r = client.put("/api/settings", json={"api_refresh_minutes": "0"})
+    assert r.status_code == 200
+    assert r.json()["api_refresh_minutes"] == "0"
+    # 同一项同步：check_interval_minutes 也应为 0。
+    assert r.json()["check_interval_minutes"] == "0"
+    assert tmpdb.get_settings()["api_refresh_minutes"] == "0"
+
+
+def test_status_paused_when_refresh_zero(tmpdb):
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    client = TestClient(create_app())
+    # 刷新时间 0=不刷新：即使 scheduler_paused=0，状态也应显示已暂停。
+    tmpdb.set_settings({"api_refresh_minutes": "0", "scheduler_paused": "0"})
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    assert r.json()["scheduler"]["paused"] is True
+    assert r.json()["scheduler"]["api_refresh_minutes"] == 0
+    # 选分钟数=开始调度：状态恢复为运行中。
+    tmpdb.set_settings({"api_refresh_minutes": "5", "scheduler_paused": "0"})
+    r = client.get("/api/status")
+    assert r.json()["scheduler"]["paused"] is False
+    assert r.json()["scheduler"]["api_refresh_minutes"] == 5

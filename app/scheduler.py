@@ -183,15 +183,8 @@ def refresh_one_account(account_id: int) -> dict:
 
 
 def _eff_refresh_minutes(a: dict, settings: dict) -> int:
-    """单账户生效的 API 刷新间隔（分钟）：账户自定义 > 0 时用它，否则跟随全局。"""
-    v = a.get("api_refresh_minutes")
-    if v:
-        try:
-            n = int(v)
-            if 1 <= n <= 1440:
-                return n
-        except (TypeError, ValueError):
-            pass
+    """单账户生效的 API 刷新间隔（分钟）：实例级刷新时间已取消，
+    所有账户强制跟随全局 api_refresh_minutes。"""
     return _refresh_minutes(settings)
 
 
@@ -210,7 +203,7 @@ def refresh_cloud_status(settings: dict) -> list[dict]:
     _refresh_one 内部已捕获全部业务异常；DB 写经 db._lock 串行，
     单连接跨线程共享安全；_refresh_one_safe 再兜一层防意外抛错
     导致整轮失败。
-    单账户 API 刷新时间：账户自定义了间隔就按它，否则跟随全局；
+    单账户 API 刷新时间：实例级刷新时间已取消，所有账户跟随全局；
     没到时间的账户跳过（用库里已有数据），避免每轮都调全部账户的 API。
     """
     accounts = db.list_accounts()
@@ -443,11 +436,12 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
 
 def _refresh_minutes(settings: dict) -> int:
     """API 刷新间隔（分钟）：读新字段 api_refresh_minutes，旧库回退旧字段
-    check_interval_minutes；非法值回退 60 分钟，绝不让调度线程崩溃。"""
+    check_interval_minutes；0=不刷新（关闭调度）；非法值回退 60 分钟，
+    绝不让调度线程崩溃。"""
     for key in ("api_refresh_minutes", "check_interval_minutes"):
         try:
             v = int(float(settings.get(key, 60)))
-            if 1 <= v <= 1440:
+            if 0 <= v <= 1440:
                 return v
         except (TypeError, ValueError):
             continue
@@ -705,7 +699,8 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     db.set_flag("daily_report_last_check", now.isoformat())
     # 注意：这里不因全局 daily_report_enabled=0 而直接返回——实例级
     # daily_report=on 的账户即使全局关了也要推；过滤后无账户时再返回。
-    if settings.get("scheduler_paused") == "1":
+    # 调度暂停或不刷新（API 刷新时间=0）时不推。
+    if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
         return False
     if db.get_flag(f"daily_report_done:{today}"):
         return False
@@ -782,7 +777,9 @@ def _loop() -> None:
             _maybe_send_daily_report(settings, _now())
         except Exception as exc:  # noqa: BLE001
             log.exception("每日财报检查失败: %s", exc)
-        if settings.get("scheduler_paused") == "1":
+        # 不刷新（API 刷新时间=0）相当于关闭调度：与暂停一样只等 60 秒，
+        # 不跑轮次、不做 DDNS 检查、不推每日财报（只更新财报检查时刻）。
+        if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
             _wake.wait(timeout=60)
             _wake.clear()
             continue

@@ -196,19 +196,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [report, setReport] = useState((account?.daily_report as string) || "follow");
   const [excl, setExcl] = useState((account?.exclusion_action as string) || "");
   const [recovery, setRecovery] = useState((account?.recovery_action as string) || "");
-  // 单账户 API 刷新时间：follow=跟随全局；固定值或 custom=自定义分钟数
-  const [refresh, setRefresh] = useState(() => {
-    const v = account?.api_refresh_minutes;
-    if (v == null || v === "") return "follow";
-    const s = String(v);
-    return ["5", "10", "15", "30", "60"].includes(s) ? s : "custom";
-  });
-  const [refreshCustom, setRefreshCustom] = useState(() => {
-    const v = account?.api_refresh_minutes;
-    if (v == null || v === "") return "";
-    const s = String(v);
-    return ["5", "10", "15", "30", "60"].includes(s) ? "" : s;
-  });
   const [regions, setRegions] = useState<{ region_id: string; local_name: string }[]>(BUILTIN_REGIONS);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [formMsg, setFormMsg] = useState("");
@@ -282,9 +269,8 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime, daily_report: report,
       exclusion_action: excl || "", recovery_action: recovery || "",
-      api_refresh_minutes: refresh === "follow" ? null
-        : refresh === "custom" ? (Number(refreshCustom) > 0 ? Number(refreshCustom) : null)
-        : Number(refresh),
+      // 实例级刷新时间已取消：强制跟随全局，存 null 清掉旧的自定义值。
+      api_refresh_minutes: null,
     };
     if (akSecret && akSecret !== SECRET_MASK) payload.access_key_secret = akSecret;  // 掩码不是新密钥，留空/掩码都保持不变，绝不清空
     try {
@@ -370,20 +356,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "start", label: t("恢复时拉起") },
           { value: "keep_stopped", label: t("恢复入池但保持停机") },
         ]} onChange={setRecovery} />
-      </div>
-      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
-        <label className="lbl">{t("API 刷新时间")}</label>
-        <Seg value={refresh} options={[
-          { value: "follow", label: t("跟随全局") },
-          { value: "5", label: "5" },
-          { value: "10", label: "10" },
-          { value: "15", label: "15" },
-          { value: "30", label: "30" },
-          { value: "60", label: "60" },
-          { value: "custom", label: t("自定义") },
-        ]} onChange={setRefresh} />
-        {refresh === "custom" && (
-          <input type="number" min={1} placeholder={t("自定义分钟数")} value={refreshCustom} onChange={(e) => setRefreshCustom(e.target.value)} onBlur={saveAuto} style={{ marginTop: 6 }} />)}
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
@@ -1284,7 +1256,7 @@ export default function App() {
     setSCustUnit(cu);
     setSCustVal(String(cu === "day" ? cm / 1440 : cu === "hour" ? cm / 60 : cm));
     const r = String(settings.api_refresh_minutes ?? 5);
-    setSRefresh(["5", "10", "15", "30", "60"].includes(r) ? r : "custom");
+    setSRefresh(["0", "5", "10", "15", "30", "60"].includes(r) ? r : "5");
     setSCurrency(settings.settlement_currency === "CNY" ? "CNY" : "USD");
   }, [settings]);
 
@@ -1309,10 +1281,10 @@ export default function App() {
       custom_interval_minutes: String(Math.round((parseFloat(sCustVal) || 0) * custMult(sCustUnit))),
       exclusion_action: sExcl,
       threshold_recovery_action: sRecovery,
-      api_refresh_minutes: (() => {
-        if (sRefresh === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5";
-        return sRefresh;
-      })(),
+      api_refresh_minutes: sRefresh,
+      // 不刷新（0）= 关闭调度；选分钟数 = 开始调度。跟暂停开关同步，
+      // 让后端已有的暂停逻辑直接生效。
+      scheduler_paused: sRefresh === "0" ? "1" : "0",
       settlement_currency: sCurrency,
       exchange_rate_usd_cny: String(settings.exchange_rate_usd_cny ?? "6.6719"),
       ...ddnsPatch(),
@@ -1462,8 +1434,7 @@ export default function App() {
                 )}
               </div>
               <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</span>
-                <button className="btn ghost" style={{ padding: "2px 10px", fontSize: 12, flexShrink: 0 }} onClick={() => run(() => post("/api/schedule/pause", { paused: !(status?.scheduler as Any)?.paused }), (status?.scheduler as Any)?.paused ? t("调度已恢复") : t("调度已暂停"))}>{(status?.scheduler as Any)?.paused ? t("恢复调度") : t("暂停调度")}</button>
+                <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {Number((status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5) === 0 ? t("不刷新") : `${(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} ${t("分钟")}`} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</span>
               </div>
             </div>
             <div className="card" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
@@ -1764,10 +1735,8 @@ export default function App() {
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
                 { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
                 { value: "60", label: t("60 分钟") },
-                { value: "custom", label: t("自定义") },
-              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
-              {sRefresh === "custom" && (
-              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}</div>
+                { value: "0", label: t("不刷新") },
+              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
             </div>
             </div>
           </div>
