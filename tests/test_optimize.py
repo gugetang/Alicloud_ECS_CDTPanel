@@ -128,10 +128,11 @@ def test_get_billing_sends_billing_cycle(monkeypatch):
                  "site": "global", "instance_id": "i-demo000000000000001"}
     c.secret = "fake-secret"
     c.region = "cn-hongkong"
-    seen = {}
+    calls = []
 
     def fake_common(domain, version, action, region, params=None):
-        seen.update({"domain": domain, "action": action, "params": params})
+        # 记调用顺序：旧写法只记最后一次调用，断言会误判为余额调用。
+        calls.append({"domain": domain, "action": action, "params": params})
         if action == "DescribeInstanceBill":
             return json.dumps({"Data": {"BillingCycle": "2026-11", "Items": {"Item": [
                 {"PretaxAmount": 1.5}, {"PretaxAmount": 2.25}]}}})
@@ -139,12 +140,160 @@ def test_get_billing_sends_billing_cycle(monkeypatch):
 
     monkeypatch.setattr(c, "_common", fake_common)
     out = c.get_billing()
-    assert seen["action"] == "DescribeInstanceBill"
-    assert seen["params"] and seen["params"].get("BillingCycle")
-    assert len(seen["params"]["BillingCycle"]) == 7  # YYYY-MM
+    assert calls[0]["action"] == "DescribeInstanceBill"
+    assert calls[0]["params"] and calls[0]["params"].get("BillingCycle")
+    assert len(calls[0]["params"]["BillingCycle"]) == 7  # YYYY-MM
     assert out["cost"] == 3.75
     assert out["currency"] == "USD"
     assert out["balance"] == 10.0
+
+
+class _FakeAcs:
+    """假的 AcsClient：do_action_with_exception 直接返回给定 JSON。"""
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def do_action_with_exception(self, req):
+        import json
+        return json.dumps(self.payload).encode()
+
+
+class _DummyDescribeInstancesRequest:
+    """SDK 未安装时 describe_instance 仍需一个请求类（仅 set_InstanceIds）。"""
+
+    def set_InstanceIds(self, ids):
+        self.ids = ids
+
+
+def _describe_client(monkeypatch, instance):
+    """绕过 __init__ 的 SDK 检查，造一个 describe_instance 用的空壳客户端。"""
+    import app.aliyun as alimod
+    from app.aliyun import AliyunClient
+    c = object.__new__(AliyunClient)
+    c.account = {"access_key_id": "LTAI5t-demo-0001", "region": "cn-hongkong",
+                 "site": "global", "instance_id": "i-demo000000000000001"}
+    c.secret = "fake-secret"
+    c.region = "cn-hongkong"
+    payload = {"Instances": {"Instance": [instance]}}
+    monkeypatch.setattr(c, "_client", lambda *a, **k: _FakeAcs(payload))
+    # 本机无阿里云 SDK 时模块里根本没有 DescribeInstancesRequest，
+    # raising=False 让它在两种环境下都能补上。
+    monkeypatch.setattr(alimod, "DescribeInstancesRequest",
+                        _DummyDescribeInstancesRequest, raising=False)
+    return c
+
+
+def test_describe_instance_prefers_eip(monkeypatch):
+    """公网 IP 来自弹性 IP 时，DescribeInstances 把 IP 放在 EipAddress 里，
+    PublicIpAddress 是空的——必须先读 EipAddress（参考项目做法），
+    否则两台实例的 IP 永远读不到（2026-11-22 线上证实）。"""
+    c = _describe_client(monkeypatch, {
+        "InstanceId": "i-demo000000000000001", "Status": "Running",
+        "EipAddress": {"IpAddress": "47.242.211.195"},
+        "PublicIpAddress": {"IpAddress": []}})
+    out = c.describe_instance()
+    assert out["public_ip"] == "47.242.211.195"
+    assert out["status"] == "Running"
+
+
+def test_describe_instance_falls_back_to_public_ip(monkeypatch):
+    """没绑 EIP 时退回 PublicIpAddress[0]。"""
+    c = _describe_client(monkeypatch, {
+        "InstanceId": "i-demo000000000000001", "Status": "Running",
+        "EipAddress": {"IpAddress": ""},
+        "PublicIpAddress": {"IpAddress": ["8.210.104.131"]}})
+    assert c.describe_instance()["public_ip"] == "8.210.104.131"
+
+
+def test_describe_instance_no_ip(monkeypatch):
+    """两个字段都空时 public_ip 为空串，不编造。"""
+    c = _describe_client(monkeypatch, {
+        "InstanceId": "i-demo000000000000001", "Status": "Running",
+        "EipAddress": {"IpAddress": ""},
+        "PublicIpAddress": {"IpAddress": []}})
+    assert c.describe_instance()["public_ip"] == ""
+
+
+def _billing_client(site):
+    from app.aliyun import AliyunClient
+    c = object.__new__(AliyunClient)
+    c.account = {"access_key_id": "LTAI5t-demo-0001", "region": "cn-hongkong",
+                 "site": site, "instance_id": "i-demo000000000000001"}
+    c.secret = "fake-secret"
+    c.region = "cn-hongkong"
+    return c
+
+
+def test_get_billing_falls_back_to_overview(monkeypatch):
+    """DescribeInstanceBill 在两站端点都失败时，回退 QueryBillOverview
+    再查一次（参考项目做法），费用不直接归零。"""
+    import json
+    c = _billing_client("global")
+    calls = []
+
+    def fake_common(domain, version, action, region, params=None):
+        calls.append((domain, action))
+        if action == "DescribeInstanceBill":
+            raise RuntimeError("400 MissingBillingCycle")
+        if action == "QueryBillOverview":
+            return json.dumps({"Data": {"BillingCycle": "2026-11",
+                                        "Items": {"Item": [
+                                            {"PretaxAmount": 2.0},
+                                            {"PretaxAmount": 1.0}]}}})
+        return json.dumps({"Data": {"AvailableAmount": 5.0, "Currency": "USD"}})
+
+    monkeypatch.setattr(c, "_common", fake_common)
+    out = c.get_billing()
+    assert out["cost"] == 3.0
+    assert out["balance"] == 5.0
+    assert ("business.ap-southeast-1.aliyuncs.com",
+            "QueryBillOverview") in calls
+
+
+def test_get_billing_domain_order_by_site(monkeypatch):
+    """BSS 端点按站点排序：国际站先 ap-southeast-1，国内站先.aliyuncs.com。"""
+    import json
+
+    def run(site):
+        c = _billing_client(site)
+        first = []
+
+        def fake_common(domain, version, action, region, params=None):
+            if action == "DescribeInstanceBill" and not first:
+                first.append(domain)
+            if action == "DescribeInstanceBill":
+                return json.dumps({"Data": {"BillingCycle": "2026-11",
+                                            "Items": {"Item": [
+                                                {"PretaxAmount": 1.0}]}}})
+            return json.dumps({"Data": {"AvailableAmount": 1.0,
+                                        "Currency": "USD"}})
+
+        monkeypatch.setattr(c, "_common", fake_common)
+        out = c.get_billing()
+        return first[0], out["currency"]
+
+    domain, currency = run("global")
+    assert domain == "business.ap-southeast-1.aliyuncs.com"
+    assert currency == "USD"
+    domain, currency = run("cn")
+    assert domain == "business.aliyuncs.com"
+    assert currency == "CNY"
+
+
+def test_get_billing_items_list_shape(monkeypatch):
+    """账单条目兼容 Items 直接是列表的形状（参考项目 ecs_bot 的写法）。"""
+    import json
+    c = _billing_client("global")
+
+    def fake_common(domain, version, action, region, params=None):
+        if action == "DescribeInstanceBill":
+            return json.dumps({"Data": {"BillingCycle": "2026-11", "Items": [
+                {"PretaxAmount": 1.0}, {"PretaxAmount": 0.5}]}})
+        return json.dumps({"Data": {"AvailableAmount": 1.0, "Currency": "USD"}})
+
+    monkeypatch.setattr(c, "_common", fake_common)
+    assert c.get_billing()["cost"] == 1.5
 
 
 def test_regions_post_not_get(tmpdb):

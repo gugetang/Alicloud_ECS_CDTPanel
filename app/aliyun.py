@@ -3,7 +3,9 @@
 - ECS 状态/开关机：aliyun-python-sdk-ecs，DescribeInstances / StartInstance / StopInstance
 - CDT 流量：CommonRequest，cdt.aliyuncs.com，2021-08-13，ListCdtInternetTraffic，
   累加 TrafficDetails[].Traffic（字节）→ GiB。与参考项目同口径。
-- BSS 费用：DescribeInstanceBill + QueryAccountBalance，失败只返回 None，
+- BSS 费用：DescribeInstanceBill（失败回退 QueryBillOverview）+ QueryAccountBalance，
+  端点按站点先国际站 business.ap-southeast-1.aliyuncs.com / 国内站
+  business.aliyuncs.com，失败换另一站；失败只返回 None，
   绝不影响启停流程（BSS 权限经常没给够）。
 - 保守原则：任何查询失败 → 该账户流量/状态记为未知，上层绝不据此停机或切换。
   SDK 未安装时所有调用抛 AliyunError（不是静默假数据）。
@@ -42,6 +44,7 @@ CDT_DOMAIN = "cdt.aliyuncs.com"
 CDT_REGION = "cn-hongkong"
 CDT_VERSION = "2021-08-13"
 BSS_DOMAIN = "business.aliyuncs.com"
+BSS_DOMAIN_INTL = "business.ap-southeast-1.aliyuncs.com"
 BSS_VERSION = "2017-12-14"
 ECS_DOMAIN = "ecs.aliyuncs.com"
 ECS_VERSION = "2014-05-26"
@@ -141,8 +144,14 @@ class AliyunClient:
         if not items:
             raise AliyunError(f"实例 {self.account['instance_id']} 查不到", kind="other")
         inst = items[0]
+        # 公网 IP 取法（对齐参考项目 10000ge10000/aliyun_monitor）：
+        # 实例绑了弹性 IP 时，DescribeInstances 把 IP 放在 EipAddress 里，
+        # PublicIpAddress 是空的——只读后者会永远读不到（2026-11-22 线上证实：
+        # 两台实例的 IP 全是弹性 IP，刷新成功但 public_ip 恒为空）。
+        # 顺序：EipAddress 优先，PublicIpAddress[0] 兜底。
+        eip = (inst.get("EipAddress") or {}).get("IpAddress") or ""
         ips = (inst.get("PublicIpAddress") or {}).get("IpAddress") or []
-        return {"status": inst.get("Status", ""), "public_ip": ips[0] if ips else "",
+        return {"status": inst.get("Status", ""), "public_ip": eip or (ips[0] if ips else ""),
                 "instance_type": inst.get("InstanceType", "") or ""}
 
     def start_instance(self) -> None:
@@ -252,39 +261,72 @@ class AliyunClient:
     def get_billing(self) -> dict | None:
         """返回 {"cost": float, "currency": "USD"|"CNY", "cycle": "YYYY-MM",
         "balance": float|None, "balance_currency": str}，失败返回 None。
-        余额单独调 QueryAccountBalance，查不到时 balance=None（财报显示 —，不造假）。"""
+        余额单独调 QueryAccountBalance，查不到时 balance=None（财报显示 —，不造假）。
+        取法对齐参考项目 10000ge10000/aliyun_monitor：先 DescribeInstanceBill，
+        全失败再回退 QueryBillOverview；端点按站点排序（国际站先
+        business.ap-southeast-1.aliyuncs.com，国内站先 business.aliyuncs.com），
+        失败换另一站。DescribeInstanceBill 要求必填 BillingCycle（YYYY-MM，
+        不传直接 400 MissingBillingCycle，费用永远读不到——旧 bug，
+        2026-11-22 线上日志证实），按面板时区（Asia/Shanghai）取当月。"""
         import json
-        try:
-            # DescribeInstanceBill 要求必填 BillingCycle（YYYY-MM，不传
-            # 直接 400 MissingBillingCycle，费用永远读不到——旧 bug，
-            # 2026-11-22 线上日志证实）。按面板时区（Asia/Shanghai）取当月。
-            cycle = dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
-            raw = self._common(BSS_DOMAIN, BSS_VERSION,
-                               "DescribeInstanceBill", CDT_REGION,
-                               {"BillingCycle": cycle})
-            data = json.loads(raw)
-            items = (data.get("Data") or {}).get("Items", {}).get("Item") or []
-            cost = sum(float(i.get("PretaxAmount", 0) or 0) for i in items)
-            cycle = (data.get("Data") or {}).get("BillingCycle", "") or cycle
-            currency = "CNY" if (self.account.get("site") == "cn") else "USD"
-            result: dict = {"cost": round(cost, 6), "currency": currency,
-                            "cycle": cycle, "balance": None,
-                            "balance_currency": currency}
-        except Exception as exc:
-            log.warning("BSS 查询失败（不影响调度）: %s", brief_error(exc))
+        cycle = dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
+        currency = "CNY" if (self.account.get("site") == "cn") else "USD"
+        domains = ([BSS_DOMAIN_INTL, BSS_DOMAIN] if currency == "USD"
+                   else [BSS_DOMAIN, BSS_DOMAIN_INTL])
+        cost = None
+        for action in ("DescribeInstanceBill", "QueryBillOverview"):
+            for domain in domains:
+                try:
+                    raw = self._common(domain, BSS_VERSION, action,
+                                       CDT_REGION, {"BillingCycle": cycle})
+                    data = json.loads(raw)
+                except Exception as exc:
+                    log.warning("BSS %s 查询失败（%s，不影响调度）: %s",
+                                action, domain, brief_error(exc))
+                    continue
+                # 无 Data 的响应是接口级报错体（Success:false），不认作成功，
+                # 继续试下一站/下一动作；有 Data 即使条目为空也认（费用为 0）。
+                if not isinstance(data.get("Data"), dict):
+                    continue
+                items = _bill_items(data)
+                cost = sum(float(i.get("PretaxAmount", 0) or 0) for i in items)
+                cycle = (data.get("Data") or {}).get("BillingCycle", "") or cycle
+                break
+            if cost is not None:
+                break
+        if cost is None:
+            log.warning("BSS 查询失败（不影响调度）: DescribeInstanceBill 与 "
+                        "QueryBillOverview 在两站端点均失败")
             return None
-        try:
-            raw = self._common(BSS_DOMAIN, BSS_VERSION,
-                               "QueryAccountBalance", CDT_REGION)
-            data = json.loads(raw)
-            bal = data.get("Data") or {}
-            avail = bal.get("AvailableAmount")
-            if avail is not None:
-                result["balance"] = round(float(avail), 2)
+        result: dict = {"cost": round(cost, 6), "currency": currency,
+                        "cycle": cycle, "balance": None,
+                        "balance_currency": currency}
+        for domain in domains:
+            try:
+                raw = self._common(domain, BSS_VERSION,
+                                   "QueryAccountBalance", CDT_REGION)
+                data = json.loads(raw)
+                bal = data.get("Data") or {}
+                avail = bal.get("AvailableAmount")
+                if avail is None:
+                    continue
+                # 金额可能带千分位逗号，如 "1,234.56"。
+                result["balance"] = round(float(str(avail).replace(",", "")), 2)
                 result["balance_currency"] = bal.get("Currency") or currency
-        except Exception as exc:
-            log.warning("余额查询失败（财报余额显示 —）: %s", brief_error(exc))
+                break
+            except Exception as exc:
+                log.warning("余额查询失败（%s，财报余额显示 —）: %s",
+                            domain, brief_error(exc))
         return result
+
+
+def _bill_items(data: dict) -> list:
+    """BSS 账单条目：兼容 Items 直接是列表，和 Items.Item 是列表两种形状
+    （参考项目两处写法不一致；以 Items.Item 为主）。"""
+    items = (data.get("Data") or {}).get("Items")
+    if isinstance(items, dict):
+        items = items.get("Item") or []
+    return items or []
 
 
 def parse_regions(data: dict) -> list[dict]:
