@@ -1,0 +1,310 @@
+import datetime as dt
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from app.engine import (AccountView, Action, Config, DomainView, execute_plan,
+                        plan_reconcile)
+
+TZ = ZoneInfo("Asia/Shanghai")
+
+
+def acc(i, used, status="Running", ip="203.0.113.1"):
+    return AccountView(id=i, name=f"A{i}", quota_gb=200, used_gb=used,
+                       status=status, public_ip=f"203.0.113.{i}")
+
+
+def dom(i, current=None, ip=""):
+    return DomainView(id=i, name=f"www{i}.example.xyz", priority=i - 1,
+                      current_account_id=current, current_ip=ip)
+
+
+def noon():
+    return dt.datetime(2026, 11, 22, 12, 0, tzinfo=TZ)
+
+
+def test_assign_lowest_usage_first_and_cycle():
+    cfg = Config()
+    plan = plan_reconcile([acc(1, 100), acc(2, 20), acc(3, 60)],
+                          [dom(1), dom(2), dom(3), dom(4)], cfg, noon())
+    # 域名按优先级分给使用率最低的账户；第 4 个域名循环回最低账户
+    assert plan.assignments == {1: 2, 2: 3, 3: 1, 4: 2}
+
+
+def test_threshold_eviction_switches_and_excludes():
+    cfg = Config(exclusion_action="stop_charging")
+    # A1 190/200=95% 已达阈值，当前指向 A1；应切到 A2 并对 A1 执行节省停机
+    plan = plan_reconcile([acc(1, 190, ip="203.0.113.1"), acc(2, 20)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert 1 in plan.evicted_account_ids
+    kinds = [(a.kind, a.reason) for a in plan.actions]
+    assert ("dns", "threshold_eviction") in kinds
+    assert ("stop", "exclusion") in kinds
+    assert any(e == "traffic_protection" for e, _, _ in plan.notifications)
+
+
+def test_whole_pool_over_threshold_falls_back():
+    cfg = Config()
+    plan = plan_reconcile([acc(1, 196), acc(2, 192)],
+                          [dom(1, current=1)], cfg, noon())
+    assert plan.assignments == {1: None}
+    assert plan.fallback_domain_ids == [1]
+    assert any(a.kind == "dns_fallback" for a in plan.actions)
+    assert any(e == "fallback" for e, _, _ in plan.notifications)
+
+
+def test_traffic_diff_switch_and_no_switch_below_diff():
+    cfg = Config()
+    # 差值 80% - 10% = 70 >= 10 → 切
+    plan = plan_reconcile([acc(1, 160), acc(2, 20)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert any(a.kind == "dns" and a.reason == "traffic_diff" for a in plan.actions)
+    # 差值 30-20=10%... 用 25 vs 20：差 2.5% < 10% → 不切
+    plan2 = plan_reconcile([acc(1, 50), acc(2, 40)],
+                           [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert not [a for a in plan2.actions if a.kind == "dns"]
+
+
+def test_night_optimize_once_per_night():
+    cfg = Config()
+    night = dt.datetime(2026, 11, 22, 1, 30, tzinfo=TZ)
+    # 差值仅 2.5%，白天不切；夜间第一次切；同一晚第二次不切
+    plan = plan_reconcile([acc(1, 50), acc(2, 45)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, night)
+    assert any(a.kind == "dns" and a.reason == "night_optimize" for a in plan.actions)
+    assert plan.night_done_date == "2026-11-22"
+    plan2 = plan_reconcile([acc(1, 50), acc(2, 45)],
+                           [dom(1, current=1, ip="203.0.113.1")], cfg, night,
+                           night_done_dates={"2026-11-22"})
+    assert not [a for a in plan2.actions if a.kind == "dns"]
+
+
+def test_fixed_time_switch():
+    # 关闭夜间优化，避免 02:00 落在夜间窗口内干扰固定时刻的断言
+    cfg = Config(fixed_switch_time="03:00", night_optimize_enabled=False)
+    early = dt.datetime(2026, 11, 22, 2, 0, tzinfo=TZ)
+    late = dt.datetime(2026, 11, 22, 3, 30, tzinfo=TZ)
+    p1 = plan_reconcile([acc(1, 50), acc(2, 45)],
+                        [dom(1, current=1, ip="203.0.113.1")], cfg, early)
+    assert not [a for a in p1.actions if a.kind == "dns"]
+    p2 = plan_reconcile([acc(1, 50), acc(2, 45)],
+                        [dom(1, current=1, ip="203.0.113.1")], cfg, late)
+    assert any(a.kind == "dns" and a.reason == "fixed_time" for a in p2.actions)
+
+
+def test_keepalive_starts_stopped_target():
+    cfg = Config()
+    plan = plan_reconcile([acc(1, 100, status="Stopped"), acc(2, 20)],
+                          [dom(1, current=2, ip="203.0.113.2")], cfg, noon())
+    # 当前 A2 是最低？A2 20 最低，域名已在 A2 且 Running → 无动作；换个场景：
+    plan2 = plan_reconcile([acc(1, 20, status="Stopped"), acc(2, 100)],
+                           [dom(1, current=2, ip="203.0.113.2")], cfg, noon())
+    assert any(a.kind == "start" for a in plan2.actions)
+
+
+def test_unknown_traffic_is_conservative():
+    cfg = Config()
+    unknown = AccountView(id=1, name="A1", quota_gb=200, used_gb=None,
+                          status="Running", public_ip="203.0.113.1")
+    plan = plan_reconcile([unknown, acc(2, 20)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert not [a for a in plan.actions if a.kind == "stop"]
+    assert not [a for a in plan.actions
+                if a.kind == "dns" and a.reason == "threshold_eviction"]
+
+
+class FakeCloud:
+    def __init__(self):
+        self.calls = []
+    def start(self, account):
+        self.calls.append(("start", account.id))
+    def stop(self, account, stop_charging):
+        self.calls.append(("stop", account.id, stop_charging))
+
+
+class FakeDns:
+    def __init__(self):
+        self.calls = []
+    def set_record(self, domain, ip):
+        self.calls.append((domain.name, ip))
+        return True
+
+
+def test_dry_run_makes_no_calls():
+    cfg = Config()
+    plan = plan_reconcile([acc(1, 190), acc(2, 20)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert plan.actions  # 有动作要执行，dry-run 仍应零调用
+    cloud, dns = FakeCloud(), FakeDns()
+    res = execute_plan(plan, [acc(1, 190), acc(2, 20)], [dom(1, current=1)],
+                       cloud, dns, dry_run=True)
+    assert res["dry_run"] is True
+    assert cloud.calls == [] and dns.calls == []
+
+
+def test_execute_plan_order_start_dns_stop():
+    cfg = Config(exclusion_action="stop")
+    accounts = [acc(1, 190), acc(2, 20)]
+    plan = plan_reconcile(accounts, [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    cloud, dns = FakeCloud(), FakeDns()
+    res = execute_plan(plan, accounts, [dom(1, current=1)], cloud, dns, dry_run=False)
+    assert cloud.calls == [("stop", 1, False)]
+    assert dns.calls == [("www1.example.xyz", "203.0.113.2")]
+    assert res["executed"]
+
+
+# ---------------------------------------------------------------------------
+# 细化 1：阈值踢出 — 停机可选（none = 只踢出、不停机）
+# ---------------------------------------------------------------------------
+
+def test_threshold_eviction_none_switches_dns_but_no_stop():
+    cfg = Config(exclusion_action="none")
+    accounts = [acc(1, 190), acc(2, 20)]
+    plan = plan_reconcile(accounts, [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert 1 in plan.evicted_account_ids
+    assert any(a.kind == "dns" and a.reason == "threshold_eviction" for a in plan.actions)
+    assert not [a for a in plan.actions if a.kind == "stop"]
+    # 真执行：DNS 改了，停机一次都没调
+    cloud, dns = FakeCloud(), FakeDns()
+    execute_plan(plan, accounts, [dom(1, current=1)], cloud, dns, dry_run=False)
+    assert dns.calls == [("www1.example.xyz", "203.0.113.2")]
+    assert cloud.calls == []
+
+
+def test_evicted_account_readmitted_when_usage_falls():
+    cfg = Config()
+    # 190 GB 时被踢出；下月/用量回落到 100 GB 后自动恢复可分配
+    from app.engine import assign_domains, is_allocatable
+    assert not is_allocatable(acc(1, 190), cfg)
+    assert is_allocatable(acc(1, 100), cfg)
+    assert assign_domains([dom(1)], [acc(1, 100), acc(2, 120)], cfg) == {1: 1}
+
+
+def test_eviction_stop_deduped_across_domains():
+    cfg = Config(exclusion_action="stop")
+    accounts = [acc(1, 190), acc(2, 20)]
+    plan = plan_reconcile(accounts,
+                          [dom(1, current=1, ip="203.0.113.1"),
+                           dom(2, current=1, ip="203.0.113.1")], cfg, noon())
+    assert [a for a in plan.actions if a.kind == "stop"].__len__() == 1
+    assert len([a for a in plan.actions if a.kind == "dns"]) == 2
+
+
+def test_stop_always_after_dns_switch():
+    cfg = Config(exclusion_action="stop")
+    accounts = [acc(1, 190), acc(2, 20)]
+    plan = plan_reconcile(accounts, [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    cloud, dns = FakeCloud(), FakeDns()
+    res = execute_plan(plan, accounts, [dom(1, current=1)], cloud, dns, dry_run=False)
+    dns_i = next(i for i, e in enumerate(res["executed"]) if e.startswith("dns:"))
+    stop_i = next(i for i, e in enumerate(res["executed"]) if e.startswith("stop:"))
+    assert dns_i < stop_i
+
+
+# ---------------------------------------------------------------------------
+# 细化 2：按时间切换 — 间隔 / 固定时刻
+# ---------------------------------------------------------------------------
+
+def test_interval_switch_2h_only_when_due():
+    cfg = Config(time_switch_mode="interval", interval_hours=2,
+                 night_optimize_enabled=False)
+    base = dt.datetime(2026, 11, 22, 12, 0, tzinfo=TZ)
+    accts = [acc(1, 50), acc(2, 45)]
+    d = [dom(1, current=1, ip="203.0.113.1")]
+    # 锚点 1 小时前：未到 2 小时，不切
+    p1 = plan_reconcile(accts, d, cfg, base,
+                        last_time_switch_at=base - dt.timedelta(hours=1))
+    assert not [a for a in p1.actions if a.kind == "dns"]
+    assert p1.time_switch_at is None
+    # 锚点 2 小时前：到点，不论差值切到最低
+    p2 = plan_reconcile(accts, d, cfg, base,
+                        last_time_switch_at=base - dt.timedelta(hours=2))
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p2.actions)
+    assert p2.time_switch_at == base
+    # 锚点更新为本轮后：下一轮不再切
+    p3 = plan_reconcile(accts, d, cfg, base + dt.timedelta(minutes=30),
+                        last_time_switch_at=base)
+    assert not [a for a in p3.actions if a.kind == "dns"]
+
+
+def test_interval_first_check_sets_anchor_without_switching():
+    cfg = Config(time_switch_mode="interval", interval_hours=2,
+                 night_optimize_enabled=False)
+    now = dt.datetime(2026, 11, 22, 12, 30, tzinfo=TZ)  # 不在整点边界
+    p = plan_reconcile([acc(1, 50), acc(2, 45)],
+                       [dom(1, current=1, ip="203.0.113.1")], cfg, now,
+                       last_time_switch_at=None)
+    assert not [a for a in p.actions if a.kind == "dns"]
+    assert p.interval_anchor_at == now
+
+
+def test_interval_clock_alignment_6h():
+    cfg = Config(time_switch_mode="interval", interval_hours=6,
+                 night_optimize_enabled=False)
+    # 无锚点且正好 06:00（00/06/12/18 边界）：到点切
+    now = dt.datetime(2026, 11, 22, 6, 0, tzinfo=TZ)
+    p = plan_reconcile([acc(1, 50), acc(2, 45)],
+                       [dom(1, current=1, ip="203.0.113.1")], cfg, now,
+                       last_time_switch_at=None)
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p.actions)
+
+
+def test_fixed_time_mode_once_per_day():
+    cfg = Config(time_switch_mode="fixed_time", fixed_switch_time="03:00",
+                 night_optimize_enabled=False)
+    late = dt.datetime(2026, 11, 22, 3, 30, tzinfo=TZ)
+    p = plan_reconcile([acc(1, 50), acc(2, 45)],
+                       [dom(1, current=1, ip="203.0.113.1")], cfg, late)
+    assert any(a.kind == "dns" and a.reason == "fixed_time" for a in p.actions)
+    assert p.fixed_done_date == "2026-11-22"
+    p2 = plan_reconcile([acc(1, 50), acc(2, 45)],
+                        [dom(1, current=1, ip="203.0.113.1")], cfg, late,
+                        fixed_done_dates={"2026-11-22"})
+    assert not [a for a in p2.actions if a.kind == "dns"]
+
+
+def test_interval_custom_minutes():
+    cfg = Config(time_switch_mode="interval", interval_hours=0,
+                 custom_interval_minutes=90, night_optimize_enabled=False)
+    base = dt.datetime(2026, 11, 22, 12, 0, tzinfo=TZ)
+    accts = [acc(1, 50), acc(2, 45)]
+    d = [dom(1, current=1, ip="203.0.113.1")]
+    p1 = plan_reconcile(accts, d, cfg, base,
+                        last_time_switch_at=base - dt.timedelta(minutes=60))
+    assert not [a for a in p1.actions if a.kind == "dns"]
+    p2 = plan_reconcile(accts, d, cfg, base,
+                        last_time_switch_at=base - dt.timedelta(minutes=90))
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p2.actions)
+
+
+# ---------------------------------------------------------------------------
+# 细化 3：按流量均衡 — 差值支持 % 或 GB
+# ---------------------------------------------------------------------------
+
+def test_gb_diff_switches_on_12gb_gap_despite_small_pct_gap():
+    cfg = Config(switch_diff_mode="gb", switch_diff_gb=10)
+    # 100 vs 88 GB：差 12 GB ≥ 10 GB，但使用率差仅 6%（<10%），gb 模式应切
+    plan = plan_reconcile([acc(1, 100), acc(2, 88)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert any(a.kind == "dns" and a.reason == "traffic_diff_gb" for a in plan.actions)
+    # 同样一对账户在 percent 模式下不切
+    plan_pct = plan_reconcile([acc(1, 100), acc(2, 88)],
+                              [dom(1, current=1, ip="203.0.113.1")], Config(), noon())
+    assert not [a for a in plan_pct.actions if a.kind == "dns"]
+
+
+def test_gb_diff_no_switch_on_5gb_gap():
+    cfg = Config(switch_diff_mode="gb", switch_diff_gb=10)
+    plan = plan_reconcile([acc(1, 100), acc(2, 95)],
+                          [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert not [a for a in plan.actions if a.kind == "dns"]
+
+
+def test_gb_diff_per_account_override():
+    # 全局 percent 10%，A1 单独覆盖为 gb 模式 10 GB：100 vs 88 应切
+    a1 = acc(1, 100)
+    a1.switch_diff_mode = "gb"
+    a1.switch_diff_gb = 10
+    plan = plan_reconcile([a1, acc(2, 88)],
+                          [dom(1, current=1, ip="203.0.113.1")], Config(), noon())
+    assert any(a.kind == "dns" and a.reason == "traffic_diff_gb" for a in plan.actions)

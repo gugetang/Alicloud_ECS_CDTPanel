@@ -1,0 +1,710 @@
+"""REST API。"""
+from __future__ import annotations
+
+import datetime as dt
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from . import db, engine, scheduler
+from .notify import Notifier
+from .security import (check_session, clear_login_fails, hash_password,
+                       login_locked, new_session, record_login_fail,
+                       revoke_session, verify_password, encrypt_secret,
+                       decrypt_secret)
+
+router = APIRouter(prefix="/api")
+
+
+def _rate_and_threshold(row: dict, settings: dict) -> tuple[float | None, float, bool]:
+    """用量使用率 / 生效保护阈值 / 是否已踢出（与引擎 is_allocatable 一致）。"""
+    quota = row.get("quota_gb")
+    if quota is None:
+        try:
+            quota = float(settings.get("quota_gb", 200))
+        except (TypeError, ValueError):
+            quota = 200.0
+    rate = (round(row["traffic_used_gb"] / quota * 100, 2)
+            if row.get("traffic_used_gb") is not None and quota else None)
+    try:
+        threshold = float(row.get("protection_threshold_pct")
+                          if row.get("protection_threshold_pct") is not None
+                          else settings.get("protection_threshold_pct", 95))
+    except (TypeError, ValueError):
+        threshold = 95.0
+    evicted = bool(rate is not None and rate >= threshold)
+    if not evicted and rate is not None:
+        # 恢复滞后（与引擎一致）：上一轮已踢出的账户，只有回落到恢复线
+        # （阈值 - 2%）以下才算恢复；介于恢复线与阈值之间仍视为已踢出，
+        # 避免状态点在阈值上下反复横跳。
+        try:
+            previously_evicted = bool(db.get_flag(f"evicted:{row['id']}"))
+        except Exception:
+            previously_evicted = False
+        if (previously_evicted
+                and rate >= threshold - engine.RECOVERY_HYSTERESIS_PCT):
+            evicted = True
+    return rate, threshold, evicted
+
+
+def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, str], dict[int, int]]:
+    """当前域名指向的账户（serving_map: account_id -> 域名）与排队位次。
+
+    排队位次：同一分组内 Running、流量已知、未踢出、未被任何域名指向的
+    可分配账户，按使用率升序排，第 1 位最先接替。返回 (serving_map, queue_ranks)。
+    """
+    settings = db.get_settings()
+    serving_map: dict[int, str] = {}
+    try:
+        for d in db.list_domains():
+            cid = d.get("current_account_id")
+            if cid:
+                serving_map.setdefault(int(cid), d.get("name") or "")
+    except Exception:
+        serving_map = {}
+    if accounts_raw is None:
+        try:
+            accounts_raw = db.list_accounts()
+        except Exception:
+            accounts_raw = []
+    by_group: dict[int, list[dict]] = {}
+    for row in accounts_raw:
+        rate, _t, evicted = _rate_and_threshold(row, settings)
+        if (row.get("instance_status") or "").strip() != "Running":
+            continue
+        if rate is None or evicted or row["id"] in serving_map:
+            continue
+        by_group.setdefault(row.get("group_id") or 1, []).append(row)
+    ranks: dict[int, int] = {}
+    for rows in by_group.values():
+        ordered = sorted(rows, key=lambda r: (
+            _rate_and_threshold(r, settings)[0] or 0.0,
+            r.get("priority", 0), r["id"]))
+        for i, r in enumerate(ordered, 1):
+            ranks[r["id"]] = i
+    return serving_map, ranks
+
+
+def _public_account(a: dict, serving_map: dict[int, str] | None = None,
+                    queue_ranks: dict[int, int] | None = None,
+                    serving_ids: set[int] | None = None) -> dict:
+    out = dict(a)
+    out.pop("access_key_secret_enc", None)
+    out["has_secret"] = bool(a.get("access_key_secret_enc"))
+    settings = db.get_settings()
+    quota = a.get("quota_gb")
+    if quota is None:
+        try:
+            quota = float(settings.get("quota_gb", 200))
+        except (TypeError, ValueError):
+            quota = 200.0
+        out["quota_gb"] = quota
+    rate, threshold, evicted = _rate_and_threshold(a, settings)
+    out["usage_rate"] = rate
+    out["evicted"] = evicted
+    out["protection_threshold_pct"] = (
+        a.get("protection_threshold_pct")
+        if a.get("protection_threshold_pct") is not None else threshold)
+    out["exclusion_action_effective"] = engine._norm_exclusion(
+        a.get("exclusion_action") or settings.get("exclusion_action") or "none")
+    out["recovery_action_effective"] = (
+        a.get("recovery_action")
+        or settings.get("threshold_recovery_action") or "start")
+    out["switch_diff_mode_effective"] = (
+        a.get("switch_diff_mode") or settings.get("switch_diff_mode") or "percent")
+    # 状态点（新映射，见 README“状态点”一节；优先级固定，一个账户只显示一个点）：
+    # 1. 启动中 green_pulse：Starting/Pending（高亮闪烁绿点）
+    # 2. 停止中 red_pulse：Stopping（顺延定义，用户未要求，闪烁红点）
+    # 3. 停机/离线 red：Stopped 或状态未知/查询不到；若同时已跳出，detail 同时写“已跳出且已停机”
+    # 4. 已跳出 gray：Running 且达保护阈值（被踢出池子，不再参与 DDNS）
+    # 5. 在线 green：Running、未踢出、流量已知、且正被某个域名指向（正在服务）
+    # 6. 排队中 yellow：Running、未踢出、可分配、但当前未被任何域名指向（池内排队待命）
+    # 7. 未知 gray：Running 但流量未知（保守不动）
+    # status_dot 枚举：green | yellow | gray | red | green_pulse | red_pulse
+    if serving_map is None and serving_ids is None:
+        serving_map, queue_ranks = _status_context()
+    elif serving_map is None:
+        serving_map = {i: "" for i in (serving_ids or set())}
+    if queue_ranks is None:
+        _sm, queue_ranks = _status_context()
+        serving_map = serving_map or _sm
+    out["serving"] = a["id"] in serving_map
+    out["serving_domain"] = serving_map.get(a["id"]) or None
+    out["queue_rank"] = queue_ranks.get(a["id"]) if out["serving"] is False else None
+    status = (a.get("instance_status") or "").strip()
+    evicted_note = (f"；同时已跳出池子（使用率 {rate}% ≥ 阈值 {threshold:.0f}%）"
+                    if evicted and rate is not None else "")
+    if status in ("Starting", "Pending"):
+        out["status_dot"], out["status_label"] = "green_pulse", "启动中"
+        out["status_detail"] = "实例启动中，正在拉起"
+    elif status == "Stopping":
+        out["status_dot"], out["status_label"] = "red_pulse", "停止中"
+        out["status_detail"] = "实例停止中"
+    elif status == "Stopped":
+        out["status_dot"], out["status_label"] = "red", "已停机"
+        out["status_detail"] = f"实例已停机（离线）{evicted_note}"
+    elif status != "Running":
+        out["status_dot"], out["status_label"] = "red", "离线"
+        out["status_detail"] = f"实例状态未知 / 查询不到{evicted_note}"
+    elif evicted:
+        out["status_dot"], out["status_label"] = "gray", "已跳出"
+        out["status_detail"] = (
+            f"使用率 {rate}% ≥ 阈值 {threshold:.0f}%，"
+            "已跳出池子不再参与 DDNS；用量回落后自动恢复")
+    elif rate is None:
+        out["status_dot"], out["status_label"] = "gray", "未知"
+        out["status_detail"] = "实例运行中，但流量未知（保守不动）"
+    elif out["serving"]:
+        out["status_dot"], out["status_label"] = "green", "在线"
+        dom = serving_map.get(a["id"]) or ""
+        out["status_detail"] = f"当前在线，正在为域名 {dom} 提供服务" if dom else "当前在线，正在为域名提供服务"
+    else:
+        rank = queue_ranks.get(a["id"])
+        out["status_dot"], out["status_label"] = "yellow", "排队中"
+        out["status_detail"] = (
+            f"池内排队待命，第 {rank} 位（按使用率升序），可随时接替"
+            if rank else "池内排队待命，可随时接替")
+    return out
+
+
+def _admin_required(request: Request) -> bool:
+    """已设置管理员密码时要求登录；未设置时放行（首次向导）。"""
+    settings = db.get_settings()
+    stored = db.get_flag("admin_password_hash")
+    if not stored:
+        return True
+    token = request.cookies.get("cdt_session") or \
+        (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    if not check_session(token):
+        raise HTTPException(status_code=401, detail="未登录")
+    return True
+
+
+@router.get("/health")
+def health():
+    return {"status": "ok", "version": "0.1.0"}
+
+
+@router.post("/auth/setup")
+def auth_setup(body: dict):
+    if db.get_flag("admin_password_hash"):
+        raise HTTPException(400, "管理员已设置")
+    password = (body.get("password") or "").strip()
+    if len(password) < 6:
+        raise HTTPException(400, "密码至少 6 位")
+    db.set_flag("admin_password_hash", hash_password(password))
+    token = new_session()
+    return {"token": token}
+
+
+@router.post("/auth/login")
+def auth_login(body: dict, request: Request):
+    stored = db.get_flag("admin_password_hash")
+    if not stored:
+        raise HTTPException(400, "尚未设置管理员密码")
+    key = request.client.host if request.client else "unknown"
+    if login_locked(key):
+        raise HTTPException(429, "登录失败次数过多，请 15 分钟后再试")
+    if not verify_password(body.get("password") or "", stored):
+        record_login_fail(key)
+        raise HTTPException(401, "密码错误")
+    clear_login_fails(key)
+    return {"token": new_session()}
+
+
+@router.post("/auth/logout")
+def auth_logout(request: Request):
+    revoke_session(request.cookies.get("cdt_session"))
+    return {"ok": True}
+
+
+def _public_group(g: dict, serving_map: dict[int, str] | None = None,
+                  queue_ranks: dict[int, int] | None = None) -> dict:
+    out = dict(g)
+    accounts = [a for a in db.list_accounts() if (a.get("group_id") or 1) == g["id"]]
+    dom = db.group_domain(g["id"])
+    out["account_count"] = len(accounts)
+    out["account_ids"] = [a["id"] for a in accounts]
+    out["domain"] = dom
+    out["domain_id"] = dom["id"] if dom else None
+    if serving_map is None or queue_ranks is None:
+        serving_map, queue_ranks = _status_context(accounts)
+    out["accounts"] = [_public_account(x, serving_map, queue_ranks) for x in accounts]
+    out["evicted_account_ids"] = [
+        a["id"] for a in out["accounts"] if a.get("evicted")]
+    return out
+
+
+@router.get("/groups")
+def list_groups(_: bool = Depends(_admin_required)):
+    serving_map, queue_ranks = _status_context()
+    return [_public_group(g, serving_map, queue_ranks) for g in db.list_groups()]
+
+
+@router.post("/groups")
+def create_group(body: dict, _: bool = Depends(_admin_required)):
+    try:
+        return _public_group(db.create_group(body))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/groups/{gid}")
+def update_group(gid: int, body: dict, _: bool = Depends(_admin_required)):
+    try:
+        row = db.update_group(gid, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not row:
+        raise HTTPException(404, "分组不存在")
+    return _public_group(row)
+
+
+@router.delete("/groups/{gid}")
+def delete_group(gid: int, _: bool = Depends(_admin_required)):
+    try:
+        db.delete_group(gid)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@router.get("/status")
+def status(_: bool = Depends(_admin_required)):
+    settings = db.get_settings()
+    raw_accounts = db.list_accounts()
+    serving_map, queue_ranks = _status_context(raw_accounts)
+    accounts = [_public_account(a, serving_map, queue_ranks) for a in raw_accounts]
+    domains = db.list_domains()
+    total_used = sum(a["traffic_used_gb"] for a in accounts
+                     if a.get("traffic_used_gb") is not None)
+    known = sum(1 for a in accounts if a.get("traffic_used_gb") is not None)
+    total_cost = {}
+    for a in accounts:
+        if a.get("billing_month_cost") is not None:
+            cur = a.get("billing_currency") or "USD"
+            total_cost[cur] = round(total_cost.get(cur, 0) + a["billing_month_cost"], 6)
+    events = db.list_events(20)
+    month = dt.datetime.now().strftime("%Y-%m")
+    return {
+        "switch_mode": settings.get("switch_mode") or "both",
+        "scheduler": {
+            "paused": settings.get("scheduler_paused") == "1",
+            # API 刷新时间（已与旧 check_interval_minutes 合并为同一项）
+            "api_refresh_minutes": int(settings.get(
+                "api_refresh_minutes", settings.get("check_interval_minutes", 60))),
+            "check_interval_minutes": int(settings.get("check_interval_minutes", 60)),
+            "last_run": scheduler.last_run(),
+        },
+        "month": month,
+        "total_used_gb": round(total_used, 2),
+        "accounts_known": known,
+        "accounts_total": len(accounts),
+        "total_cost": total_cost,
+        "accounts": accounts,
+        "domains": domains,
+        "groups": [_public_group(g, serving_map, queue_ranks) for g in db.list_groups()],
+        "events": events,
+        "evicted_account_ids": [a["id"] for a in accounts if a.get("evicted")],
+        "dns_confirmed": sum(1 for d in domains if d.get("current_ip")),
+        "dns_total": len(domains),
+    }
+
+
+@router.get("/accounts")
+def list_accounts(_: bool = Depends(_admin_required)):
+    raw = db.list_accounts()
+    serving_map, queue_ranks = _status_context(raw)
+    return [_public_account(a, serving_map, queue_ranks) for a in raw]
+
+
+@router.post("/accounts")
+def create_account(body: dict, _: bool = Depends(_admin_required)):
+    data = dict(body)
+    if data.get("access_key_secret"):
+        data["access_key_secret_enc"] = encrypt_secret(data.pop("access_key_secret"))
+    data.setdefault("access_key_secret_enc", "")
+    try:
+        return _public_account(db.create_account(data))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/accounts/{aid}")
+def update_account(aid: int, body: dict, _: bool = Depends(_admin_required)):
+    data = dict(body)
+    if data.get("access_key_secret"):
+        data["access_key_secret_enc"] = encrypt_secret(data.pop("access_key_secret"))
+    old = db.get_account(aid)
+    try:
+        row = db.update_account(aid, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not row:
+        raise HTTPException(404, "账户不存在")
+    # 改名记事件（旧名→新名）；改名不影响实例 ID、AK、分组与历史数据
+    if old and data.get("name") and (old.get("name") or "").strip() != (row.get("name") or "").strip():
+        db.add_event("account", "服务器改名",
+                     f"{old.get('name')} → {row.get('name')}", account_id=aid)
+    return _public_account(row)
+
+
+@router.delete("/accounts/{aid}")
+def delete_account(aid: int, _: bool = Depends(_admin_required)):
+    db.delete_account(aid)
+    return {"ok": True}
+
+
+@router.get("/domains")
+def list_domains(_: bool = Depends(_admin_required)):
+    return db.list_domains()
+
+
+@router.post("/domains")
+def create_domain(body: dict, _: bool = Depends(_admin_required)):
+    try:
+        return db.create_domain(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.put("/domains/{did}")
+def update_domain(did: int, body: dict, _: bool = Depends(_admin_required)):
+    try:
+        row = db.update_domain(did, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not row:
+        raise HTTPException(404, "域名不存在")
+    return row
+
+
+@router.post("/domains/reorder")
+def reorder_domains(body: dict, _: bool = Depends(_admin_required)):
+    # body: {"order": [domain_id, ...]} 按数组顺序重排 priority
+    for i, did in enumerate(body.get("order") or []):
+        db.update_domain(int(did), {"priority": i})
+    return db.list_domains()
+
+
+@router.delete("/domains/{did}")
+def delete_domain(did: int, _: bool = Depends(_admin_required)):
+    db.delete_domain(did)
+    return {"ok": True}
+
+
+@router.get("/settings")
+def get_settings(_: bool = Depends(_admin_required)):
+    s = db.get_settings()
+    s["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    s.pop("cloudflare_token", None)
+    s.pop("telegram_token", None)
+    return s
+
+
+@router.put("/settings")
+def put_settings(body: dict, _: bool = Depends(_admin_required)):
+    allowed = set(db.get_settings().keys()) | {
+        "cloudflare_token", "telegram_token", "email_password"}
+    data = {k: str(v) for k, v in body.items() if k in allowed}
+    _validate_settings(data)
+    return db.get_settings() | data if False else _mask(db.set_settings(data))
+
+
+def _validate_settings(data: dict) -> None:
+    """保存前校验几个关键设置，避免非法值让调度器崩溃。"""
+    import re
+    for key in ("api_refresh_minutes", "check_interval_minutes"):
+        if key in data:
+            try:
+                v = int(float(data[key]))
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{key} 必须是分钟数")
+            if not 1 <= v <= 1440:
+                raise HTTPException(400, f"{key} 必须在 1–1440 分钟之间")
+    if ("threshold_recovery_action" in data
+            and data["threshold_recovery_action"] not in ("start", "keep_stopped")):
+        raise HTTPException(400, "threshold_recovery_action 只能是 start/keep_stopped")
+    if "exclusion_action" in data:
+        # 别名归一化：evict_ddns 等价于 none（踢出DDNS），只存一档的值
+        if data["exclusion_action"] == "evict_ddns":
+            data["exclusion_action"] = "none"
+        if data["exclusion_action"] not in ("none", "stop", "stop_charging"):
+            raise HTTPException(400, "exclusion_action 只能是 none/stop/stop_charging")
+    if "daily_report_time" in data and not re.fullmatch(
+            r"([01]\d|2[0-3]):[0-5]\d", str(data["daily_report_time"])):
+        raise HTTPException(400, "daily_report_time 必须是 HH:MM 格式")
+
+
+def _mask(s: dict) -> dict:
+    out = dict(s)
+    out["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    out.pop("cloudflare_token", None)
+    out.pop("telegram_token", None)
+    out.pop("email_password", None)
+    return out
+
+
+@router.get("/notify")
+def get_notify(_: bool = Depends(_admin_required)):
+    s = db.get_settings()
+    return {"proxy": s.get("notify_proxy"), "telegram_enabled": s.get("telegram_enabled"),
+            "telegram_chat_id": s.get("telegram_chat_id"),
+            "email_enabled": s.get("email_enabled"),
+            "events": {k: s.get(v) == "1" for k, v in
+                       {"traffic_protection": "notify_traffic_protection",
+                        "dns_change": "notify_dns_change",
+                        "fallback": "notify_fallback",
+                        "exclusion": "notify_exclusion",
+                        "error": "notify_error",
+                        "recovery": "notify_recovery"}.items()}}
+
+
+@router.post("/notify/test")
+def test_notify(body: dict, _: bool = Depends(_admin_required)):
+    n = Notifier(db.get_settings())
+    sent = n.send(body.get("event") or "error", "测试通知",
+                  "alicloud_ECS_CDT 测试通知：配置已保存，调度暂停时也可发送。")
+    return {"sent": sent}
+
+
+def _daily_report_accounts() -> list[dict]:
+    """财报账户列表（带新状态点）。无真实账户时用虚构演示数据，仅用于预览/测试。"""
+    raw = db.list_accounts()
+    if raw:
+        serving_map, queue_ranks = _status_context(raw)
+        return [_public_account(a, serving_map, queue_ranks) for a in raw]
+    # 演示数据（虚构：203.0.113.x 测试网段、example.xyz），不含真实凭据/域名/IP
+    demo = [
+        {"id": 1, "name": "Demo-HK-1", "quota_gb": 200, "traffic_used_gb": 37.77,
+         "instance_status": "Running", "public_ip": "203.0.113.10",
+         "instance_spec": "2C0.5G", "billing_month_cost": 0.47,
+         "billing_currency": "USD", "billing_balance": 0.0,
+         "protection_threshold_pct": None, "exclusion_action": None,
+         "switch_diff_mode": None, "switch_diff_gb": None, "switch_diff_pct": None,
+         "access_key_secret_enc": "", "group_id": 1},
+        {"id": 2, "name": "Demo-HK-2", "quota_gb": 200, "traffic_used_gb": 192.0,
+         "instance_status": "Running", "public_ip": "203.0.113.11",
+         "instance_spec": "", "billing_month_cost": 0.36,
+         "billing_currency": "USD", "billing_balance": 0.0,
+         "protection_threshold_pct": None, "exclusion_action": None,
+         "switch_diff_mode": None, "switch_diff_gb": None, "switch_diff_pct": None,
+         "access_key_secret_enc": "", "group_id": 1},
+    ]
+    return [_public_account(a, serving_map={1: "backup.example.xyz"},
+                            queue_ranks={}) for a in demo]
+
+
+@router.get("/notify/daily-preview")
+def daily_preview(_: bool = Depends(_admin_required)):
+    """每日财报预览（不发送）：返回第一条消息的 html/text，供通知设置页展示。
+    按实例 daily_report 过滤（off 的不显示），与“发送测试财报”保持一致。"""
+    from .notify import build_daily_report, filter_daily_report_accounts
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    accounts = filter_daily_report_accounts(
+        _daily_report_accounts(), db.get_settings(), force=True)
+    chunks = build_daily_report(accounts, today)
+    first = chunks[0] if chunks else {"html": "", "text": "", "email_html": ""}
+    return {"date": today, "messages": len(chunks), "html": first["html"],
+            "text": first["text"], "email_html": first["email_html"],
+            "accounts": len(accounts)}
+
+
+@router.post("/notify/test-daily")
+def test_daily(_: bool = Depends(_admin_required)):
+    """发送测试财报：用当前账户（无账户时用演示数据）立即发一条，
+    跳过每日开关与推送时间，但仍只走已启用的渠道；
+    实例 daily_report=off 的不推（follow/on 正常推）。"""
+    from .notify import build_daily_report, filter_daily_report_accounts
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    accounts = filter_daily_report_accounts(
+        _daily_report_accounts(), db.get_settings(), force=True)
+    chunks = build_daily_report(accounts, today)
+    n = Notifier(db.get_settings())
+    sent = n.send_daily_report(accounts, today, force=True)
+    return {"sent": sent, "messages": len(chunks),
+            "preview": chunks[0] if chunks else None,
+            "accounts": len(accounts)}
+
+
+@router.post("/notify/send-daily")
+def send_daily(_: bool = Depends(_admin_required)):
+    """手动推送日报：正式手动推送，随时可推，按已启用渠道真发。
+
+    与定时推送的区别：不读也不写 daily_report_done:<日期> 标志——
+    手动推送不占用/不消耗当天的定时一次（手动推完，定时时间到了照常再推；
+    定时已推过，当天仍可手动再推）。按实例 daily_report 过滤
+    （follow 看全局开关、on 强制推、off 排除），记事件“手动推送日报”。"""
+    from .notify import build_daily_report, filter_daily_report_accounts
+    today = dt.datetime.now().strftime("%Y-%m-%d")
+    settings = db.get_settings()
+    accounts = filter_daily_report_accounts(
+        _daily_report_accounts(), settings)
+    chunks = build_daily_report(accounts, today)
+    n = Notifier(settings)
+    sent = n.send_daily_report(accounts, today, skip_global_switch=True)
+    db.add_event("daily_report", "手动推送日报",
+                 f"{today} 手动推送，共 {len(accounts)} 个账户，"
+                 f"渠道：{','.join(sent) if sent else '未启用任何通知渠道'}")
+    return {"sent": sent, "messages": len(chunks),
+            "preview": chunks[0] if chunks else None,
+            "accounts": len(accounts)}
+
+
+@router.post("/schedule/run")
+def schedule_run(body: dict | None = None, _: bool = Depends(_admin_required)):
+    return scheduler.run_once(dry_run=False, refresh=True)
+
+
+@router.post("/schedule/dry-run")
+def schedule_dry_run(_: bool = Depends(_admin_required)):
+    return scheduler.run_once(dry_run=True, refresh=False)
+
+
+@router.post("/schedule/pause")
+def schedule_pause(body: dict, _: bool = Depends(_admin_required)):
+    db.set_settings({"scheduler_paused": "1" if body.get("paused") else "0"})
+    if body.get("paused"):
+        scheduler.stop()
+    else:
+        scheduler.start()
+    return {"paused": bool(body.get("paused"))}
+
+
+@router.get("/logs")
+def logs(limit: int = 100, _: bool = Depends(_admin_required)):
+    return db.list_events(limit=min(limit, 500))
+
+
+@router.post("/cloud/status")
+def cloud_status(_: bool = Depends(_admin_required)):
+    accounts = scheduler.refresh_cloud_status(db.get_settings())
+    serving_map, queue_ranks = _status_context(accounts)
+    return [_public_account(a, serving_map, queue_ranks) for a in accounts]
+
+
+# ---------------------------------------------------------------------------
+# 阿里云地域发现（区域可选，来源必须是阿里云接口，见 README“区域与站点”）
+# ---------------------------------------------------------------------------
+
+def _aliyun_client_for_regions(site: str | None = None,
+                               account_id: int | None = None,
+                               access_key_id: str | None = None,
+                               access_key_secret: str | None = None):
+    """解析地域查询用的 AliyunClient。
+
+    优先用已保存账户的 AK（account_id）；无账户/未填 AK 时允许传临时
+    access_key_id + access_key_secret 走一次查询，不保存。
+    site 决定账号归属与 BSS 币种（global=国际站 USD，cn=国内站 CNY）。
+    """
+    from .aliyun import AliyunClient
+    if site is not None and site not in ("global", "cn"):
+        raise HTTPException(400, "site 只能是 global（国际站）或 cn（国内站）")
+    if account_id is not None:
+        row = db.get_account(int(account_id))
+        if not row:
+            raise HTTPException(404, "账户不存在")
+        secret = decrypt_secret(row.get("access_key_secret_enc") or "")
+        if not row.get("access_key_id") or not secret:
+            raise HTTPException(400, "该账户未配置 AccessKey，无法查询地域")
+        account = dict(row)
+        account["site"] = site or row.get("site") or "global"
+        return AliyunClient(account, secret)
+    if access_key_id and access_key_secret:
+        return AliyunClient({"access_key_id": access_key_id,
+                             "region": "cn-hongkong",
+                             "site": site or "global"}, access_key_secret)
+    raise HTTPException(400, "请先选择账户，或填写 AccessKey ID 与 Secret 再查询")
+
+
+def _regions_error(exc: Exception):
+    """地域接口失败：返回明确错误 + 内置常用地域列表，前端回退到内置列表。"""
+    from fastapi.responses import JSONResponse
+
+    from .aliyun import BUILTIN_REGIONS
+    return JSONResponse(status_code=502, content={
+        "detail": f"阿里云地域查询失败：{exc}",
+        "fallback_regions": BUILTIN_REGIONS})
+
+
+@router.get("/aliyun/regions")
+def aliyun_regions(site: str | None = None, account_id: int | None = None,
+                   access_key_id: str | None = None,
+                   access_key_secret: str | None = None,
+                   _: bool = Depends(_admin_required)):
+    """该站点下的可用地域列表（ECS DescribeRegions），按 local_name 排序。
+    账户级：?account_id=<id>（同时可用 ?site= 覆盖站点）；
+    临时查询：?access_key_id=...&access_key_secret=...（不保存）。"""
+    from .aliyun import AliyunError
+    try:
+        client = _aliyun_client_for_regions(site, account_id,
+                                            access_key_id, access_key_secret)
+        regions = client.describe_regions()
+    except HTTPException:
+        raise
+    except AliyunError as exc:
+        return _regions_error(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _regions_error(exc)
+    return {"site": site or client.account.get("site") or "global",
+            "regions": regions, "source": "aliyun"}
+
+
+@router.post("/aliyun/discover-regions")
+def aliyun_discover_regions(body: dict, _: bool = Depends(_admin_required)):
+    """现有服务器位置发现：先 DescribeInstances（分页）汇总该账号下已有实例
+    实际所在的地域（去重，标注“已有实例所在地域”），再合并 DescribeRegions
+    的全量列表（标注“全部可用地域”）。前端下拉分两组显示。"""
+    from .aliyun import AliyunError
+    try:
+        client = _aliyun_client_for_regions(body.get("site"), body.get("account_id"),
+                                            body.get("access_key_id"),
+                                            body.get("access_key_secret"))
+        all_regions = client.describe_regions()
+        owned_ids = set(client.discover_instance_regions(all_regions))
+    except HTTPException:
+        raise
+    except AliyunError as exc:
+        return _regions_error(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _regions_error(exc)
+    by_id = {r["region_id"]: r for r in all_regions}
+    owned = [dict(by_id[rid], owned=True) for rid in sorted(owned_ids)
+             if rid in by_id]
+    owned += [{"region_id": rid, "local_name": rid, "endpoint": "", "owned": True}
+              for rid in sorted(owned_ids) if rid not in by_id]
+    return {"owned": owned, "all": all_regions, "source": "aliyun"}
+
+
+@router.post("/aliyun/find-instance-region")
+def aliyun_find_instance_region(body: dict, _: bool = Depends(_admin_required)):
+    """自动发现：按实例 ID 调 DescribeInstances 查出该实例真实所在地域并返回，
+    前端自动填入地域下拉。查不到时报错（不要静默填错）。"""
+    from .aliyun import AliyunError
+    instance_id = (body.get("instance_id") or "").strip()
+    if not instance_id:
+        raise HTTPException(400, "请先填写实例 ID")
+    try:
+        client = _aliyun_client_for_regions(body.get("site"), body.get("account_id"),
+                                            body.get("access_key_id"),
+                                            body.get("access_key_secret"))
+        region_id = client.find_instance_region(instance_id)
+        regions = client.describe_regions()
+    except HTTPException:
+        raise
+    except AliyunError as exc:
+        return _regions_error(exc)
+    except Exception as exc:  # noqa: BLE001
+        return _regions_error(exc)
+    local = next((r["local_name"] for r in regions if r["region_id"] == region_id),
+                 region_id)
+    return {"instance_id": instance_id, "region_id": region_id,
+            "local_name": local, "source": "aliyun"}
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: int, _: bool = Depends(_admin_required)):
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "任务不存在")
+    return job
