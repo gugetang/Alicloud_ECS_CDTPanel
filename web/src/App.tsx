@@ -88,6 +88,15 @@ function Ico({ label, children }: { label: string; children: any }) {
 const usageColor = (rate: number | null | undefined, threshold: number) =>
   rate == null ? "#9AA0A6" : rate >= threshold ? "#EA4335" : rate >= 80 ? "#FBBC04" : "#34A853";
 
+// 流量显示保留 2 位小数；IP 只显示 A.B 段，C.D 段用 * 代替。
+const fmtGb = (v: number | null | undefined) =>
+  v == null ? "—" : (Math.round(v * 100) / 100).toFixed(2);
+const maskIp = (ip: string | null | undefined) => {
+  if (!ip) return "—";
+  const parts = String(ip).split(".");
+  return parts.length === 4 ? `${parts[0]}.${parts[1]}.*.*` : String(ip);
+};
+
 // WebAuthn（指纹登录）用的 base64url / ArrayBuffer 互转。
 const b64urlToBuf = (s: string): ArrayBuffer => {
   const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
@@ -768,7 +777,6 @@ export default function App() {
   const [timezones, setTimezones] = useState<Any[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const [dry, setDry] = useState<Any | null>(null);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
   const [cardSettingsId, setCardSettingsId] = useState<number | null>(null);
@@ -832,28 +840,15 @@ export default function App() {
   // 状态点（新映射）：green 在线 / yellow 排队中 / gray 已跳出或未知 /
   // red 停机或离线 / green_pulse 启动中（高亮闪烁绿）/ red_pulse 停止中（闪烁红）
   // 状态点颜色：Google 品牌色（green #34A853 / yellow #FBBC04 / gray #9AA0A6 / red #EA4335），
-  // 与 styles.css 的 --dot-* 变量一致；尺寸 4px（直径约 1mm），见 .dot。
+  // 与 styles.css 的 --dot-* 变量一致；尺寸 8px（直径约 2mm），垂直居中于字体高度，见 .dot。
   const dotColor = (dot: string | undefined) =>
     dot === "green" ? "#34A853" : dot === "green_pulse" ? "#34A853" : dot === "yellow" ? "#FBBC04" : dot === "gray" ? "#9AA0A6" : dot === "red_pulse" ? "#EA4335" : "#EA4335";
   const dotClass = (dot: string | undefined) =>
     dot === "green_pulse" ? "dot-pulse" : dot === "red_pulse" ? "dot-pulse-red" : "";
   const dotEl = (dot: string | undefined, title?: string) => (
     <span className={`dot ${dotClass(dot)}`} title={title || ""}
-      style={{ width: 4, height: 4, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6 }} />
+      style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6, verticalAlign: "middle" }} />
   );
-  const Legend = () => (
-    <p className="legend muted">
-      <span><span className="dot" style={{ background: "#34A853" }} />绿=在线</span>
-      <span><span className="dot" style={{ background: "#FBBC04" }} />黄=排队中</span>
-      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=已跳出</span>
-      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=未参与</span>
-      <span><span className="dot" style={{ background: "#EA4335" }} />红=停机/离线</span>
-      <span><span className="dot dot-pulse" style={{ background: "#34A853" }} />闪烁绿=启动中</span>
-      <span><span className="dot dot-pulse-red" style={{ background: "#EA4335" }} />闪烁红=停止中</span>
-      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=未知</span>
-    </p>
-  );
-
   const load = async () => {
     try {
       const s = await get("/api/status") as Any;
@@ -876,7 +871,7 @@ export default function App() {
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true); setMsg("");
-    try { const r = await fn(); setMsg(ok); setDry(r as Any); await load(); }
+    try { await fn(); setMsg(ok); await load(); }
     catch (e) { setMsg(String((e as Error).message)); }
     finally { setBusy(false); }
   };
@@ -1037,8 +1032,6 @@ export default function App() {
         <>
           <div className="notice">调度运行时会按当前配置执行 VPS 和 DNS 操作。</div>
           <div className="row" style={{ marginBottom: 16 }}>
-            <button className="btn ghost" onClick={() => run(() => post("/api/cloud/status"), "云端状态已查询")}>查询云端状态</button>
-            <button className="btn ghost" disabled={busy} onClick={() => run(() => post("/api/schedule/dry-run"), "调度试算完成（未执行任何 VPS / DNS 操作）")}>调度试算</button>
             <button className="btn" disabled={busy} onClick={() => run(() => post("/api/schedule/run"), "立即调度完成")}>立即调度</button>
             <button className="btn ghost" disabled={busy} onClick={() => run(() => post("/api/schedule/pause", { paused: !(status?.scheduler as Any)?.paused }), "已切换调度状态")}>
               {(status?.scheduler as Any)?.paused ? "恢复调度" : "暂停调度"}
@@ -1066,28 +1059,23 @@ export default function App() {
                 { value: "list", label: "列表" },
               ]} onChange={(v) => setViewMode(v as "card" | "list")} />
             </div>
-            <Legend />
             {accounts.length === 0 && <p className="muted">暂无账户，先去「账户管理」添加。</p>}
             {viewMode === "card" ? (
               <div className="grid3" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
                   <div className="card" key={a.id as number} style={{ marginBottom: 0 }}>
-                    <div className="row" style={{ justifyContent: "space-between" }}>
-                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</div>
-                      <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
-                    </div>
+                    <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
                       <div className="stat"><span>地域</span><b>{a.region as string}</b></div>
-                      <div className="stat"><span>IP</span><b>{a.public_ip as string || "—"}</b></div>
-                      <div className="stat"><span>流量</span><b>{a.traffic_used_gb ?? "—"} / {a.quota_gb ?? 200} GiB</b></div>
+                      <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
+                      <div className="stat"><span>流量</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB</b></div>
                       <div className="stat"><span>使用率</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
                       <div className="stat"><span>费用</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
                       <div className="stat"><span>站点</span><b>{a.site === "cn" ? "中国站" : "国际站"}</b></div>
                     </div>
                     {a.status_detail ? <div className="muted" style={{ marginTop: 6 }}>{a.status_detail as string}</div> : null}
                     <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
-                    {cardSettingsId === a.id && <CardSettings a={a} />}
                   </div>
                 ))}
               </div>
@@ -1098,8 +1086,8 @@ export default function App() {
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
                     <td>{a.site === "cn" ? "中国站" : "国际站"}</td>
                     <td>{a.region as string}</td>
-                    <td>{a.public_ip as string || "—"}</td>
-                    <td><b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB</td>
+                    <td>{maskIp(a.public_ip)}</td>
+                    <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB</td>
                     <td>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}<div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div></td>
                     <td><span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</td>
                     <td><ActionButtons a={a} /></td>
@@ -1107,7 +1095,6 @@ export default function App() {
                 ))}</tbody></table>
             )}
           </div>
-          {dry && <div className="card"><h2>调度试算结果</h2><pre>{JSON.stringify(dry, null, 2)}</pre></div>}
         </>
       )}
 
@@ -1132,8 +1119,8 @@ export default function App() {
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats">
                 <div className="stat"><span>实例</span><b>{a.instance_id as string}</b></div>
-                <div className="stat"><span>IP</span><b>{a.public_ip as string || "—"}</b></div>
-                <div className="stat"><span>流量</span><b>{a.traffic_used_gb ?? "—"} / {a.quota_gb ?? 200} GiB</b></div>
+                <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
+                <div className="stat"><span>流量</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB</b></div>
                 <div className="stat"><span>使用率</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
                 <div className="stat"><span>费用</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
                 <div className="stat"><span>阈值</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>

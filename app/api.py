@@ -119,6 +119,9 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
     out = dict(a)
     out.pop("access_key_secret_enc", None)
     out["has_secret"] = bool(a.get("access_key_secret_enc"))
+    # 流量显示保留 2 位小数（用量条/卡片/列表/日报都直接用它）。
+    if out.get("traffic_used_gb") is not None:
+        out["traffic_used_gb"] = round(float(out["traffic_used_gb"]), 2)
     settings = db.get_settings()
     quota = a.get("quota_gb")
     if quota is None:
