@@ -616,9 +616,6 @@ def _check_daily_fields(data: dict, cur: dict | None = None) -> None:
     def val(key):
         return data.get(key) if key in data else (cur.get(key) if cur else None)
 
-    dr = val("daily_report")
-    if dr is not None and dr not in ("follow", "on", "off"):
-        raise ValueError("参与日报推送只能是 follow/on/off")
     site = val("site")
     if site is not None and site not in ("cn", "global"):
         raise ValueError("站点只能是 cn（国内站）或 global（国际站）")
@@ -689,12 +686,12 @@ def create_account(data: dict) -> dict:
             "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
             "priority", "group_id",
             "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-            "daily_report", "api_refresh_minutes"]
+            "api_refresh_minutes"]
     _text = {"name", "site", "region", "access_key_id", "access_key_secret_enc",
              "instance_id",
-             "daily_on_time", "daily_off_time", "daily_report"}
+             "daily_on_time", "daily_off_time"}
     _defaults = {"daily_schedule_enabled": 0, "daily_on_time": "08:00",
-                 "daily_off_time": "20:00", "daily_report": "follow",
+                 "daily_off_time": "20:00",
                  # 地域默认中国香港，站点默认国际站（USD）。
                  "region": "cn-hongkong", "site": "global"}
     vals = [data.get(c) if data.get(c) is not None
@@ -731,7 +728,7 @@ def update_account(aid: int, data: dict) -> dict | None:
                "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
                "priority", "group_id",
                "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-               "daily_report", "api_refresh_minutes",
+               "api_refresh_minutes",
                "traffic_used_gb", "instance_status", "public_ip",
                "billing_month_cost", "billing_currency", "billing_balance",
                "billing_balance_currency", "instance_type", "instance_spec",

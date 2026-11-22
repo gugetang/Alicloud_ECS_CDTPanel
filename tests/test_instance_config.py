@@ -182,41 +182,39 @@ def test_account_field_validation(tmpdb):
                                        "daily_off_time": "08:00"})
     with pytest.raises(ValueError, match="大于 0"):
         tmpdb.update_account(a["id"], {"quota_gb": 0})
-    with pytest.raises(ValueError, match="follow/on/off"):
-        tmpdb.update_account(a["id"], {"daily_report": "sometimes"})
     with pytest.raises(ValueError, match="站点"):
         tmpdb.update_account(a["id"], {"site": "eu"})
     # 合法值通过
     row = tmpdb.update_account(a["id"], {
         "daily_schedule_enabled": 1, "daily_on_time": "08:00",
-        "daily_off_time": "20:00", "daily_report": "off", "quota_gb": 300})
-    assert row["daily_report"] == "off" and row["quota_gb"] == 300
+        "daily_off_time": "20:00", "quota_gb": 300})
+    assert row["quota_gb"] == 300
 
 
 # ---------------------------------------------------------------------------
-# 日报推送过滤：follow / on / off × 全局开 / 关
+# 日报推送过滤：实例级“参与日报推送”已取消，全部跟随全局开关
 # ---------------------------------------------------------------------------
 
 def test_daily_report_filter_combinations():
     from app.notify import filter_daily_report_accounts
+    # 实例自身的 daily_report 字段不再读取（即使存了旧值也忽略）
     accts = [{"id": 1, "name": "A", "daily_report": "follow"},
              {"id": 2, "name": "B", "daily_report": "on"},
              {"id": 3, "name": "C", "daily_report": "off"},
-             {"id": 4, "name": "D"}]  # 未填 = follow
+             {"id": 4, "name": "D"}]  # 未填
     on = {"daily_report_enabled": "1"}
     off = {"daily_report_enabled": "0"}
-    assert [a["id"] for a in filter_daily_report_accounts(accts, on)] == [1, 2, 4]
-    assert [a["id"] for a in filter_daily_report_accounts(accts, off)] == [2]
-    # force（发送测试财报）：follow 也包含，off 仍排除
-    assert [a["id"] for a in filter_daily_report_accounts(accts, off, force=True)] == [1, 2, 4]
+    assert [a["id"] for a in filter_daily_report_accounts(accts, on)] == [1, 2, 3, 4]
+    assert [a["id"] for a in filter_daily_report_accounts(accts, off)] == []
+    # force（发送测试财报）：全局关也全部包含
+    assert [a["id"] for a in filter_daily_report_accounts(accts, off, force=True)] == [1, 2, 3, 4]
 
 
-def test_daily_report_on_overrides_global_off(tmpdb, monkeypatch):
-    # 全局关了，但单独开启的账户仍推；全部 follow 时不推
+def test_daily_report_follows_global_switch(tmpdb, monkeypatch):
+    # 全局关了就不推；全局开了就推；实例级字段不再起作用
     from app import scheduler
     a = _mk(tmpdb, used=37.77)
     tmpdb.set_settings({"daily_report_enabled": "0"})
-    tmpdb.update_account(a["id"], {"daily_report": "on"})
     calls = []
 
     class FakeNotifier:
@@ -231,9 +229,10 @@ def test_daily_report_on_overrides_global_off(tmpdb, monkeypatch):
     monkeypatch.setattr(scheduler, "Notifier", FakeNotifier)
     s = tmpdb.get_settings()
     tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is False
+    assert calls == []
+    # 全局开了就推
+    tmpdb.set_settings({"daily_report_enabled": "1"})
+    tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
     assert calls == [[a["id"]]]
-    # 改成 follow：全局关 → 不推
-    tmpdb.update_account(a["id"], {"daily_report": "follow"})
-    tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
-    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is False

@@ -1084,7 +1084,7 @@ def _daily_report_accounts() -> list[dict]:
 @router.get("/notify/daily-preview")
 def daily_preview(_: bool = Depends(_admin_required)):
     """每日财报预览（不发送）：返回第一条消息的 html/text，供通知设置页展示。
-    按实例 daily_report 过滤（off 的不显示），与“发送测试财报”保持一致。"""
+    全部账户跟随全局开关，与“发送测试财报”保持一致。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
     accounts = filter_daily_report_accounts(
@@ -1100,8 +1100,7 @@ def daily_preview(_: bool = Depends(_admin_required)):
 def test_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     """发送测试财报：用当前账户（无账户时用演示数据）立即发一条，
     跳过每日开关与推送时间，但仍只走已启用的渠道；
-    实例 daily_report=off 的不推（follow/on 正常推）。
-    body.channel 指定时只发该渠道。"""
+    全部账户跟随全局开关。body.channel 指定时只发该渠道。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
     accounts = filter_daily_report_accounts(
@@ -1121,8 +1120,8 @@ def send_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
 
     与定时推送的区别：不读也不写 daily_report_done:<日期> 标志——
     手动推送不占用/不消耗当天的定时一次（手动推完，定时时间到了照常再推；
-    定时已推过，当天仍可手动再推）。按实例 daily_report 过滤
-    （follow 看全局开关、on 强制推、off 排除），记事件“手动推送日报”。"""
+    定时已推过，当天仍可手动再推）。全部账户跟随全局开关，
+    记事件“手动推送日报”。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
     settings = db.get_settings()

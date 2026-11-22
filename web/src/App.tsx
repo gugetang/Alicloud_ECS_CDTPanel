@@ -181,7 +181,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [schedEnabled, setSchedEnabled] = useState(Boolean(account?.daily_schedule_enabled));
   const [onTime, setOnTime] = useState((account?.daily_on_time as string) || "08:00");
   const [offTime, setOffTime] = useState((account?.daily_off_time as string) || "20:00");
-  const [report, setReport] = useState((account?.daily_report as string) || "follow");
   const [regions, setRegions] = useState<{ region_id: string; local_name: string }[]>(BUILTIN_REGIONS);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [formMsg, setFormMsg] = useState("");
@@ -253,8 +252,9 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       site, region: finalRegion, quota_gb: q,
       group_id: account?.group_id ?? 1,
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
-      daily_off_time: offTime, daily_report: report,
+      daily_off_time: offTime,
       // 阈值动作/恢复已移到分组卡片：实例级不再保存这两个字段。
+      // 参与日报推送已取消：实例级不再保存，全部跟随全局开关。
       // 实例级刷新时间已取消：强制跟随全局，存 null 清掉旧的自定义值。
       api_refresh_minutes: null,
     };
@@ -317,14 +317,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
             <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={saveAuto} /></div>
           </div>
         )}
-      </div>
-      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
-        <label className="lbl">{t("参与日报推送")}</label>
-        <Seg value={report} options={[
-          { value: "follow", label: t("跟随全局") },
-          { value: "on", label: t("单独开启") },
-          { value: "off", label: t("单独关闭") },
-        ]} onChange={setReport} />
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>

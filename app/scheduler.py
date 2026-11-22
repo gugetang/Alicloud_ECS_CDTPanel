@@ -712,8 +712,8 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     today = now.strftime("%Y-%m-%d")
     last_raw = db.get_flag("daily_report_last_check")
     db.set_flag("daily_report_last_check", now.isoformat())
-    # 注意：这里不因全局 daily_report_enabled=0 而直接返回——实例级
-    # daily_report=on 的账户即使全局关了也要推；过滤后无账户时再返回。
+    # 注意：这里不因全局 daily_report_enabled=0 而直接返回——过滤后无账户时
+    # 再返回（全局关时过滤结果为空，自然不推）。
     # 调度暂停或不刷新（API 刷新时间=0）时不推。
     if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
         return False
@@ -738,7 +738,7 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     pub = [_public_account(a, serving_map, queue_ranks) for a in accounts]
     pub = filter_daily_report_accounts(pub, settings)
     if not pub:
-        return False  # 全局关且无单独开启的账户：不推，也不记当天已推
+        return False  # 全局关：不推，也不记当天已推
     notifier = Notifier(settings)
     sent = notifier.send_daily_report(pub, today, skip_global_switch=True)
     db.set_flag(f"daily_report_done:{today}", now.isoformat())

@@ -138,24 +138,14 @@ def _account_block(a: dict) -> dict:
 
 def filter_daily_report_accounts(accounts: list[dict], settings: dict,
                                  *, force: bool = False) -> list[dict]:
-    """按实例的 daily_report 逐账户过滤日报推送。
+    """日报推送账户过滤：实例级“参与日报推送”已取消，全部跟随全局开关。
 
-    follow=看全局 daily_report_enabled；on=强制包含（即使全局关了也推）；
-    off=强制排除（即使全局开了也不推）。
-    force=True（“发送测试财报”）时 follow 也包含，off 仍排除。
-    """
+    全局 daily_report_enabled=1（或 force=True，如“发送测试财报”）时全部包含，
+    否则全部排除；实例自身的 daily_report 字段不再读取。"""
     enabled = (settings.get("daily_report_enabled", "1") == "1")
-    out = []
-    for a in accounts:
-        mode = (a.get("daily_report") or "follow").strip().lower()
-        if mode == "on":
-            out.append(a)
-        elif mode == "off":
-            continue
-        else:  # follow
-            if force or enabled:
-                out.append(a)
-    return out
+    if force or enabled:
+        return list(accounts)
+    return []
 
 
 def build_daily_report(accounts: list[dict], date_str: str) -> list[dict]:
@@ -317,7 +307,7 @@ class Notifier:
         渠道复用现有的 Telegram/邮件/Webhook 开关（只推已启用的渠道）。
         force=False 时要求 daily_report_enabled=1 且 notify_daily_report=1；
         force=True（“发送测试财报”）跳过这两个开关，但仍只走已启用的渠道。
-        skip_global_switch=True（调度器已按实例 daily_report 过滤过）时只跳过
+        skip_global_switch=True（调度器已按全局开关过滤过）时只跳过
         全局 daily_report_enabled 检查，事件开关 notify_daily_report 仍生效。
         """
         if not force:

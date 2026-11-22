@@ -414,3 +414,21 @@ def test_group_threshold_drives_effective_values(tmpdb):
     body = _public_account(tmpdb.get_account(row["id"]))
     assert body["exclusion_action_effective"] == "stop_charging"
     assert body["recovery_action_effective"] == "keep_stopped"
+
+
+def test_daily_report_account_field_ignored_and_follows_global(tmpdb):
+    """实例级“参与日报推送”已取消：全部跟随全局开关；PUT /api/accounts 传
+    daily_report 不再生效。"""
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.notify import filter_daily_report_accounts
+    client = TestClient(create_app())
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    r = client.put(f"/api/accounts/{row['id']}", json={"daily_report": "off"})
+    assert r.status_code == 200
+    accts = tmpdb.list_accounts()
+    assert filter_daily_report_accounts(accts, {"daily_report_enabled": "0"}) == []
+    assert [a["id"] for a in filter_daily_report_accounts(
+        accts, {"daily_report_enabled": "1"})] == [row["id"]]
+    assert [a["id"] for a in filter_daily_report_accounts(
+        accts, {"daily_report_enabled": "0"}, force=True)] == [row["id"]]
