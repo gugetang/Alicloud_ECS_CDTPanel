@@ -150,12 +150,13 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
     assert '["domains", "域名管理"]' in tabs
     assert tabs.index('["domains", "域名管理"]') > tabs.index('["groups", "分组管理"]')
     assert '["logs", "日志"]' not in tabs
-    # 设置子标签：全局设置、通知设置、日志（日志在通知设置后面）
+    # 设置子标签：全局设置、通知设置、其它设置、日志统计（日志统计在最后）
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
-    assert '["logs", "日志"]' in subs
-    assert subs.index('["logs", "日志"]') > subs.index('["notify", "通知设置"]')
+    assert '["logs", "日志统计"]' in subs
+    assert subs.index('["logs", "日志统计"]') > subs.index('["notify", "通知设置"]')
+    assert subs.index('["logs", "日志统计"]') > subs.index('["other", "其它设置"]')
     assert '["domains", "域名管理"]' not in subs
     # 类型与渲染条件同步：域名管理是顶栏 tab，日志是设置子标签
     assert 'type Tab = "dash" | "accounts" | "groups" | "domains" | "config"' in tsx
@@ -175,12 +176,13 @@ def test_api_refresh_own_row_and_other_settings_tab():
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('阈值恢复') < api_idx
     assert api_idx < tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>')
-    # 其它设置是设置页的第四个子标签（在日志后面）
+    # 其它设置是设置页的第三个子标签（在通知设置后面、日志统计前面）
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
     assert '["other", "其它设置"]' in subs
-    assert subs.index('["other", "其它设置"]') > subs.index('["logs", "日志"]')
+    assert subs.index('["other", "其它设置"]') < subs.index('["logs", "日志统计"]')
+    assert subs.index('["other", "其它设置"]') > subs.index('["notify", "通知设置"]')
     assert '"other"' in tsx and 'type SubTab = "settings" | "notify" | "logs" | "other"' in tsx
     # 其它设置里有货币结算卡片、主题设置卡片、登录与安全、备份与恢复
     other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
@@ -301,3 +303,29 @@ def test_small_notes_removed():
         assert frag not in tsx, frag
     # 账户卡片配置摘要行（阈值动作/恢复/每日定时/日报）已删
     assert 'exclLabel(a.exclusion_action_effective' not in tsx
+
+
+def test_exchange_rate_readonly_no_input():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 汇率不可修改：输入框已取消，只显示只读文本；保存时不再读 DOM 输入框
+    assert 'id="s-fx-rate"' not in tsx
+    assert '1 USD = {String(settings.exchange_rate_usd_cny' in tsx
+    assert '(document.getElementById("s-fx-rate")' not in tsx
+
+
+def test_subtabs_height_reduced_by_third():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 设置子标签按钮高度降低约 1/3：上下内边距由 10px 降到 4px（桌面与手机端一致）
+    m = re.search(r"\.subtabs button \{[^}]*\}", css)
+    assert m and "padding:4px 20px" in m.group(0)
+    m2 = re.search(r"\.subtabs button \{[^}]*padding:4px 14px[^}]*\}", css)
+    assert m2, "mobile subtabs padding should be 4px 14px"
+
+
+def test_managed_domains_title_removed():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 域名管理页“受管理域名 {count}”大标题已删（与账户管理/分组标题一致），
+    # 右上角 ⚙（DDNS 设置开关）保留
+    assert 't("受管理域名 {count}"' not in tsx
+    assert 'title={t("DDNS 设置")}' in tsx
+    assert "setShowDdns(!showDdns)" in tsx

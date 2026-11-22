@@ -17,9 +17,9 @@ const TABS: [Tab, string][] = [
   ["groups", "分组管理"], ["domains", "域名管理"], ["config", "设置"],
 ];
 
-// 设置页内的子标签（从左到右）：全局设置、通知设置、日志、其它设置
+// 设置页内的子标签（从左到右）：全局设置、通知设置、其它设置、日志统计
 const SUB_TABS: [SubTab, string][] = [
-  ["settings", "全局设置"], ["notify", "通知设置"], ["logs", "日志"], ["other", "其它设置"],
+  ["settings", "全局设置"], ["notify", "通知设置"], ["other", "其它设置"], ["logs", "日志统计"],
 ];
 
 const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
@@ -451,11 +451,13 @@ function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; 
         )}
         <button className="oauth-btn" disabled={!info.oauth?.google}
           onClick={() => { window.location.href = "/api/auth/oauth/google/login"; }}>
-          {t("使用 Google 登录")}{info.oauth?.google ? "" : t("（未配置）")}
+          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.223 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
+          {t("使用 Google 登录")}
         </button>
         <button className="oauth-btn" disabled={!info.oauth?.github}
           onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
-          {t("使用 GitHub 登录")}{info.oauth?.github ? "" : t("（未配置）")}
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+          {t("使用 GitHub 登录")}
         </button>
       </div>
     </div>
@@ -601,6 +603,17 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
     await saveConfig();
     await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" });
   };
+  // 测试发送：后端返回 sent（实际发出的渠道）与 errors（失败原因）；
+  // 该渠道没发出去时抛错，让外层的 run 显示真实原因，而不是“已发送”。
+  const testSend = async (url: string, body: Any) => {
+    const res: Any = await post(url, body);
+    const sent: string[] = res?.sent || [];
+    if (!sent.includes(kind)) {
+      const err = res?.errors?.[kind];
+      throw new Error(err || t("发送失败：该渠道未启用或未配置"));
+    }
+    return res;
+  };
   return (
     <div className="card">
       <div className="row"><h3 style={{ margin: 0 }}>{title}</h3><span className="spacer" />
@@ -628,9 +641,18 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
-        <button className="btn ghost" onClick={() => run(() => post("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
-        <button className="btn" onClick={() => run(() => post("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送日报")}</button>
+        {!isEmail && (
+          <button className="btn ghost" onClick={() => run(async () => {
+            const res: Any = await get("/api/notify/telegram-check");
+            const steps: Any[] = res?.steps || [];
+            const bad = steps.find((s: Any) => !s.ok);
+            if (bad) throw new Error(`${bad.name}：${bad.detail}`);
+            return res;
+          }, t("Telegram 连接正常"))}>{t("检测连接")}</button>
+        )}
+        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
+        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
+        <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送日报")}</button>
       </div>
     </div>
   );
@@ -1106,7 +1128,7 @@ export default function App() {
         return sRefresh;
       })(),
       settlement_currency: sCurrency,
-      exchange_rate_usd_cny: (document.getElementById("s-fx-rate") as HTMLInputElement).value || String(settings.exchange_rate_usd_cny ?? "6.6719"),
+      exchange_rate_usd_cny: String(settings.exchange_rate_usd_cny ?? "6.6719"),
       ...ddnsPatch(),
     };
     return saveSettings({ ...patch, ...overrides });
@@ -1178,7 +1200,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志") : t("其它设置")}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
           <div className="row">
             <div className="theme-menu">
               <button className="btn ghost" aria-label={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
@@ -1340,8 +1362,7 @@ export default function App() {
       {tab === "domains" && (
         <>
         <div className="card">
-          <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ margin: 0 }}>{t("受管理域名 {count}", { count: domains.length })}</h2>
+          <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
           <div className="notice">{t("1 个分组最多绑定 1 个域名。排在前面的域名优先使用流量使用率较低的账户。Zone ID 与记录 ID 自动发现。")}</div>
@@ -1550,7 +1571,7 @@ export default function App() {
             ]} onChange={(v) => { setSCurrency(v); saveParamSettings({ settlement_currency: v }); }} />
             <div style={{ marginTop: 8 }}>
               <label className="lbl">{t("汇率")}</label>
-              <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} onBlur={() => saveParamSettings()} /><span>&nbsp;CNY</span></div>
+              <div>1 USD = {String(settings.exchange_rate_usd_cny ?? "6.6719")} CNY</div>
             </div>
           </div>
           <div className="card"><h2>{t("主题设置")}</h2>
@@ -1601,7 +1622,7 @@ export default function App() {
       )}
 
       {tab === "config" && subTab === "logs" && (
-        <div className="card"><h2>{t("日志")}</h2>
+        <div className="card"><h2>{t("日志统计")}</h2>
           <div className="row" style={{ marginBottom: 12 }}>
             <button className="btn ghost" onClick={() => loadLogs()}>{t("刷新日志")}</button>
           </div>

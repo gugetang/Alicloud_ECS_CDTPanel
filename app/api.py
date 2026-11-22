@@ -927,8 +927,16 @@ def test_notify(body: dict, _: bool = Depends(_admin_required)):
     n = Notifier(db.get_settings())
     sent = n.send(body.get("event") or "error", "测试通知",
                   "alicloud_ECS_CDT 测试通知：配置已保存，调度暂停时也可发送。",
-                  channel=body.get("channel") or None)
-    return {"sent": sent}
+                  channel=body.get("channel") or None, force=True)
+    return {"sent": sent, "errors": n.last_errors}
+
+
+@router.get("/notify/telegram-check")
+def telegram_check(_: bool = Depends(_admin_required)):
+    """Telegram 连通性自检：分步检查配置 / 代理 / Token / Chat ID，
+    返回每步的结论与可读原因（供设置页“检测连接”用）。"""
+    from .notify import check_telegram
+    return check_telegram(db.get_settings())
 
 
 def _daily_report_accounts() -> list[dict]:
@@ -990,7 +998,7 @@ def test_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     n = Notifier(db.get_settings())
     sent = n.send_daily_report(accounts, today, force=True,
                                channel=(body or {}).get("channel") or None)
-    return {"sent": sent, "messages": len(chunks),
+    return {"sent": sent, "errors": n.last_errors, "messages": len(chunks),
             "preview": chunks[0] if chunks else None,
             "accounts": len(accounts)}
 
