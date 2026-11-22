@@ -1689,8 +1689,7 @@ export default function App() {
               )}
             </div>
             <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6 }}>{t("不适用定时轮巡。")}</div>
-            <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
-            <div>
+            <div style={{ marginTop: 12 }}>
               <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
                 { value: "none", label: t("踢出DDNS") },
