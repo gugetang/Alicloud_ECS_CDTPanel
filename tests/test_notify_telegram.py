@@ -239,3 +239,117 @@ def test_notify_test_api_returns_email_error(tmpdb, monkeypatch):
     assert body["sent"] == []
     assert "email" in body["errors"]
     assert "Connection refused" in body["errors"]["email"]
+
+
+# ---------------- 邮件走代理（SMTP 经 CONNECT 隧道） ----------------
+
+def test_email_via_proxy_connect(monkeypatch):
+    """配了通知专用代理时，SMTP 经代理的 CONNECT 隧道发（直连 Gmail 被墙时
+    走代理）；没配代理时直连 SMTP_SSL。"""
+    from app.notify import Notifier
+
+    class FakeSock:
+        def makefile(self, *a, **k):
+            import io
+            return io.BytesIO(b"220 fake\r\n")
+        def close(self):
+            pass
+
+    class FakeSMTP:
+        def __init__(self, *a, **k):
+            self.sock = None
+            self.file = None
+            self.ehlo_called = False
+            self.login_called = False
+            self.sent = False
+        def ehlo(self, *a, **k):
+            self.ehlo_called = True
+            return (250, b"OK")
+        def login(self, *a, **k):
+            self.login_called = True
+            return (235, b"OK")
+        def send_message(self, *a, **k):
+            self.sent = True
+            return {}
+        def quit(self, *a, **k):
+            return (221, b"OK")
+        def close(self, *a, **k):
+            pass
+
+    made = {}
+
+    def fake_connect(proxy_url, host, port, timeout=15):
+        made["proxy"] = (proxy_url, host, port)
+        return FakeSock()
+
+    class FakeCtx:
+        def wrap_socket(self, sock, server_hostname=None):
+            made["tls_host"] = server_hostname
+            return sock
+
+    smtp_obj = FakeSMTP()
+    monkeypatch.setattr("app.notify._connect_via_proxy", fake_connect)
+    monkeypatch.setattr("app.notify.ssl.create_default_context", lambda: FakeCtx())
+    monkeypatch.setattr("app.notify.smtplib.SMTP", lambda *a, **k: smtp_obj)
+
+    n = Notifier({"email_enabled": "1", "email_smtp_host": "smtp.gmail.com",
+                  "email_smtp_port": "465", "email_user": "a@gmail.com",
+                  "email_password": "x", "email_to": "b@gmail.com",
+                  "notify_proxy": "http://127.0.0.1:7070"})
+    ok, detail = n._email("t", "b")
+    assert ok is True, detail
+    assert made["proxy"] == ("http://127.0.0.1:7070", "smtp.gmail.com", 465)
+    assert made["tls_host"] == "smtp.gmail.com"
+    assert smtp_obj.ehlo_called and smtp_obj.login_called and smtp_obj.sent
+
+
+def test_email_direct_when_no_proxy(monkeypatch):
+    """没配代理时走直连 SMTP_SSL（旧行为不变）。"""
+    from app.notify import Notifier
+
+    class FakeSMTPSSL:
+        def __init__(self, host, port, timeout=None):
+            self.host = host
+            self.port = port
+        def ehlo(self, *a, **k):
+            return (250, b"OK")
+        def login(self, *a, **k):
+            return (235, b"OK")
+        def send_message(self, *a, **k):
+            return {}
+        def quit(self, *a, **k):
+            return (221, b"OK")
+        def close(self, *a, **k):
+            pass
+
+    seen = {}
+    def fake_ssl(host, port, timeout=None):
+        seen["direct"] = (host, port)
+        return FakeSMTPSSL(host, port, timeout)
+    monkeypatch.setattr("app.notify.smtplib.SMTP_SSL", fake_ssl)
+
+    n = Notifier({"email_enabled": "1", "email_smtp_host": "smtp.gmail.com",
+                  "email_smtp_port": "465", "email_user": "a@gmail.com",
+                  "email_password": "x", "email_to": "b@gmail.com",
+                  "notify_proxy": ""})
+    ok, detail = n._email("t", "b")
+    assert ok is True, detail
+    assert seen["direct"] == ("smtp.gmail.com", 465)
+
+
+def test_email_proxy_connect_failure_surfaces(monkeypatch):
+    """代理 CONNECT 失败时，邮件报错要提到代理（让用户知道是代理不通，
+    而不是 Gmail 本身的问题）。"""
+    from app.notify import Notifier
+
+    def boom(proxy_url, host, port, timeout=15):
+        raise ConnectionError("代理 CONNECT smtp.gmail.com:465 失败：HTTP 502")
+
+    monkeypatch.setattr("app.notify._connect_via_proxy", boom)
+    n = Notifier({"email_enabled": "1", "email_smtp_host": "smtp.gmail.com",
+                  "email_smtp_port": "465", "email_user": "a@gmail.com",
+                  "email_password": "x", "email_to": "b@gmail.com",
+                  "notify_proxy": "http://127.0.0.1:7070"})
+    ok, detail = n._email("t", "b")
+    assert ok is False
+    assert "代理" in detail and "502" in detail

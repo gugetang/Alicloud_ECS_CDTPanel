@@ -7,13 +7,18 @@
 - 每日财报（build_daily_report / send_daily_report）：每天 daily_report_time
   推送一次；Telegram 用结构排版代替调字号（标题加粗、关键数字加粗、
   账户间空行 + 分隔线、每账户 ≤7 行、每条 ≤5 个账户、≤4096 字符）。
+- 邮件：配了通知专用代理时，SMTP 经代理的 HTTP CONNECT 隧道发
+  （直连 smtp.gmail.com 被墙时走代理）；没配代理时直连 SMTP_SSL。
 """
 from __future__ import annotations
 
 import html as htmlmod
+import http.client
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
+from urllib.parse import urlparse
 
 import requests
 
@@ -211,6 +216,52 @@ def _chunk_len(chunk: list[dict], date_str: str, _part: bool) -> int:
     return len(header + body)
 
 
+def _connect_via_proxy(proxy_url: str, host: str, port: int,
+                       timeout: float = 15) -> object:
+    """经 HTTP 代理的 CONNECT 方法建到 host:port 的 TCP 隧道，返回已通的 socket。
+    代理不支持 CONNECT / 拒绝时抛异常（调用方把原因记进 last_errors）。
+    只支持 http(s):// 代理；socks5:// 代理不在此走（requests 侧才支持 SOCKS5）。"""
+    pu = urlparse(proxy_url)
+    proxy_host = pu.hostname or ""
+    proxy_port = pu.port or 80
+    if not proxy_host:
+        raise ValueError(f"代理地址无效：{proxy_url}")
+    conn = http.client.HTTPConnection(proxy_host, proxy_port, timeout=timeout)
+    conn.connect()
+    try:
+        conn.putrequest("CONNECT", f"{host}:{port}")
+        conn.putheader("Host", f"{host}:{port}")
+        conn.endheaders()
+        resp = conn.getresponse()
+        resp.read()
+        if resp.status != 200:
+            raise ConnectionError(
+                f"代理 CONNECT {host}:{port} 失败：HTTP {resp.status}")
+        return conn.sock
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+
+
+def _smtp_client(host: str, port: int, proxy: str = "",
+                 timeout: float = 15) -> smtplib.SMTP:
+    """返回已连好的 SMTP 对象（调用方负责 quit()/close()）。
+    配了代理时经 CONNECT 隧道 + TLS；没配代理时直连 SMTP_SSL。
+    465 端口是隐式 TLS（SMTP_SSL）；经代理时同样先建隧道再包 TLS。"""
+    if proxy:
+        raw = _connect_via_proxy(proxy, host, port, timeout)
+        ctx = ssl.create_default_context()
+        sock = ctx.wrap_socket(raw, server_hostname=host)
+        smtp = smtplib.SMTP(timeout=timeout)
+        smtp.sock = sock
+        smtp.file = sock.makefile("rb")
+        return smtp
+    return smtplib.SMTP_SSL(host, port, timeout=timeout)
+
+
 class Notifier:
     def __init__(self, settings: dict):
         self.s = settings
@@ -342,7 +393,9 @@ class Notifier:
     def _email(self, subject: str, text: str, html_body: str | None = None) -> tuple[bool, str]:
         """返回 (是否成功, 失败原因)。以前只返回 False，SMTP 登录失败、
         连不上服务器这类原因全被吞掉，前端只能显示“该渠道未启用或未配置”；
-        现在把原因带回来（与 _telegram 同款）。"""
+        现在把原因带回来（与 _telegram 同款）。
+        配了通知专用代理时走代理的 CONNECT 隧道（直连 Gmail 被墙时用代理），
+        没配代理时直连 SMTP_SSL。"""
         host = (self.s.get("email_smtp_host") or "").strip()
         to = (self.s.get("email_to") or "").strip()
         if not host or not to:
@@ -356,11 +409,23 @@ class Notifier:
             if html_body:
                 msg.add_alternative(html_body, subtype="html")
             port = int(self.s.get("email_smtp_port") or 465)
-            with smtplib.SMTP_SSL(host, port, timeout=15) as smtp:
+            proxy = (self.s.get("notify_proxy") or "").strip()
+            smtp = _smtp_client(host, port, proxy)
+            try:
+                smtp.ehlo()
                 user = self.s.get("email_user") or ""
                 if user:
                     smtp.login(user, self.s.get("email_password") or "")
                 smtp.send_message(msg)
+            finally:
+                try:
+                    smtp.quit()
+                except Exception:
+                    pass
+                try:
+                    smtp.close()
+                except Exception:
+                    pass
             return True, ""
         except Exception as exc:
             log.warning("邮件发送失败: %s", exc)
