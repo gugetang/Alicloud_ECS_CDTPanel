@@ -667,3 +667,18 @@ def test_settings_cards_use_parent_child_layout():
     # 通知事件开关行、DDNS 设置表单网格缩进
     assert 'style={{ padding: "6px 0 6px 2em" }}' in tsx
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
+
+
+def test_nav_and_subtabs_selected_are_accent_filled():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 顶部导航与设置子标签选中态用主题色填充白字（与主按钮、Seg 选中一致），不再是浅底
+    m = re.search(r"nav button\.active\s*\{([^}]*)\}", css)
+    assert m, "nav button.active missing"
+    body = m.group(1).replace(" ", "")
+    assert "background:var(--accent)" in body
+    assert "color:#fff" in body
+    m2 = re.search(r"\.subtabs button\.active\s*\{([^}]*)\}", css)
+    assert m2, ".subtabs button.active missing"
+    body2 = m2.group(1).replace(" ", "")
+    assert "background:var(--accent)" in body2
+    assert "color:#fff" in body2
