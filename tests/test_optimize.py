@@ -304,6 +304,8 @@ def test_regions_post_not_get(tmpdb):
     r = client.post("/api/aliyun/regions", json={"site": "global"})
     assert r.status_code == 400
     assert "请先选择账户" in r.json()["detail"]
-    # 旧的 GET 已关闭：密钥不再能走 URL 查询参数
+    # 旧的 GET 已关闭：密钥不再能走 URL 查询参数。注意这里是 404 不是 405——
+    # main.py 的 SPA 兜底路由 @app.get("/{path:path}") 会接住所有 /api/* 的
+    # GET 并返回 404“接口不存在”，所以 GET 关掉后表现为 404。
     r = client.get("/api/aliyun/regions?site=global")
-    assert r.status_code == 405
+    assert r.status_code == 404

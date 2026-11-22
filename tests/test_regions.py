@@ -197,7 +197,7 @@ def test_api_regions_by_account_id(tmpdb, monkeypatch):
     _fake_client(monkeypatch)
     a = _mk_account_with_ak(tmpdb)
     client = TestClient(create_app())
-    r = client.get(f"/api/aliyun/regions?account_id={a['id']}")
+    r = client.post("/api/aliyun/regions", json={"account_id": a["id"]})
     assert r.status_code == 200
     body = r.json()
     assert body["site"] == "global" and body["source"] == "aliyun"
@@ -212,11 +212,13 @@ def test_api_regions_site_switch_changes_list(tmpdb, monkeypatch):
     a = _mk_account_with_ak(tmpdb, site="cn")
     client = TestClient(create_app())
     # 站点切换后地域列表随站点变：国内站返回北京/中国香港
-    r = client.get(f"/api/aliyun/regions?account_id={a['id']}&site=cn")
+    r = client.post("/api/aliyun/regions",
+                    json={"account_id": a["id"], "site": "cn"})
     assert [x["region_id"] for x in r.json()["regions"]] == [
         "cn-beijing", "cn-hongkong"]
     # 同一账户用 site=global 覆盖：返回国际站列表
-    r = client.get(f"/api/aliyun/regions?account_id={a['id']}&site=global")
+    r = client.post("/api/aliyun/regions",
+                    json={"account_id": a["id"], "site": "global"})
     assert [x["region_id"] for x in r.json()["regions"]] == [
         "cn-hongkong", "ap-southeast-1"]
 
@@ -227,17 +229,18 @@ def test_api_regions_temp_ak_and_no_creds(tmpdb, monkeypatch):
     _fake_client(monkeypatch)
     client = TestClient(create_app())
     # 临时 AK 查询（不保存）：能查
-    r = client.get("/api/aliyun/regions?site=global"
-                   "&access_key_id=LTAI5t-demo-0001&access_key_secret=fake-secret")
+    r = client.post("/api/aliyun/regions", json={
+        "site": "global", "access_key_id": "LTAI5t-demo-0001",
+        "access_key_secret": "fake-secret"})
     assert r.status_code == 200
     assert r.json()["regions"]
     # 无账户、无 AK：明确报错
-    r = client.get("/api/aliyun/regions?site=global")
+    r = client.post("/api/aliyun/regions", json={"site": "global"})
     assert r.status_code == 400
     assert "AccessKey" in r.json()["detail"]
     # 未配置 AK 的账户：明确报错
     a = tmpdb.create_account({"name": "IP9", "group_id": 1})
-    r = client.get(f"/api/aliyun/regions?account_id={a['id']}")
+    r = client.post("/api/aliyun/regions", json={"account_id": a["id"]})
     assert r.status_code == 400
 
 
@@ -251,8 +254,9 @@ def test_api_regions_failure_returns_fallback(tmpdb, monkeypatch):
 
     _fake_client(monkeypatch, Broken)
     client = TestClient(create_app())
-    r = client.get("/api/aliyun/regions?site=global"
-                   "&access_key_id=LTAI5t-demo-0001&access_key_secret=bad")
+    r = client.post("/api/aliyun/regions", json={
+        "site": "global", "access_key_id": "LTAI5t-demo-0001",
+        "access_key_secret": "bad"})
     assert r.status_code == 502
     assert "地域查询失败" in r.json()["detail"]
     ids = [x["region_id"] for x in r.json()["fallback_regions"]]

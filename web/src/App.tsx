@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "r
 import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 
-type Tab = "dash" | "accounts" | "groups" | "config" | "logs";
-type SubTab = "settings" | "domains" | "notify";
+type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
+type SubTab = "settings" | "notify" | "logs" | "other";
 type Any = Record<string, any>;
 
 // 已配置的密钥一律显示 * 掩码（密码框里显示为圆点），不显示明文；
@@ -14,12 +14,12 @@ const secretBlurRestore = (e: { target: HTMLInputElement }, configured: boolean)
 
 const TABS: [Tab, string][] = [
   ["dash", "运行概览"], ["accounts", "账户管理"],
-  ["groups", "分组管理"], ["config", "设置"], ["logs", "日志"],
+  ["groups", "分组管理"], ["domains", "域名管理"], ["config", "设置"],
 ];
 
-// 设置页内的子标签（从左到右）：全局设置、域名管理、通知设置
+// 设置页内的子标签（从左到右）：全局设置、通知设置、日志、其它设置
 const SUB_TABS: [SubTab, string][] = [
-  ["settings", "全局设置"], ["domains", "域名管理"], ["notify", "通知设置"],
+  ["settings", "全局设置"], ["notify", "通知设置"], ["logs", "日志"], ["other", "其它设置"],
 ];
 
 const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
@@ -485,9 +485,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
-  const [fixed, setFixed] = useState((g.fixed_switch_time ?? settings.fixed_switch_time ?? "") as string);
-  const [nStart, setNStart] = useState((g.night_window_start ?? settings.night_window_start ?? "00:00") as string);
-  const [nEnd, setNEnd] = useState((g.night_window_end ?? settings.night_window_end ?? "04:00") as string);
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(true);
 
@@ -499,7 +496,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
 
   return (
-    <div className="card" style={{ marginBottom: 12, cursor: "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(gDragProps || {})}>
+    <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b>{g.name as string}</b>
         <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
@@ -535,11 +532,8 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
                 { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                 { value: "24", label: t("24 小时") },
               ]} onChange={(v) => { setInterval(v); savePatch({ interval_hours: Number(v) || 6 }); }} /></div>
-            <div><label className="lbl">{t("固定每日切换时刻")}</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} onBlur={() => savePatch({ fixed_switch_time: fixed || "" })} /></div>
-            <div><label className="lbl">{t("夜间窗口开始")}</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} onBlur={() => savePatch({ night_window_start: nStart || "00:00" })} /></div>
-            <div><label className="lbl">{t("夜间窗口结束")}</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} onBlur={() => savePatch({ night_window_end: nEnd || "04:00" })} /></div>
           </div>
-          <p className="muted">{t("未填的项继承全局设置。夜间窗口内每晚切换一次至使用率更低的候选；间隔按上次切换锚点每 N 小时切一次。")}</p>
+          <p className="muted">{t("间隔按上次切换锚点每 N 小时切一次。")}</p>
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
@@ -566,11 +560,11 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         {members.map((a) => {
           const on = a.ddns_enabled == null ? true : Boolean(a.ddns_enabled);
           return (
-            <button key={a.id as number} className={on ? "seg-on" : ""}
+            <button key={a.id as number} className={(on ? "seg-on " : "") + "member-btn"}
               title={`${a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
               onClick={() => run(() => put(`/api/accounts/${a.id}`, { ddns_enabled: on ? 0 : 1 }), on ? t("已取消 {name} 参与 DDNS", { name: a.name }) : t("{name} 已参与 DDNS", { name: a.name }))}>
-              {dotEl(a.status_dot, a.status_detail || a.status_label || "")}
-              {a.name as string}
+              <span className="member-top">{dotEl(a.status_dot, a.status_detail || a.status_label || "")}{a.name as string}</span>
+              <span className="member-ip">{maskIp(a.public_ip)}</span>
             </button>
           );
         })}
@@ -888,6 +882,22 @@ export default function App() {
     return () => mq.removeEventListener("change", h);
   }, [theme]);
 
+  // ---------- 主题风格：5 种配色（只改按钮与边框，磨砂底色不变） ----------
+  const ACCENTS = [
+    { id: "emerald", zh: "森之韵", en: "Emerald", gradient: "linear-gradient(135deg,#6ee7b7,#059669)" },
+    { id: "deepblue", zh: "深海谧", en: "Deep Blue", gradient: "linear-gradient(135deg,#93c5fd,#2563eb)" },
+    { id: "warmsun", zh: "暖阳橘", en: "Warm Sun", gradient: "linear-gradient(135deg,#fdba74,#ea580c)" },
+    { id: "nebula", zh: "紫微星", en: "Nebula", gradient: "linear-gradient(135deg,#c4b5fd,#7c3aed)" },
+    { id: "crimson", zh: "绯红月", en: "Crimson", gradient: "linear-gradient(135deg,#fca5a5,#dc2626)" },
+  ];
+  const [accent, setAccent] = useState<string>(() => {
+    try { return localStorage.getItem("cdt-accent") || "deepblue"; } catch { return "deepblue"; }
+  });
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent;
+    try { localStorage.setItem("cdt-accent", accent); } catch { /* 忽略 */ }
+  }, [accent]);
+
   // ---------- 登录门：首次设置 / 登录 / 已登录 ----------
   const [authState, setAuthState] = useState<"loading" | "setup" | "login" | "authed">("loading");
   const [authInfo, setAuthInfo] = useState<Any>({});
@@ -954,7 +964,7 @@ export default function App() {
     try { setLogs(await get("/api/logs?limit=100") as Any[]); }
     catch (e) { setMsg(String((e as Error).message)); }
   };
-  useEffect(() => { if (tab === "logs" && authState === "authed") loadLogs(); }, [tab, authState]);
+  useEffect(() => { if (tab === "config" && subTab === "logs" && authState === "authed") loadLogs(); }, [tab, subTab, authState]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true); setMsg("");
@@ -1191,7 +1201,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "logs" ? t("日志") : subTab === "settings" ? t("全局设置") : subTab === "domains" ? t("域名管理") : t("通知设置")}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志") : t("其它设置")}</h1>
           <div className="row">
             <div className="theme-menu">
               <button className="btn ghost" aria-label={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
@@ -1232,7 +1242,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "logs" ? t("最近的事件记录，最新的在前面。") : subTab === "settings" ? t("设置调度规则和登录方式。") : subTab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : t("仅事件通知。可同时启用 E-Mail 和 Telegram。")}</p>
+        <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题、登录与安全、备份与恢复。")}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
@@ -1246,7 +1256,6 @@ export default function App() {
 
       {tab === "dash" && (
         <>
-          <div className="notice">{t("调度运行时会按当前配置执行 VPS 和 DNS 操作。")}</div>
           <div className="grid3">
             <div className="card"><h3>{t("实例状态")}</h3>
               <div style={{ marginTop: 6 }}>{t("服务器总数 {count}", { count: accounts.length })}</div>
@@ -1295,7 +1304,7 @@ export default function App() {
                       <div className="stat"><span>{t("费用")}</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
                       <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
-                    {a.status_detail ? <div className="muted" style={{ marginTop: 6 }}>{a.status_detail as string}</div> : null}
+                    {a.status_detail ? <div className="muted" style={{ marginTop: 6, color: a.status_dot === "green" ? "var(--dot-green)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
                 ))}
               </div>
@@ -1326,8 +1335,8 @@ export default function App() {
           )}
           {accounts.map((a) => (
             <div className="card" key={a.id as number}
-              style={{ marginTop: 12, cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
-              {...dragProps("account", a.id as number)}>
+              style={{ marginTop: 12, cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
+              {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
@@ -1344,7 +1353,7 @@ export default function App() {
               <div className="muted" style={{ marginTop: 6 }}>
                 {t("阈值动作")} {exclLabel(a.exclusion_action_effective || a.exclusion_action)} · {t("恢复")} {a.recovery_action_effective === "keep_stopped" ? t("入池但保持停机") : t("恢复时拉起")} · {t("每日定时")} {a.daily_schedule_enabled ? `${a.daily_on_time}–${a.daily_off_time}` : t("关")} · {t("日报")} {a.daily_report === "on" ? t("单独开启") : a.daily_report === "off" ? t("单独关闭") : t("跟随全局")}{a.has_secret ? "" : ` · ${t("未配置凭据")}`}
               </div>
-              {a.status_detail ? <div className="muted" style={{ marginTop: 4 }}>{a.status_detail as string}</div> : null}
+              {a.status_detail ? <div className="muted" style={{ marginTop: 4, color: a.status_dot === "green" ? "var(--dot-green)" : undefined }}>{a.status_detail as string}</div> : null}
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
@@ -1355,7 +1364,7 @@ export default function App() {
         </div>
       )}
 
-      {tab === "config" && subTab === "domains" && (
+      {tab === "domains" && (
         <>
         <div className="card">
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
@@ -1452,7 +1461,7 @@ export default function App() {
         <>
           <div className="notice" style={{ marginBottom: 12 }}>{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
           {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
+            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}`}
               g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
               dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
           ))}
@@ -1507,16 +1516,6 @@ export default function App() {
                 <div><label className="lbl">{t("切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
               )}
               <div><p className="muted" style={{ marginTop: 28 }}>{t("负载均衡：% 模式差值 ≥ 10% 切，GB 模式差值 ≥ 10 GB 切。")}</p></div>
-              <div><label className="req">{t("API 刷新时间 *（分钟）")}</label>
-                <Seg value={sRefresh} options={[
-                  { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
-                  { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
-                  { value: "60", label: t("60 分钟") },
-                  { value: "custom", label: t("自定义") },
-                ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
-                {sRefresh === "custom" && (
-                <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
-                <p className="muted">{t("多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。")}</p></div>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
             <p className="muted">{t("到达阈值默认不停机，只是跳出 DDNS：实例踢出池子、不再参与 DDNS 解析，域名切到下一台用量最低的。恢复线 = 阈值 − 2%（如阈值 95%，回落到 93% 以下才恢复）；被踢出超 24 小时且用量低于阈值时兜底恢复；流量一更新就重新评估，恢复后同一轮重新参与分配。")}</p>
@@ -1536,6 +1535,18 @@ export default function App() {
                 { value: "keep_stopped", label: t("恢复入池但保持停机") },
               ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
               <p className="muted">{t("每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。")}</p>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label className="req">{t("API 刷新时间 *（分钟）")}</label>
+              <Seg value={sRefresh} options={[
+                { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
+                { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
+                { value: "60", label: t("60 分钟") },
+                { value: "custom", label: t("自定义") },
+              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
+              {sRefresh === "custom" && (
+              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
+              <p className="muted">{t("多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。")}</p>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
@@ -1559,17 +1570,43 @@ export default function App() {
                 </div></div>)}
             </div>
             </div>
-            <div style={{ marginTop: 12 }}>
-              <label className="lbl">{t("货币结算")}</label>
-              <Seg value={sCurrency} options={[
-                { value: "USD", label: "USD" },
-                { value: "CNY", label: "CNY" },
-              ]} onChange={(v) => { setSCurrency(v); saveParamSettings({ settlement_currency: v }); }} />
-              <div style={{ marginTop: 8 }}>
-                <label className="lbl">{t("汇率")}</label>
-                <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} onBlur={() => saveParamSettings()} /><span>&nbsp;CNY</span></div>
-              </div>
-              <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
+          </div>
+        </>
+      )}
+
+      {tab === "config" && subTab === "other" && (
+        <>
+          <div className="card"><h2>{t("货币结算")}</h2>
+            <label className="lbl">{t("结算货币")}</label>
+            <Seg value={sCurrency} options={[
+              { value: "USD", label: "USD" },
+              { value: "CNY", label: "CNY" },
+            ]} onChange={(v) => { setSCurrency(v); saveParamSettings({ settlement_currency: v }); }} />
+            <div style={{ marginTop: 8 }}>
+              <label className="lbl">{t("汇率")}</label>
+              <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} onBlur={() => saveParamSettings()} /><span>&nbsp;CNY</span></div>
+            </div>
+            <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
+          </div>
+          <div className="card"><h2>{t("主题设置")}</h2>
+            <p className="muted">{t("页面外观，与页眉右上角的主题切换同步。")}</p>
+            <Seg value={theme} options={[
+              { value: "light", label: t("亮色") },
+              { value: "dark", label: t("暗色") },
+              { value: "system", label: t("跟随系统") },
+            ]} onChange={(v) => setTheme(v)} />
+            <h3 style={{ marginTop: 16 }}>🎨 {t("主题风格")}</h3>
+            <p className="muted">{t("只改按钮与边框的颜色，卡片磨砂底色不变。")}</p>
+            <div className="theme-grid">
+              {ACCENTS.map((a) => (
+                <button key={a.id} type="button" className={accent === a.id ? "theme-card sel" : "theme-card"} onClick={() => setAccent(a.id)}>
+                  <span className="theme-swatch" style={{ background: a.gradient }}>
+                    {accent === a.id && <span className="theme-check">✓</span>}
+                  </span>
+                  <span className="theme-name">{a.zh}</span>
+                  <span className="theme-en">{a.en}</span>
+                </button>
+              ))}
             </div>
           </div>
           <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
@@ -1600,7 +1637,7 @@ export default function App() {
         </>
       )}
 
-      {tab === "logs" && (
+      {tab === "config" && subTab === "logs" && (
         <div className="card"><h2>{t("日志")}</h2>
           <div className="row" style={{ marginBottom: 12 }}>
             <button className="btn ghost" onClick={() => loadLogs()}>{t("刷新日志")}</button>
