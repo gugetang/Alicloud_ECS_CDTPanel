@@ -574,6 +574,14 @@ def delete_group(gid: int, _: bool = Depends(_admin_required)):
     return {"ok": True}
 
 
+@router.post("/groups/reorder")
+def reorder_groups(body: dict, _: bool = Depends(_admin_required)):
+    # body: {"order": [group_id, ...]} 按数组顺序重排 priority
+    for i, gid in enumerate(body.get("order") or []):
+        db.update_group(int(gid), {"priority": i})
+    return db.list_groups()
+
+
 @router.get("/status")
 def status(_: bool = Depends(_admin_required)):
     settings = db.get_settings()
@@ -658,6 +666,14 @@ def update_account(aid: int, body: dict, _: bool = Depends(_admin_required)):
 def delete_account(aid: int, _: bool = Depends(_admin_required)):
     db.delete_account(aid)
     return {"ok": True}
+
+
+@router.post("/accounts/reorder")
+def reorder_accounts(body: dict, _: bool = Depends(_admin_required)):
+    # body: {"order": [account_id, ...]} 按数组顺序重排 priority
+    for i, aid in enumerate(body.get("order") or []):
+        db.update_account(int(aid), {"priority": i})
+    return db.list_accounts()
 
 
 def _account_client(aid: int):

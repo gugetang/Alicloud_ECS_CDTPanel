@@ -79,6 +79,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               switch_diff_gb REAL,
               switch_diff_pct REAL,
               time_switch_mode TEXT,
+              priority INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS accounts(
@@ -184,6 +185,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN daily_report TEXT NOT NULL DEFAULT 'follow'",
             "ALTER TABLE accounts ADD COLUMN recovery_action TEXT",
             "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
         ):
             try:
                 conn.execute(ddl)
@@ -314,7 +316,7 @@ def list_events(limit: int = 100) -> list[dict]:
 def list_groups() -> list[dict]:
     conn = connect()
     return [dict(r) for r in conn.execute(
-        "SELECT * FROM groups ORDER BY id ASC").fetchall()]
+        "SELECT * FROM groups ORDER BY priority ASC, id ASC").fetchall()]
 
 
 def get_group(gid: int) -> dict | None:
@@ -342,10 +344,13 @@ def create_group(data: dict) -> dict:
     cols = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
             "fixed_switch_time", "night_window_start", "night_window_end",
             "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-            "switch_diff_pct", "time_switch_mode"]
+            "switch_diff_pct", "time_switch_mode", "priority"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
     vals[1] = _check_switch_mode(data.get("switch_mode"))
+    # 新分组排最后（旧库已有分组 priority 全 0 时 max+1 也成立）
+    _mx = conn.execute("SELECT COALESCE(MAX(priority), -1) FROM groups").fetchone()
+    vals[-1] = (_mx[0] if _mx else -1) + 1
     with _lock:
         cur = conn.execute(
             f"INSERT INTO groups({','.join(cols)}, created_at) "
@@ -359,7 +364,7 @@ def update_group(gid: int, data: dict) -> dict | None:
     allowed = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
                "fixed_switch_time", "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-               "switch_diff_pct", "time_switch_mode"]
+               "switch_diff_pct", "time_switch_mode", "priority"]
     sets = [(k, data[k]) for k in allowed if k in data]
     if any(k == "switch_mode" for k, _ in sets):
         sets = [(k, _check_switch_mode(v) if k == "switch_mode" else v)

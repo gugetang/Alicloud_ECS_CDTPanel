@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 
@@ -467,12 +467,15 @@ function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; 
 }
 
 // ---------------- 分组卡片：模式按键 + 参数表单（无 prompt） ----------------
-function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
+function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragProps: gDragProps, dragOver, dragging }: {
   g: Any; settings: Any; accounts: Any[]; domains: Any[];
   dotEl: (dot: string | undefined, title?: string) => JSX.Element;
   run: (fn: () => Promise<unknown>, ok: string) => Promise<void>;
+  setMsg: (s: string) => void;
+  dragProps?: Any; dragOver?: boolean; dragging?: boolean;
 }) {
   const { lang, t } = useI18n();
+  const [gName, setGName] = useState(g.name as string);
   const [interval, setInterval] = useState(String(g.interval_hours ?? settings.interval_hours ?? 6));
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
@@ -488,10 +491,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
   const cur = dom ? accounts.find((a) => a.id === dom.current_account_id) : null;
 
   // 分组参数自动保存：改动即存，不用点保存
-  const savePatch = (patch: Any) => run(() => put(`/api/groups/${g.id}`, patch), t("分组参数已保存"));
+  const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
 
   return (
-    <div className="card" style={{ marginBottom: 12 }}>
+    <div className="card" style={{ marginBottom: 12, cursor: "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(gDragProps || {})}>
       <div className="row"><b>{g.name as string}</b>
         <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
@@ -501,6 +504,15 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
         </button>
       </div>
       {showSettings && (<>
+      <div style={{ marginTop: 12 }}>
+        <label className="lbl">{t("分组名称")}</label>
+        <input value={gName} onChange={(e) => setGName(e.target.value)} onBlur={() => {
+          const nm = gName.trim();
+          if (!nm) { setGName(g.name as string); setMsg(t("请填写分组名")); return; }
+          if (nm === g.name) return;
+          savePatch({ name: nm }, t("已保存成功"));
+        }} />
+      </div>
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("切换模式")}</label>
         <Seg value={g.switch_mode as string} options={[
@@ -694,7 +706,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
     const gsec = (document.getElementById("oauth-google-secret") as HTMLInputElement)?.value || "";
     if (gsec) patch.google_oauth_client_secret = gsec;
     saveSettings(patch);
-    setMsg(t("Google 登录已保存"));
+    setMsg(t("已保存成功"));
   };
 
   const saveGithubOAuth = () => {
@@ -704,7 +716,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
     const hsec = (document.getElementById("oauth-github-secret") as HTMLInputElement)?.value || "";
     if (hsec) patch.github_oauth_client_secret = hsec;
     saveSettings(patch);
-    setMsg(t("GitHub 登录已保存"));
+    setMsg(t("已保存成功"));
   };
 
   return (
@@ -819,6 +831,10 @@ export default function App() {
   const [accounts, setAccounts] = useState<Any[]>([]);
   const [domains, setDomains] = useState<Any[]>([]);
   const [groups, setGroups] = useState<Any[]>([]);
+  // 拖动排序：账户管理 / 分组管理卡片可拖拽换位
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [dragKind, setDragKind] = useState<"account" | "group" | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
   const [settings, setSettings] = useState<Any>({});
   const [timezones, setTimezones] = useState<Any[]>([]);
   const [msg, setMsg] = useState("");
@@ -940,8 +956,27 @@ export default function App() {
     finally { setBusy(false); }
   };
 
+  // 拖动排序：把卡片拖到另一张卡片上松手，即按新顺序保存
+  const clearDrag = () => { setDragId(null); setDragKind(null); setDragOverId(null); };
+  const moveItem = (kind: "account" | "group", fromId: number, toId: number) => {
+    const list = kind === "account" ? accounts : groups;
+    const ids = list.map((x: Any) => x.id as number);
+    const from = ids.indexOf(fromId); const to = ids.indexOf(toId);
+    if (from < 0 || to < 0 || from === to) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    run(() => post(`/api/${kind === "account" ? "accounts" : "groups"}/reorder`, { order: ids }), t("已调整顺序"));
+  };
+  const dragProps = (kind: "account" | "group", id: number) => ({
+    draggable: true,
+    onDragStart: (e: ReactDragEvent) => { setDragId(id); setDragKind(kind); e.dataTransfer.effectAllowed = "move"; },
+    onDragOver: (e: ReactDragEvent) => { e.preventDefault(); if (dragId != null && dragKind === kind && dragId !== id) setDragOverId(id); },
+    onDragLeave: (e: ReactDragEvent) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOverId(null); },
+    onDrop: (e: ReactDragEvent) => { e.preventDefault(); if (dragId != null && dragKind === kind) moveItem(kind, dragId, id); clearDrag(); },
+    onDragEnd: () => clearDrag(),
+  });
+
   const saveSettings = async (patch: Any) => {
-    await run(async () => put("/api/settings", patch), t("已保存"));
+    await run(async () => put("/api/settings", patch), t("已保存成功"));
   };
 
   // DDNS 设置（Cloudflare Token + 时区）：Token 留空保持不变，只有填了
@@ -1009,9 +1044,9 @@ export default function App() {
   const CardSettings = ({ a }: { a: Any }) => (
     <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
       <InstanceForm account={a} settings={settings} count={accounts.length}
-        onDone={() => { setCardSettingsId(null); load(); setMsg(t("已保存")); }}
+        onDone={() => { setCardSettingsId(null); load(); setMsg(t("已保存成功")); }}
         onCancel={() => setCardSettingsId(null)}
-        onAutoSaved={() => { load(); setMsg(t("已保存")); }} />
+        onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn ghost" title={t("复制配置摘要")} onClick={async () => {
           const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("地域")}：${a.region}\nIP：${a.public_ip || "—"}`;
@@ -1280,17 +1315,19 @@ export default function App() {
             <InstanceForm account={null} settings={settings} count={accounts.length}
               onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
               onCancel={() => setEditingId(null)}
-              onAutoSaved={() => { load(); setMsg(t("已保存")); }} />
+              onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
           )}
           {accounts.map((a) => (
-            <div className="card" key={a.id as number} style={{ marginTop: 12 }}>
+            <div className="card" key={a.id as number}
+              style={{ marginTop: 12, cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
+              {...dragProps("account", a.id as number)}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
                 <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
-              <div className="stats">
+              <div className="stats five">
                 <div className="stat"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
                 <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -1330,7 +1367,7 @@ export default function App() {
                 if (nm === d.name && Number(grp0) === (d.group_id || 1)) return;
                 const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(grp0) };
                 if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
-                run(() => put(`/api/domains/${d.id}`, payload), t("域名已更新"));
+                run(() => put(`/api/domains/${d.id}`, payload), t("已保存成功"));
               };
               return (
               <tr key={d.id as number}><td>{String(i + 1).padStart(2, "0")}<br />
@@ -1406,8 +1443,7 @@ export default function App() {
 
       {tab === "groups" && (
         <div className="card">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <h2 style={{ margin: 0 }}>{t("分组 {count}", { count: groups.length })}</h2>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" onClick={() => setShowNewGroup(!showNewGroup)}>{t("+ 新建分组")}</button>
           </div>
           <div className="notice">{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
@@ -1432,8 +1468,9 @@ export default function App() {
             </div>
           )}
           {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
-              g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} />
+            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
+              g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
+              dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
           ))}
         </div>
       )}
