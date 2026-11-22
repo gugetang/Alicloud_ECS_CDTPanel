@@ -292,6 +292,23 @@ BSS 费用并写回；`启动`调 StartInstance；`重启`调 RebootInstance；
 设置最下面**（红色按钮，二次确认，删除后域名重新分配）。Ali 账户页
 的卡片同样是右上角 ⚙ 打开设置、删除在最下面。
 
+## 备份与恢复
+
+全局设置页最下面的“备份与恢复”卡片：
+
+- **下载备份：** 导出全部数据为一个 JSON 文件（账户、域名、分组、
+  设置、通知配置、指纹凭证、最近 500 条事件、最近 5000 条流量记录，
+  以及加密主密钥）。文件名形如 `cdt-backup-20261122-1400.json`。
+- **恢复备份：** 选择备份文件后点“恢复备份”，二次确认后整体替换
+  当前数据（一个事务内完成，先校验再写；版本不对、缺字段直接拒绝，
+  不动现有数据）。管理员密码也会回到备份时的那一个，当前登录会话
+  不受影响；恢复后建议检查一遍再调度。
+
+备份文件里有加密主密钥，恢复后 AK Secret 仍可解密使用，所以**备份
+文件等同于全部凭据，请妥善保管，不要外发**。接口见“API”：
+`GET /api/backup/export`（下载）、`POST /api/backup/restore`（恢复）。
+换机器/重装后恢复同样有效：把备份文件拷过去，在新面板里恢复即可。
+
 ## 消息推送（每日财报）
 
 每天在推送时间（默认 `00:00`，可自定义）推送一次每日财报，只推已启用的
@@ -575,6 +592,8 @@ IP）到剪贴板；删除按钮在卡片设置最下面，二次确认后删实
 | `POST /api/auth/change-password` | 修改管理员密码 |
 | `GET /api/auth/oauth/{google,github}/login`，`GET /api/auth/oauth/{google,github}/callback` | Google / GitHub 第三方登录 |
 | `POST /api/auth/webauthn/register/begin|finish`，`POST /api/auth/webauthn/authenticate/begin|finish`，`GET /api/auth/webauthn/list`，`DELETE /api/auth/webauthn/{id}` | 指纹登录（WebAuthn）注册 / 登录 / 管理 |
+| `GET /api/backup/export` | 下载备份（整库 JSON 文件） |
+| `POST /api/backup/restore` | 恢复备份（整体替换当前数据） |
 | `GET /api/status` | 概览：流量合计、费用合计、账户、域名、最近活动 |
 | `GET/POST/PUT/DELETE /api/accounts` | 账户管理 |
 | `POST /api/accounts/{id}/refresh` | 刷新单台云状态（ECS 状态 + CDT 流量 + BSS） |
@@ -615,9 +634,9 @@ cd web && npm ci && npm run build   # 产物输出到 app/static，后端直接�
 ## 目录
 
 ```
-app/        后端：main/api/db/aliyun/engine/scheduler/ddns/notify/security/settings/oauth
+app/        后端：main/api/db/aliyun/engine/scheduler/ddns/notify/security/settings/oauth/backup
 web/        前端：React 18 + TS + Vite（运行概览/账户/域名/设置/通知）
 scripts/    seed_demo.py（虚构演示数据）
-tests/      引擎/DDNS/安全/API/登录/单台操作测试
+tests/      引擎/DDNS/安全/API/登录/单台操作/备份测试
 Dockerfile  python:3.13-slim 多阶段构建（前端 Node 22 + 后端 slim）
 ```

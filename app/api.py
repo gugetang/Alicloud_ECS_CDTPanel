@@ -934,6 +934,35 @@ def send_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
             "accounts": len(accounts)}
 
 
+@router.get("/backup/export")
+def backup_export(_: bool = Depends(_admin_required)):
+    """下载备份：整库 JSON（含加密后的 AK Secret 与主密钥，见 app/backup.py）。"""
+    from fastapi.responses import JSONResponse
+
+    from . import backup
+    data = backup.build_backup()
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
+    return JSONResponse(
+        content=data,
+        headers={"Content-Disposition":
+                 f'attachment; filename="cdt-backup-{stamp}.json"'})
+
+
+@router.post("/backup/restore")
+def backup_restore(body: dict, _: bool = Depends(_admin_required)):
+    """恢复备份：校验后整体替换当前数据。备份里的管理员密码也会恢复，
+    当前登录会话不受影响。"""
+    from . import backup
+    try:
+        counts = backup.restore_backup(body or {})
+    except ValueError as exc:
+        raise HTTPException(400, f"备份无效：{exc}")
+    db.add_event("info", "恢复备份",
+                 "已从备份恢复："
+                 + "、".join(f"{k} {v} 条" for k, v in counts.items()))
+    return {"ok": True, "counts": counts}
+
+
 @router.post("/schedule/run")
 def schedule_run(body: dict | None = None, _: bool = Depends(_admin_required)):
     return scheduler.run_once(dry_run=False, refresh=True)

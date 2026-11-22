@@ -667,6 +667,70 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
   );
 }
 
+// ---------------- 备份与恢复卡片（全局设置页） ----------------
+function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [fileName, setFileName] = useState("");
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/backup/export", {
+        headers: { Authorization: `Bearer ${getToken() || ""}` },
+        credentials: "same-origin",
+      });
+      if (!r.ok) throw new Error(`下载失败 ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disp = r.headers.get("Content-Disposition") || "";
+      const m = /filename="([^"]+)"/.exec(disp);
+      a.href = url;
+      a.download = m ? m[1] : "cdt-backup.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      setMsg("备份已下载");
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const restore = async () => {
+    const input = document.getElementById("backup-file") as HTMLInputElement;
+    const file = input?.files?.[0];
+    if (!file) { setMsg("请先选择备份文件（.json）"); return; }
+    if (!confirm("恢复备份会整体替换当前全部数据（账户、域名、分组、设置、管理员密码都会回到备份时的状态），确定继续吗？")) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const r = await post("/api/backup/restore", data) as Any;
+      const counts = r.counts || {};
+      setMsg(`备份已恢复：账户 ${counts.accounts ?? 0} 个、域名 ${counts.domains ?? 0} 个、分组 ${counts.groups ?? 0} 个`);
+      setFileName("");
+      input.value = "";
+      await load();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card"><h2>备份与恢复</h2>
+      <p className="muted">下载备份：导出全部数据为一个 JSON 文件（账户、域名、分组、设置、
+        通知配置、指纹凭证、最近事件与流量记录，以及加密主密钥，恢复后 AK
+        Secret 仍可用）。<b>备份文件等同于全部凭据，请妥善保管，不要外发。</b></p>
+      <p className="muted">恢复备份：整体替换当前数据，管理员密码也会回到备份时的那一个；
+        当前登录会话不受影响，恢复后建议检查一遍再调度。</p>
+      <div className="row">
+        <button className="btn" onClick={download} disabled={busy}>下载备份</button>
+        <input type="file" id="backup-file" accept=".json,application/json"
+          style={{ flex: 1 }} onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
+        <button className="btn" onClick={restore} disabled={busy || !fileName}>恢复备份</button>
+      </div>
+      {fileName && <p className="muted">已选：{fileName}</p>}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("dash");
   const [status, setStatus] = useState<Any | null>(null);
@@ -1238,6 +1302,7 @@ export default function App() {
             })}>保存调度参数</button>
           </div>
           <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
+          <BackupCard setMsg={setMsg} load={load} />
         </>
       )}
 
