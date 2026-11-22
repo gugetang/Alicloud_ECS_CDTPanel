@@ -98,7 +98,8 @@ export const EN: Record<string, string> = {
   "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。": "Each group uses exactly one switch mode; each group binds at most one domain.",
   "最近的事件记录，最新的在前面。": "Recent event records, newest first.",
   "设置调度规则。": "Configure scheduling rules.",
-  "货币结算、主题、登录与安全、备份与恢复。": "Currency settlement, theme, sign-in & security, and backup & restore.",
+  "货币结算、主题。": "Currency settlement and theme.",
+  "登录与安全、备份与恢复。": "Sign-in & security and backup & restore.",
   "管理 Cloudflare 域名，保留现有分配并按需切换账户。": "Manage Cloudflare domains, keeping current allocations and switching accounts as needed.",
   "仅事件通知。可同时启用 E-Mail 和 Telegram。": "Event notifications only. E-Mail and Telegram can both be enabled.",
   "加载中…": "Loading…",
@@ -372,6 +373,7 @@ export const EN: Record<string, string> = {
   汇率: "Exchange rate",
   // 其它设置
   其它设置: "Other settings",
+  账号设置: "Account settings",
   主题设置: "Theme settings",
   "页面外观，与页眉右上角的主题切换同步。": "Page appearance, synced with the theme switcher in the header.",
   主题风格: "Theme style",

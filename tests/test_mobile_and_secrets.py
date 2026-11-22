@@ -150,17 +150,20 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
     assert '["domains", "域名管理"]' in tabs
     assert tabs.index('["domains", "域名管理"]') > tabs.index('["groups", "分组管理"]')
     assert '["logs", "日志"]' not in tabs
-    # 设置子标签：全局设置、通知设置、其它设置、日志统计（日志统计在最后）
+    # 设置子标签：全局设置、账号设置、通知设置、其它设置、日志统计（日志统计在最后）
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
     assert '["logs", "日志统计"]' in subs
     assert subs.index('["logs", "日志统计"]') > subs.index('["notify", "通知设置"]')
     assert subs.index('["logs", "日志统计"]') > subs.index('["other", "其它设置"]')
+    assert '["account", "账号设置"]' in subs
+    assert subs.index('["account", "账号设置"]') > subs.index('["settings", "全局设置"]')
+    assert subs.index('["account", "账号设置"]') < subs.index('["notify", "通知设置"]')
     assert '["domains", "域名管理"]' not in subs
     # 类型与渲染条件同步：域名管理是顶栏 tab，日志是设置子标签
     assert 'type Tab = "dash" | "accounts" | "groups" | "domains" | "config"' in tsx
-    assert 'type SubTab = "settings" | "notify" | "logs" | "other"' in tsx
+    assert 'type SubTab = "settings" | "account" | "notify" | "other" | "logs"' in tsx
     assert '{tab === "domains" && (' in tsx
     assert '{tab === "config" && subTab === "logs" && (' in tsx
     assert 'tab === "logs"' not in tsx and 'subTab === "domains"' not in tsx
@@ -176,22 +179,27 @@ def test_api_refresh_own_row_and_other_settings_tab():
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('阈值恢复') < api_idx
     assert api_idx < tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>')
-    # 其它设置是设置页的第三个子标签（在通知设置后面、日志统计前面）
+    # 其它设置是设置页的第四个子标签（在通知设置后面、日志统计前面），
+    # 只剩货币结算与主题设置；登录与安全、备份与恢复已移到新开的“账号设置”
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
     assert '["other", "其它设置"]' in subs
     assert subs.index('["other", "其它设置"]') < subs.index('["logs", "日志统计"]')
     assert subs.index('["other", "其它设置"]') > subs.index('["notify", "通知设置"]')
-    assert '"other"' in tsx and 'type SubTab = "settings" | "notify" | "logs" | "other"' in tsx
-    # 其它设置里有货币结算卡片、主题设置卡片、登录与安全、备份与恢复
+    assert '"other"' in tsx and 'type SubTab = "settings" | "account" | "notify" | "other" | "logs"' in tsx
+    # 其它设置里只有货币结算卡片、主题设置卡片
     other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
+    acc_idx = tsx.index('{tab === "config" && subTab === "account" && (')
     notify_idx = tsx.index('{tab === "config" && subTab === "notify" && (')
-    other_block = tsx[other_idx:notify_idx]
+    other_block = tsx[other_idx:acc_idx]
     assert '<div className="card"><h2>{t("货币结算")}</h2>' in other_block
     assert '<div className="card"><h2>{t("主题设置")}</h2>' in other_block
-    assert '<LoginSecurity' in other_block and '<BackupCard' in other_block
+    assert '<LoginSecurity' not in other_block and '<BackupCard' not in other_block
     assert 'value={theme}' in other_block and 'setTheme(v)' in other_block
+    # 账号设置（新开，在全局设置后面）里是登录与安全、备份与恢复
+    acc_block = tsx[acc_idx:notify_idx]
+    assert '<LoginSecurity' in acc_block and '<BackupCard' in acc_block
     # 参数设置卡片里不再有货币结算、登录与安全、备份与恢复
     settings_idx = tsx.index('{tab === "config" && subTab === "settings" && (')
     settings_block = tsx[settings_idx:other_idx]

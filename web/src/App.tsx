@@ -3,7 +3,7 @@ import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 
 type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
-type SubTab = "settings" | "notify" | "logs" | "other";
+type SubTab = "settings" | "account" | "notify" | "other" | "logs";
 type Any = Record<string, any>;
 
 // 已配置的密钥一律显示 * 掩码（密码框里显示为圆点），不显示明文；
@@ -17,9 +17,9 @@ const TABS: [Tab, string][] = [
   ["groups", "分组管理"], ["domains", "域名管理"], ["config", "设置"],
 ];
 
-// 设置页内的子标签（从左到右）：全局设置、通知设置、其它设置、日志统计
+// 设置页内的子标签（从左到右）：全局设置、账号设置、通知设置、其它设置、日志统计
 const SUB_TABS: [SubTab, string][] = [
-  ["settings", "全局设置"], ["notify", "通知设置"], ["other", "其它设置"], ["logs", "日志统计"],
+  ["settings", "全局设置"], ["account", "账号设置"], ["notify", "通知设置"], ["other", "其它设置"], ["logs", "日志统计"],
 ];
 
 const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
@@ -1200,7 +1200,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
           <div className="row">
             <div className="theme-menu">
               <button className="btn ghost" aria-label={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
@@ -1241,7 +1241,7 @@ export default function App() {
             </div>
           </div>
         </div>
-        <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题、登录与安全、备份与恢复。")}</p>
+        <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。")}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
@@ -1593,6 +1593,11 @@ export default function App() {
               ))}
             </div>
           </div>
+        </>
+      )}
+
+      {tab === "config" && subTab === "account" && (
+        <>
           <LoginSecurity settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
           <BackupCard setMsg={setMsg} load={load} />
         </>
