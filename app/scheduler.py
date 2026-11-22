@@ -254,11 +254,8 @@ class _DnsOps(engine.DnsOps):
         # 后两段推算，二级/三级域名也能识别。
         zone = ((self.settings.get("cloudflare_zone") or "").strip()
                 or domain.zone or domain.name.split(".", 1)[-1])
-        # Account ID + Token：按账户查 Zone，二级/三级域名也能识别；
-        # 不配 Account ID 时按 zone 名精确查询（旧行为）
         res = self.cf.sync(domain.name, zone, ip, domain.record_type,
-                           domain.ttl, domain.proxied,
-                           account_id=self.settings.get("cloudflare_account_id") or "")
+                           domain.ttl, domain.proxied)
         if res.changed:
             db.upsert_dns_record(domain.id, res.zone_id, res.record_id, ip)
             db.add_event("dns_change", "DNS 已同步",

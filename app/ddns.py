@@ -63,40 +63,9 @@ class CloudflareClient:
             raise RuntimeError(str(data.get("errors"))[:300])
         return data
 
-    def _list_account_zones(self, account_id: str) -> list[dict]:
-        """按账户列出全部 Zone（分页取齐）。"""
-        zones: list[dict] = []
-        page = 1
-        while True:
-            data = self._get(f"/accounts/{account_id}/zones",
-                             {"page": page, "per_page": 50})
-            zones.extend(data.get("result") or [])
-            info = data.get("result_info") or {}
-            if page >= (info.get("total_pages") or 1):
-                break
-            page += 1
-        return zones
-
-    def find_zone_id(self, zone: str, domain: str = "",
-                     account_id: str = "") -> str:
-        """按域名找 Zone ID。配了 Account ID 时按账户列出全部 Zone，
-        取与域名最长后缀匹配的那个（二级/三级域名也能识别）；
-        没配或账户下没有匹配时，按 zone 名精确查询（旧行为）。"""
-        if account_id:
-            try:
-                zones = self._list_account_zones(account_id)
-            except Exception:
-                zones = []
-            d = (domain or "").strip().lower()
-            best = None
-            for z in zones:
-                name = (z.get("name") or "").strip().lower()
-                if d and (d == name or d.endswith("." + name)):
-                    if best is None or len(name) > len(best.get("name") or ""):
-                        best = z
-            if best:
-                return best["id"]
-            # 账户下没有匹配的 Zone：回退到按名查询（兼容旧 Token/旧配置）
+    def find_zone_id(self, zone: str) -> str:
+        """按 zone 名精确查询 Zone ID。Zone 名由 DDNS 设置里填的域名直接
+        给出（二级/三级域名不用再靠后两段推算）。"""
         data = self._get("/zones", {"name": zone, "per_page": 5})
         for z in data.get("result") or []:
             if z.get("name") == zone:
@@ -112,14 +81,12 @@ class CloudflareClient:
         return results[0] if results else None
 
     def sync(self, domain: str, zone: str, new_ip: str, rtype: str = "A",
-             ttl: int = 1, proxied: bool = False,
-             account_id: str = "") -> DDNSResult:
+             ttl: int = 1, proxied: bool = False) -> DDNSResult:
         """把 domain 指到 new_ip。IP 不变 → unchanged 且不发 PUT。"""
         if not is_valid_ip(new_ip):
             return DDNSResult(status="invalid_ip", ip=new_ip, detail="IP 无效，跳过")
         try:
-            zone_id = self.find_zone_id(zone or domain.split(".", 1)[-1],
-                                        domain=domain, account_id=account_id)
+            zone_id = self.find_zone_id(zone or domain.split(".", 1)[-1])
             rec = self.find_record(zone_id, domain, rtype)
             if rec is None:
                 return DDNSResult(status="no_record", ip=new_ip, zone_id=zone_id,

@@ -501,13 +501,14 @@ def test_group_card_pause_toggle_button():
     assert '<rect x="6" y="6" width="12" height="12"' in tsx
 
 
-def test_ddns_settings_has_account_id_and_token():
+def test_ddns_settings_no_account_id():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # DDNS 设置卡片：账户 ID + API Token 两个字段
-    assert 'id="cf-account-id"' in tsx
+    # Account ID 已取消：DDNS 设置卡片只有域名 + 账户邮箱 + API Token
+    assert 'id="cf-account-id"' not in tsx
+    assert "cloudflare_account_id" not in tsx
+    assert 'id="cf-zone"' in tsx
+    assert 'id="cf-email"' in tsx
     assert 'id="cf-token"' in tsx
-    assert "patch.cloudflare_account_id" in tsx
-    assert "Cloudflare Account ID" in tsx
 
 
 def test_ddns_check_interval_hardcoded_no_setting():
@@ -524,16 +525,25 @@ def test_ddns_check_interval_hardcoded_no_setting():
 
 def test_ddns_settings_domain_email_token_form():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # DDNS 设置按截图的表单：域名 + 账户邮箱 + API Token（另有 Account ID）
+    # DDNS 设置按截图的表单：域名 + 账户邮箱 + API Token（账户邮箱保留）
     assert 'id="cf-zone"' in tsx
     assert 'id="cf-email"' in tsx
     assert 'id="cf-token"' in tsx
-    assert 'id="cf-account-id"' in tsx
     assert "patch.cloudflare_zone" in tsx
     assert "patch.cloudflare_email" in tsx
     # 新增/编辑域名时优先用 DDNS 设置里填的 Zone 名，不再只按后两段推算
     assert '(settings.cloudflare_zone as string) || name.split(".").slice(-2)' in tsx
     assert '(settings.cloudflare_zone as string) || nm.split(".").slice(-2)' in tsx
+
+
+def test_required_fields_have_star_marker():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 必填字段的 * 号标识全局应用：DDNS 的 API Token、分组名称、添加域名
+    # 的域名都要带 *（req 样式）；账户邮箱是选填，不带 *
+    assert '{t("Cloudflare API Token *")}' in tsx
+    assert '{t("分组名称 *")}' in tsx
+    assert '{t("域名 *")}' in tsx
+    assert '<label className="req">{t("Cloudflare API Token *")}</label>' in tsx
 
 
 def test_group_card_settings_collapsed_by_default():

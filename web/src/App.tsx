@@ -512,7 +512,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       {showSettings && (<>
       <div style={{ marginTop: 12 }}>
-        <label className="lbl">{t("分组名称")}</label>
+        <label className="req">{t("分组名称 *")}</label>
         <input value={gName} onChange={(e) => setGName(e.target.value)} onBlur={() => {
           const nm = gName.trim();
           if (!nm) { setGName(g.name as string); setMsg(t("请填写分组名")); return; }
@@ -1049,8 +1049,7 @@ export default function App() {
     const patch: Any = { timezone: (document.getElementById("s-timezone") as HTMLSelectElement)?.value || "Asia/Shanghai" };
     const tok = (document.getElementById("cf-token") as HTMLInputElement)?.value || "";
     if (tok && tok !== SECRET_MASK) patch.cloudflare_token = tok;
-    // Account ID / 域名 / 账户邮箱都不是密钥，明文显示、改完即存（留空=清除）
-    patch.cloudflare_account_id = ((document.getElementById("cf-account-id") as HTMLInputElement)?.value || "").trim();
+    // 域名 / 账户邮箱都不是密钥，明文显示、改完即存（留空=清除）
     patch.cloudflare_zone = ((document.getElementById("cf-zone") as HTMLInputElement)?.value || "").trim();
     patch.cloudflare_email = ((document.getElementById("cf-email") as HTMLInputElement)?.value || "").trim();
     return patch;
@@ -1476,7 +1475,7 @@ export default function App() {
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <h3>{t("+ 添加域名")}</h3>
                 <div style={{ marginTop: 12 }}>
-                  <label className="lbl">{t("域名")}</label>
+                  <label className="req">{t("域名 *")}</label>
                   <input placeholder={t("域名，如 www.example.xyz")} value={addDomName} onChange={(e) => setAddDomName(e.target.value)} style={{ width: "100%" }} />
                 </div>
                 <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -1494,16 +1493,13 @@ export default function App() {
         </div>
         {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
-          <p className="muted">{t("填入域名、账户邮箱、API Token 才能识别 Zone（按账户查 Zone，二级/三级域名也能识别；Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
+          <p className="muted">{t("填入域名、账户邮箱、API Token 才能识别 Zone（直接按填的域名查 Zone，二级/三级域名也能识别；Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
           <div className="form2">
             <div><label className="req">{t("域名 *")}</label>
               <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 kadi.eu.org")} onBlur={() => saveSettings(ddnsPatch())} /></div>
             <div><label>{t("账户邮箱")}</label>
               <input type="text" id="cf-email" defaultValue={(settings.cloudflare_email as string) || ""} placeholder={t("Cloudflare 账户邮箱")} onBlur={() => saveSettings(ddnsPatch())} /></div>
-            <div><label>Cloudflare Account ID</label>
-              <input type="text" id="cf-account-id" defaultValue={(settings.cloudflare_account_id as string) || ""} placeholder={t("Cloudflare 账户 ID，在控制面板右下角查看")} onBlur={() => saveSettings(ddnsPatch())} />
-              <p className="muted">{t("在 Cloudflare 控制面板右下角的「Account ID」处复制。")}</p></div>
-            <div><label>Cloudflare API Token</label>
+            <div><label className="req">{t("Cloudflare API Token *")}</label>
               <input type="password" id="cf-token" key={String(settings.cloudflare_configured)} defaultValue={settings.cloudflare_configured ? SECRET_MASK : ""} placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.cloudflare_configured)); saveSettings(ddnsPatch()); }} />
               <p className="muted">{settings.cloudflare_configured ? t("已配置。留空保存时保持不变，只有填了新值才更新。") : t("未配置。填写后才能执行 DDNS 更新。")}</p></div>
             <div><label className="req">{t("时区 *")}</label>
