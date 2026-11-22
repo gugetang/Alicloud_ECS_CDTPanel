@@ -281,6 +281,8 @@ export default function App() {
       <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=已跳出</span>
       <span><span className="dot" style={{ background: "#EA4335" }} />红=停机/离线</span>
       <span><span className="dot dot-pulse" style={{ background: "#34A853" }} />闪烁绿=启动中</span>
+      <span><span className="dot dot-pulse-red" style={{ background: "#EA4335" }} />闪烁红=停止中</span>
+      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=未知</span>
     </p>
   );
 
