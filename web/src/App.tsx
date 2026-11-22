@@ -1233,12 +1233,11 @@ export default function App() {
                       <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
                     {a.status_detail ? <div className="muted" style={{ marginTop: 6 }}>{a.status_detail as string}</div> : null}
-                    <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
                   </div>
                 ))}
               </div>
             ) : (
-              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("已用 / 月度流量额度")}</th><th>{t("使用率")}</th><th>{t("状态")}</th><th>{t("操作")}</th></tr></thead>
+              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("已用 / 月度流量额度")}</th><th>{t("使用率")}</th><th>{t("状态")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
@@ -1248,7 +1247,6 @@ export default function App() {
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}<div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div></td>
                     <td><span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
-                    <td><ActionButtons a={a} /></td>
                   </tr>
                 ))}</tbody></table>
             )}
