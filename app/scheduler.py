@@ -182,22 +182,46 @@ def refresh_one_account(account_id: int) -> dict:
     return db.get_account(account_id)
 
 
+def _eff_refresh_minutes(a: dict, settings: dict) -> int:
+    """单账户生效的 API 刷新间隔（分钟）：账户自定义 > 0 时用它，否则跟随全局。"""
+    v = a.get("api_refresh_minutes")
+    if v:
+        try:
+            n = int(v)
+            if 1 <= n <= 1440:
+                return n
+        except (TypeError, ValueError):
+            pass
+    return _refresh_minutes(settings)
+
+
+def _is_refresh_due(a: dict, settings: dict, now_ts: int) -> bool:
+    """该账户是否到了刷新时间：上次刷新（last_seen_at）距今 >= 生效间隔。"""
+    last = a.get("last_seen_at") or 0
+    return now_ts - last >= _eff_refresh_minutes(a, settings) * 60
+
+
 def refresh_cloud_status(settings: dict) -> list[dict]:
-    """刷新全部账户快照并写回 DB。返回更新后的账户行。
+    """刷新到期的账户快照并写回 DB。返回更新后的账户行。
 
     并行刷新：每账户独立调阿里云接口（DescribeInstances + CDT 流量 +
     BSS 费用，最多 3 次往返），串行时 N 个账户要 N×3 次往返，一轮
     耗时随账户数线性增长；线程池并行后一轮耗时接近最慢的 1 个账户。
     _refresh_one 内部已捕获全部业务异常；DB 写经 db._lock 串行，
     单连接跨线程共享安全；_refresh_one_safe 再兜一层防意外抛错
-    导致整轮失败。"""
+    导致整轮失败。
+    单账户 API 刷新时间：账户自定义了间隔就按它，否则跟随全局；
+    没到时间的账户跳过（用库里已有数据），避免每轮都调全部账户的 API。
+    """
     accounts = db.list_accounts()
-    if len(accounts) > 1:
-        workers = min(REFRESH_MAX_WORKERS, len(accounts))
+    now_ts = int(time.time())
+    due = [a for a in accounts if _is_refresh_due(a, settings, now_ts)]
+    if len(due) > 1:
+        workers = min(REFRESH_MAX_WORKERS, len(due))
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            list(ex.map(lambda a: _refresh_one_safe(a, settings), accounts))
+            list(ex.map(lambda a: _refresh_one_safe(a, settings), due))
     else:
-        for a in accounts:
+        for a in due:
             _refresh_one_safe(a, settings)
     return db.list_accounts()
 
@@ -742,10 +766,11 @@ DDNS_CHECK_INTERVAL_SECONDS = 60  # DDNS 检查固定每分钟一次，无后端
 
 
 def ddns_check() -> dict:
-    """DDNS 检查：每分钟一次（硬编码，无后端设置）。用库里已有的数据
-    重算分配并同步 DNS，不调阿里云 API；不写调度事件、不建 job，
+    """DDNS 检查：每分钟一次（硬编码，无后端设置）。刷新到期的账户
+    （按各账户生效的 API 刷新时间：自定义或跟随全局），再用库里已有
+    的数据重算分配并同步 DNS；不写调度事件、不建 job，
     避免每分钟一条日志刷屏。"""
-    return run_once(refresh=False, quiet=True)
+    return run_once(refresh=True, quiet=True)
 
 
 def _loop() -> None:

@@ -9,10 +9,11 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 
 from . import db, engine, oauth, scheduler
+from .settings import DATA_DIR
 from .notify import Notifier
 from .security import (check_session, clear_login_fails, hash_password,
                        login_locked, new_session, record_login_fail,
@@ -876,6 +877,68 @@ def put_settings(body: dict, _: bool = Depends(_admin_required)):
     data = {k: str(v) for k, v in body.items() if k in allowed}
     _validate_settings(data)
     return _mask(db.set_settings(data))
+
+
+# 站点 logo：上传/读取/删除。文件存在数据目录（site_logo.*），
+# 文件名存 settings.site_logo；读取是公开的（<img> 标签不带鉴权头）。
+LOGO_EXTS = {".png": "image/png", ".jpg": "image/jpeg",
+             ".jpeg": "image/jpeg", ".gif": "image/gif",
+             ".webp": "image/webp", ".svg": "image/svg+xml",
+             ".ico": "image/x-icon"}
+LOGO_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _logo_path() -> Any:
+    name = (db.get_settings().get("site_logo") or "").strip()
+    if not name:
+        return None
+    p = DATA_DIR / name
+    return p if p.is_file() else None
+
+
+@router.post("/settings/logo")
+async def upload_site_logo(file: UploadFile = File(...),
+                           _: bool = Depends(_admin_required)):
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in LOGO_EXTS:
+        raise HTTPException(400, "只支持 png/jpg/gif/webp/svg/ico 图片")
+    data = await file.read()
+    if len(data) > LOGO_MAX_BYTES:
+        raise HTTPException(400, "logo 不能超过 2 MB")
+    if not data:
+        raise HTTPException(400, "空文件")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # 旧 logo 换后缀时先删掉，避免残留多个文件
+    for old in DATA_DIR.glob("site_logo.*"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    name = f"site_logo{ext}"
+    (DATA_DIR / name).write_bytes(data)
+    db.set_settings({"site_logo": name})
+    return {"ok": True, "logo": name}
+
+
+@router.get("/settings/logo")
+def get_site_logo():
+    p = _logo_path()
+    if p is None:
+        raise HTTPException(404, "未设置 logo")
+    return FileResponse(p, media_type=LOGO_EXTS.get(
+        p.suffix.lower(), "application/octet-stream"))
+
+
+@router.delete("/settings/logo")
+def delete_site_logo(_: bool = Depends(_admin_required)):
+    p = _logo_path()
+    if p is not None:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+    db.set_settings({"site_logo": ""})
+    return {"ok": True}
 
 
 def _validate_settings(data: dict) -> None:

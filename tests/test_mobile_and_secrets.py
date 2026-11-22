@@ -174,9 +174,11 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
 
 def test_api_refresh_own_row_and_other_settings_tab():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # API 刷新时间单独占一行，移到定时轮巡上面（不在两列 form2 里）
-    assert tsx.count('API 刷新时间') == 1
-    api_idx = tsx.index('API 刷新时间')
+    # 全局的 API 刷新时间单独占一行，移到定时轮巡上面（不在两列 form2 里）；
+    # 实例表单里另有一项单账户 API 刷新时间（跟随全局/自定义），两者各出现一次
+    assert tsx.count('API 刷新时间 *（分钟）') == 1
+    assert tsx.count('t("API 刷新时间")') == 1
+    api_idx = tsx.index('API 刷新时间 *（分钟）')
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('阈值恢复') < api_idx
     assert api_idx < tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>')
@@ -515,10 +517,11 @@ def test_ddns_settings_no_account_id():
 
 def test_ddns_check_interval_hardcoded_no_setting():
     src = (ROOT / "app" / "scheduler.py").read_text(encoding="utf-8")
-    # DDNS 检查固定每分钟一次，无后端设置
+    # DDNS 检查固定每分钟一次，无后端设置；每分钟的检查会刷新到期的账户
+    # （按各账户生效的 API 刷新时间：自定义或跟随全局），再重算分配并同步 DNS
     assert "DDNS_CHECK_INTERVAL_SECONDS = 60" in src
     assert "def ddns_check" in src
-    assert "run_once(refresh=False, quiet=True)" in src
+    assert "run_once(refresh=True, quiet=True)" in src
     assert "cloudflare" not in src.split("DDNS_CHECK_INTERVAL_SECONDS")[0].split("def ddns_check")[0][-200:] or True
     # 设置里没有 ddns 检查间隔这一项
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")

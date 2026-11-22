@@ -119,6 +119,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               billing_updated_at INTEGER DEFAULT 0,
               last_seen_at INTEGER DEFAULT 0,
               ddns_enabled INTEGER NOT NULL DEFAULT 1,
+              api_refresh_minutes INTEGER,
               created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS domains(
@@ -192,6 +193,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN daily_report TEXT NOT NULL DEFAULT 'follow'",
             "ALTER TABLE accounts ADD COLUMN recovery_action TEXT",
             "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE accounts ADD COLUMN api_refresh_minutes INTEGER",
             "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN interval_start_time TEXT",
             "ALTER TABLE groups ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
@@ -643,8 +645,23 @@ def _norm_exclusion_action(data: dict) -> dict:
     return data
 
 
+def _norm_refresh_minutes(data: dict) -> dict:
+    """单账户 API 刷新时间（分钟）归一化：None/空/0/非法 = 跟随全局（存 NULL）；
+    否则存正整数分钟。"""
+    if "api_refresh_minutes" not in data:
+        return data
+    v = data.get("api_refresh_minutes")
+    if v is None or v == "":
+        return {**data, "api_refresh_minutes": None}
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return {**data, "api_refresh_minutes": None}
+    return {**data, "api_refresh_minutes": n if n > 0 else None}
+
+
 def create_account(data: dict) -> dict:
-    data = _norm_exclusion_action(data)
+    data = _norm_refresh_minutes(_norm_exclusion_action(data))
     data = {**data, "name": _check_account_name(
         data.get("name"), data.get("group_id"))}
     _check_group_exists(data.get("group_id"))
@@ -656,7 +673,7 @@ def create_account(data: dict) -> dict:
             "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
             "exclusion_action", "priority", "group_id",
             "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-            "daily_report", "recovery_action"]
+            "daily_report", "recovery_action", "api_refresh_minutes"]
     _text = {"name", "site", "region", "access_key_id", "access_key_secret_enc",
              "instance_id", "exclusion_action",
              "daily_on_time", "daily_off_time", "daily_report", "recovery_action"}
@@ -687,7 +704,7 @@ def create_account(data: dict) -> dict:
 
 def update_account(aid: int, data: dict) -> dict | None:
     conn = connect()
-    data = _norm_exclusion_action(data)
+    data = _norm_refresh_minutes(_norm_exclusion_action(data))
     if "group_id" in data:
         _check_group_exists(data.get("group_id"))
     if "name" in data:
@@ -701,7 +718,7 @@ def update_account(aid: int, data: dict) -> dict | None:
                "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
                "exclusion_action", "priority", "group_id",
                "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-               "daily_report", "recovery_action",
+               "daily_report", "recovery_action", "api_refresh_minutes",
                "traffic_used_gb", "instance_status", "public_ip",
                "billing_month_cost", "billing_currency", "billing_balance",
                "billing_balance_currency", "instance_type", "instance_spec",

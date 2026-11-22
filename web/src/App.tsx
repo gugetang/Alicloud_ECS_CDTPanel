@@ -196,6 +196,19 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [report, setReport] = useState((account?.daily_report as string) || "follow");
   const [excl, setExcl] = useState((account?.exclusion_action as string) || "");
   const [recovery, setRecovery] = useState((account?.recovery_action as string) || "");
+  // 单账户 API 刷新时间：follow=跟随全局；固定值或 custom=自定义分钟数
+  const [refresh, setRefresh] = useState(() => {
+    const v = account?.api_refresh_minutes;
+    if (v == null || v === "") return "follow";
+    const s = String(v);
+    return ["5", "10", "15", "30", "60"].includes(s) ? s : "custom";
+  });
+  const [refreshCustom, setRefreshCustom] = useState(() => {
+    const v = account?.api_refresh_minutes;
+    if (v == null || v === "") return "";
+    const s = String(v);
+    return ["5", "10", "15", "30", "60"].includes(s) ? "" : s;
+  });
   const [regions, setRegions] = useState<{ region_id: string; local_name: string }[]>(BUILTIN_REGIONS);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [formMsg, setFormMsg] = useState("");
@@ -269,6 +282,9 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime, daily_report: report,
       exclusion_action: excl || "", recovery_action: recovery || "",
+      api_refresh_minutes: refresh === "follow" ? null
+        : refresh === "custom" ? (Number(refreshCustom) > 0 ? Number(refreshCustom) : null)
+        : Number(refresh),
     };
     if (akSecret && akSecret !== SECRET_MASK) payload.access_key_secret = akSecret;  // 掩码不是新密钥，留空/掩码都保持不变，绝不清空
     try {
@@ -320,6 +336,19 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
           </div></div>
         <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
+        <div onBlur={saveAuto}><label>{t("API 刷新时间")}</label>
+          <Seg value={refresh} options={[
+            { value: "follow", label: t("跟随全局") },
+            { value: "5", label: "5" },
+            { value: "10", label: "10" },
+            { value: "15", label: "15" },
+            { value: "30", label: "30" },
+            { value: "60", label: "60" },
+            { value: "custom", label: t("自定义") },
+          ]} onChange={setRefresh} />
+          {refresh === "custom" && (
+            <input type="number" min={1} placeholder={t("自定义分钟数")} value={refreshCustom} onChange={(e) => setRefreshCustom(e.target.value)} onBlur={saveAuto} style={{ marginTop: 6 }} />)}
+        </div>
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="check" onBlur={saveAuto}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
@@ -870,6 +899,77 @@ function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () =>
   );
 }
 
+// ---------------- 站点信息卡片（其它设置页） ----------------
+function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: string) => void; load: () => Promise<void> }) {
+  const { t } = useI18n();
+  const [intro, setIntro] = useState((settings?.site_intro as string) || "");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const hasLogo = Boolean(settings?.site_logo);
+
+  const saveIntro = async () => {
+    await put("/api/settings", { site_intro: intro.trim() });
+    setMsg(t("已保存成功"));
+    await load();
+  };
+
+  const uploadLogo = async (f: File) => {
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/settings/logo", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken() || ""}` },
+        body: fd,
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({} as Any));
+        setMsg((e as Any).detail || t("上传失败"));
+        return;
+      }
+      setMsg(t("已保存成功"));
+      await load();
+    } catch { setMsg(t("上传失败")); }
+    finally { setBusy(false); }
+  };
+
+  const removeLogo = async () => {
+    setBusy(true);
+    try {
+      await fetch("/api/settings/logo", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken() || ""}` },
+      });
+      setMsg(t("已保存成功"));
+      await load();
+    } catch { setMsg(t("删除失败")); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card"><h2>{t("站点信息")}</h2>
+      <label className="lbl">{t("站点 logo")}</label>
+      <div className="row" style={{ alignItems: "center" }}>
+        {hasLogo && (
+          <img src="/api/settings/logo" alt="logo" style={{ height: 40, maxWidth: 160, objectFit: "contain" }} />
+        )}
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon"
+          style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f); e.target.value = ""; }} />
+        <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>{t("上传 logo")}</button>
+        {hasLogo && (
+          <button className="btn ghost" onClick={() => void removeLogo()} disabled={busy}>{t("删除 logo")}</button>
+        )}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <label className="lbl">{t("站点简介")}</label>
+        <input value={intro} onChange={(e) => setIntro(e.target.value)} onBlur={() => void saveIntro()} placeholder={t("页眉显示的简介，留空显示默认副标题")} />
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>("dash");
   const [subTab, setSubTab] = useState<SubTab>("settings");
@@ -1253,7 +1353,12 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("实例管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
+          <div className="row" style={{ alignItems: "center", gap: 10 }}>
+            {(settings?.site_logo as string) ? (
+              <img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 140, objectFit: "contain" }} />
+            ) : null}
+            <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("实例管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
+          </div>
           <div className="row">
             <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
               <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
@@ -1292,7 +1397,7 @@ export default function App() {
             </button>
           </div>
         </div>
-        <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。")}</p>
+        <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。"))}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
@@ -1638,6 +1743,7 @@ export default function App() {
 
       {tab === "config" && subTab === "other" && (
         <>
+          <SiteInfoCard settings={settings} setMsg={setMsg} load={load} />
           <div className="card"><h2>{t("货币结算")}</h2>
             <label className="lbl">{t("结算货币")}</label>
             <Seg value={sCurrency} options={[
@@ -1716,6 +1822,9 @@ export default function App() {
           ))}
         </div>
       )}
+      <footer style={{ marginTop: 24, padding: "12px 0", textAlign: "center" }}>
+        <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13 }}>GitHub: gugetang/Alicloud_ECS_CDTPanel</a>
+      </footer>
     </div>
   );
 }

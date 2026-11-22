@@ -58,6 +58,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # UI 里改了以后以 UI 设置为准，不用重启。
     "timezone": TZ,
     "cloudflare_token": "",
+    # 站点信息：页眉显示的 logo（文件名，空=无 logo）与简介（空=显示默认副标题）。
+    # logo 文件存在数据目录，由 /api/settings/logo 上传/读取/删除。
+    "site_intro": "",
+    "site_logo": "",
     # DDNS 域名（Zone 名，如 kadi.eu.org）：配了以后直接按它查 Zone，
     # 二级/三级域名不用再靠后两段推算
     "cloudflare_zone": "",
