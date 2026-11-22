@@ -538,6 +538,15 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                 plan.actions.append(Action("start", domain_id=d.id, account_id=current.id,
                                            reason="keepalive",
                                            detail=f"{current.name} 已停机，保活拉起"))
+            elif (current.status == "Running" and current.public_ip
+                  and current.public_ip != (d.current_ip or "")):
+                # 实例已拿到新 IP（如重启后换 IP），但域名记录仍是旧 IP：
+                # 即使还是同一台，也要重新同步 DNS，否则解析一直指向旧 IP。
+                # ddns.sync 会先读 Cloudflare 现值，IP 一致时不发 PUT。
+                plan.actions.append(Action("dns", domain_id=d.id, account_id=current.id,
+                                           target_ip=current.public_ip, reason="ip_changed",
+                                           detail=f"{d.name} IP 已变（{d.current_ip or '—'} → "
+                                                  f"{current.public_ip}），重新同步"))
             continue
 
         # --- 需要切换：定原因 ---
@@ -581,9 +590,12 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                 plan.actions.append(Action("start", domain_id=d.id, account_id=target.id,
                                            reason="keepalive_before_switch",
                                            detail=f"切换目标 {target.name} 已停机，先保活拉起"))
-            plan.actions.append(Action("dns", domain_id=d.id, account_id=target.id,
-                                       target_ip=target.public_ip, reason=reason,
-                                       detail=f"{d.name} 待 {target.name} Running 后切过去"))
+            if target.public_ip:
+                plan.actions.append(Action("dns", domain_id=d.id, account_id=target.id,
+                                           target_ip=target.public_ip, reason=reason,
+                                           detail=f"{d.name} 待 {target.name} Running 后切过去"))
+            # 没拿到 IP 时只拉起不切 DNS（空 IP 会报 invalid_ip）；
+            # 下轮 Running 拿到新 IP 后，“已是目标 + IP 已变”分支会重新同步。
         elif target.status == "Running":
             if not target.public_ip:
                 continue  # 没拿到 IP 不切

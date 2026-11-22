@@ -108,7 +108,7 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }
 .stats.five { grid-template-columns:repeat(5,1fr); }
 .stat span { display:block; font-size:12px; color:var(--muted); }
-.stat b { font-size:18px; font-weight:600; overflow-wrap:anywhere; }
+.stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
 .icon-btn:hover { border-color:var(--accent); color:var(--accent-text); background:var(--accent-soft); }
 .icon-btn:disabled { opacity:.45; cursor:default; }

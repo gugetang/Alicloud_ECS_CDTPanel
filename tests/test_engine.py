@@ -9,9 +9,9 @@ from app.engine import (AccountView, Action, Config, DomainView, execute_plan,
 TZ = ZoneInfo("Asia/Shanghai")
 
 
-def acc(i, used, status="Running", ip="203.0.113.1"):
+def acc(i, used, status="Running", ip=None):
     return AccountView(id=i, name=f"A{i}", quota_gb=200, used_gb=used,
-                       status=status, public_ip=f"203.0.113.{i}")
+                       status=status, public_ip=ip if ip is not None else f"203.0.113.{i}")
 
 
 def dom(i, current=None, ip=""):
@@ -308,3 +308,44 @@ def test_gb_diff_per_account_override():
     plan = plan_reconcile([a1, acc(2, 88)],
                           [dom(1, current=1, ip="203.0.113.1")], Config(), noon())
     assert any(a.kind == "dns" and a.reason == "traffic_diff_gb" for a in plan.actions)
+
+
+def test_ip_change_resyncs_dns_same_instance():
+    # 实例重启换 IP：域名仍指向同一台，但记录是旧 IP → 必须重新同步 DNS
+    cfg = Config()
+    plan = plan_reconcile(
+        [acc(1, 20, ip="203.0.113.99"), acc(2, 60)],
+        [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    kinds = [(a.kind, a.reason, a.target_ip) for a in plan.actions]
+    assert ("dns", "ip_changed", "203.0.113.99") in kinds
+
+
+def test_ip_unchanged_no_dns_action():
+    # IP 没变：已是目标时不产生多余 DNS 动作，避免无意义的 CF 查询
+    cfg = Config()
+    plan = plan_reconcile(
+        [acc(1, 20, ip="203.0.113.1"), acc(2, 60)],
+        [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    assert [a for a in plan.actions if a.kind == "dns"] == []
+
+
+def test_first_ip_syncs_dns():
+    # 域名从未解析过（current_ip 为空）：实例有 IP 就补解析
+    cfg = Config()
+    plan = plan_reconcile(
+        [acc(1, 20, ip="203.0.113.99"), acc(2, 60)],
+        [dom(1, current=1, ip="")], cfg, noon())
+    kinds = [(a.kind, a.reason, a.target_ip) for a in plan.actions]
+    assert ("dns", "ip_changed", "203.0.113.99") in kinds
+
+
+def test_stopped_target_without_ip_only_starts():
+    # 切到已停机目标且还没拿到 IP：只拉起，不产生空 IP 的 DNS 动作
+    # （下轮 Running 拿到新 IP 后由 ip_changed 分支重新同步）
+    cfg = Config()
+    plan = plan_reconcile(
+        [acc(1, 160), acc(2, 20, status="Stopped", ip="")],
+        [dom(1, current=1, ip="203.0.113.1")], cfg, noon())
+    dns = [a for a in plan.actions if a.kind == "dns"]
+    assert dns == []
+    assert any(a.kind == "start" and a.account_id == 2 for a in plan.actions)

@@ -111,6 +111,12 @@ const fmtGb = (v: number | null | undefined) =>
   v == null ? "—" : (Math.round(v * 100) / 100).toFixed(2);
 // 总额显示：整数不带小数（如 1000），非整数保留 2 位小数。
 const fmtNum = (v: number) => Number.isInteger(v) ? String(v) : v.toFixed(2);
+// 费用显示保留 2 位小数；未知/空值显示 —。
+const fmtCost = (v: number | string | null | undefined) => {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : String(v);
+};
 // 流量“已用 / 额度 GiB”后面加的百分比（用后端已算好的 usage_rate，2 位小数；
 // 流量未知、usage_rate 为 null 时不加括号）。
 const trafficPct = (a: Any) => a.usage_rate != null ? ` (${Number(a.usage_rate).toFixed(2)}%)` : "";
@@ -192,7 +198,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [recovery, setRecovery] = useState((account?.recovery_action as string) || "");
   const [regions, setRegions] = useState<{ region_id: string; local_name: string }[]>(BUILTIN_REGIONS);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
-  const [regionsNote, setRegionsNote] = useState(t("内置常用地域"));
   const [formMsg, setFormMsg] = useState("");
   const [formBusy, setFormBusy] = useState(false);
 
@@ -208,7 +213,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       const owned = (r.owned as Any[]) || [];
       setRegions((all.length ? all : BUILTIN_REGIONS) as { region_id: string; local_name: string }[]);
       setOwnedIds(new Set(owned.map((x: Any) => x.region_id)));
-      setRegionsNote(t("地域来自阿里云 DescribeRegions；“已有实例”组为该账号下已有实例所在地域"));
     } catch {
       try {
         // 回退接口同样走 POST + JSON body：临时 AK 不再放 URL 查询参数里（会进访问日志）
@@ -219,11 +223,9 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
         const r = await post("/api/aliyun/regions", body) as Any;
         setRegions(((r.regions as Any[]) || BUILTIN_REGIONS) as { region_id: string; local_name: string }[]);
         setOwnedIds(new Set());
-        setRegionsNote(t("地域来自阿里云 DescribeRegions"));
       } catch {
         setRegions(BUILTIN_REGIONS);
         setOwnedIds(new Set());
-        setRegionsNote(t("接口未取到，已用内置列表"));
       }
     }
   };
@@ -313,12 +315,10 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
             <option value="__custom">{t("自定义…")}</option>
           </select>
           {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={saveAuto} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
-          <p className="muted">{regionsNote}</p>
           <div className="row">
             <button className="btn ghost" onClick={autoDiscover} disabled={formBusy}>{t("自动发现")}</button>
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
-          </div>
-          <p className="muted">{t("“自动发现”按实例 ID 查出该实例真实所在地域并填入；查不到会报错，不会静默填错。")}</p></div>
+          </div></div>
         <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
       </div>
       <div style={{ marginTop: 12 }}>
@@ -329,7 +329,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
             <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={saveAuto} /></div>
           </div>
         )}
-        <p className="muted">{t("开启后每天在设定时间开机/关机；错过时间窗口（重启/延迟）时在 1 小时内补偿一次。阈值踢出优先于定时开机：被踢出的实例到点也不拉起；关机窗口内恢复拉起也不执行。")}</p>
       </div>
       <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("参与日报推送")}</label>
@@ -338,7 +337,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "on", label: t("单独开启") },
           { value: "off", label: t("单独关闭") },
         ]} onChange={setReport} />
-        <p className="muted">{t("跟随全局：按全局每日财报开关；单独开启：即使全局关了也推这台；单独关闭：即使全局开了也不推这台。")}</p>
       </div>
       <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("阈值动作")}</label>
@@ -348,7 +346,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "stop_charging", label: t("节省停机") },
           { value: "stop", label: t("停机") },
         ]} onChange={setExcl} />
-        <p className="muted">{t("跟随全局：按全局设置（当前：{label}）。踢出DDNS 默认不停机，只跳出 DDNS 继续跑；停机/节省停机都在切完 DNS 之后。", { label: exclLabel(settings.exclusion_action) })}</p>
       </div>
       <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("阈值恢复")}</label>
@@ -357,7 +354,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "start", label: t("恢复时拉起") },
           { value: "keep_stopped", label: t("恢复入池但保持停机") },
         ]} onChange={setRecovery} />
-        <p className="muted">{t("跟随全局：按全局设置（当前：{label}）。", { label: settings.threshold_recovery_action === "keep_stopped" ? t("恢复入池但保持停机") : t("恢复时拉起") })}</p>
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
@@ -387,7 +383,6 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
     <div className="auth-wrap">
       <div className="card">
         <div className="auth-title">{t("欢迎使用 CDT 面板")}</div>
-        <p className="muted">{t("首次登录，请填写管理员信息。之后可用密码、指纹、Google 或 GitHub 登录。")}</p>
         <label className="req">{t("管理员名称 *")}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 管理员")} />
         <label className="req">{t("登录密码 *")}</label>
@@ -444,7 +439,6 @@ function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; 
     <div className="auth-wrap">
       <div className="card">
         <div className="auth-title">{t("登录 CDT 面板")}</div>
-        <p className="muted">{info.admin_name ? t("管理员：{name}", { name: info.admin_name as string }) : t("请输入管理员密码登录。")}</p>
         <label className="req">{t("登录密码 *")}</label>
         <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
           placeholder={t("管理员密码")} onKeyDown={(e) => { if (e.key === "Enter") loginPw(); }} />
@@ -463,9 +457,6 @@ function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; 
           onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
           {t("使用 GitHub 登录")}{info.oauth?.github ? "" : t("（未配置）")}
         </button>
-        <p className="muted" style={{ marginTop: 12 }}>
-          {t("Google / GitHub 登录需先在全局设置“登录方式”里填入对应 OAuth 应用的 Client ID / Secret。")}
-        </p>
       </div>
     </div>
   );
@@ -490,7 +481,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
 
   const members = accounts.filter((a) => (a.group_id || 1) === g.id);
   const dom = domains.find((d) => (d.group_id || 1) === g.id);
-  const cur = dom ? accounts.find((a) => a.id === dom.current_account_id) : null;
 
   // 分组参数自动保存：改动即存，不用点保存
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
@@ -533,7 +523,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
                 { value: "24", label: t("24 小时") },
               ]} onChange={(v) => { setInterval(v); savePatch({ interval_hours: Number(v) || 6 }); }} /></div>
           </div>
-          <p className="muted">{t("间隔按上次切换锚点每 N 小时切一次。")}</p>
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
@@ -549,13 +538,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               <div><label className="lbl">{t("切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
             )}
           </div>
-          <p className="muted">{t("负载均衡：% 模式差值 ≥ 阈值切，GB 模式差值 ≥ 阈值 GB 切。未填的项继承全局设置。")}</p>
         </div>
       )}
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("成员实例（参与 DDNS，可多选）")}</h3>
-      <p className="muted">{t("点一下选中 / 取消，被选中的实例参与 DDNS 域名分配；名称前的点是当前状态。")}</p>
-      {members.length === 0 && <p className="muted">{t("暂无成员，去「账户管理」添加并选本分组。")}</p>}
       <div className="seg">
         {members.map((a) => {
           const on = a.ddns_enabled == null ? true : Boolean(a.ddns_enabled);
@@ -571,10 +557,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       <h3 style={{ marginTop: 12 }}>{t("绑定域名（最多 1 个）")}</h3>
       {dom ? (
-        <div className="row"><b>{dom.name as string}</b><span className="muted">{t("当前指向")}</span>
-          <span>{(dom.current_ip as string) || t("未分配")}</span>
-          <span className="muted">{cur ? cur.name as string : (dom.fallback_active ? t("备用地址生效中") : "")}</span></div>
-      ) : <p className="muted">{t("未绑定域名，去「域名管理」添加并选本分组。")}</p>}
+        <div className="row"><b>{dom.name as string}</b>
+          <span>{(dom.current_ip as string) || t("未分配")}</span></div>
+      ) : null}
     </div>
   );
 }
@@ -634,7 +619,6 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <div style={{ marginTop: 12 }}>
           <label>Bot Token</label><input type="password" id="tg-token" key={String(settings.telegram_configured)} defaultValue={settings.telegram_configured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.telegram_configured)); saveAll(); }} />
           <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} onBlur={saveAll} />
-          <p className="muted">{t("Token 留空保存时保持不变，只有填了新值才更新。")}</p>
         </div>
       )}
       <div style={{ marginTop: 12 }}>
@@ -642,7 +626,6 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <div className="row"><span>{t("启用每日财报推送")}</span><span className="spacer" />
           <Toggle checked={drEnabled} label={t("启用每日财报推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
         <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
-        <p className="muted">{t("每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。")}</p>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
@@ -654,8 +637,8 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
 }
 
 // ---------------- 登录与安全卡片（全局设置页）：改密码 / 注册指纹 / OAuth 配置 ----------------
-function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
-  adminName: string; settings: Any;
+function LoginSecurity({ saveSettings, settings, setMsg }: {
+  settings: Any;
   saveSettings: (patch: Any) => Promise<void>;
   setMsg: (s: string) => void;
 }) {
@@ -722,7 +705,6 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
 
   return (
     <div className="card"><h2>{t("登录与安全")}</h2>
-      <p className="muted">{t("管理员：{name}。登录方式：密码、指纹、Google、GitHub。", { name: adminName || t("管理员") })}</p>
       <h3 style={{ marginTop: 12 }}>{t("修改密码")}</h3>
       <div className="form2">
         <div><label>{t("当前密码")}</label><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder={t("首次设置留空")} /></div>
@@ -732,7 +714,6 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
         <button className="btn" onClick={changePw} disabled={busy}>{t("修改密码")}</button>
       </div>
       <h3 style={{ marginTop: 20 }}>{t("指纹登录")}</h3>
-      <p className="muted">{t("在本设备注册指纹（或安全密钥），下次登录页可直接用指纹登录。需 HTTPS 或 localhost 访问。")}</p>
       <div className="row">
         <button className="btn" onClick={registerFingerprint} disabled={busy}>{t("注册指纹")}</button>
       </div>
@@ -747,13 +728,11 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
         </div>
       ))}
       <h3 style={{ marginTop: 20 }}>{t("Google 登录")}</h3>
-      <p className="muted">{t("在 Google Cloud Console 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/google/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
         <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
         <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" key={String(settings.google_oauth_configured)} defaultValue={settings.google_oauth_configured ? SECRET_MASK : ""} placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.google_oauth_configured)); saveGoogleOAuth(); }} /></div>
       </div>
       <h3 style={{ marginTop: 20 }}>{t("GitHub 登录")}</h3>
-      <p className="muted">{t("在 GitHub Settings 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/github/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
         <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
         <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" key={String(settings.github_oauth_configured)} defaultValue={settings.github_oauth_configured ? SECRET_MASK : ""} placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.github_oauth_configured)); saveGithubOAuth(); }} /></div>
@@ -812,8 +791,6 @@ function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () =>
 
   return (
     <div className="card"><h2>{t("备份与恢复")}</h2>
-      <p className="muted">{t("下载备份：导出全部数据为一个 JSON 文件（账户、域名、分组、设置、通知配置、指纹凭证、最近事件与流量记录，以及加密主密钥，恢复后 AK Secret 仍可用）。")}<b>{t("备份文件等同于全部凭据，请妥善保管，不要外发。")}</b></p>
-      <p className="muted">{t("恢复备份：整体替换当前数据，管理员密码也会回到备份时的那一个；当前登录会话不受影响，恢复后建议检查一遍再调度。")}</p>
       <div className="row">
         <button className="btn" onClick={download} disabled={busy}>{t("下载备份")}</button>
         <input type="file" id="backup-file" accept=".json,application/json"
@@ -1257,7 +1234,7 @@ export default function App() {
       {tab === "dash" && (
         <>
           <div className="grid3">
-            <div className="card"><h3>{t("实例状态")}</h3>
+            <div className="card" style={{ fontSize: 14 }}><h3>{t("实例状态")}</h3>
               <div style={{ marginTop: 6 }}>{t("服务器总数 {count}", { count: accounts.length })}</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 8 }}>
                 <div>{dotEl("green")}{t("在线状态 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
@@ -1271,15 +1248,15 @@ export default function App() {
                   <div>{dotEl("green_pulse")}{t("启动中 {count}", { count: accounts.filter((a) => a.status_dot === "green_pulse").length })}</div>
                 )}
               </div>
-              <div className="muted" style={{ marginTop: 8 }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
+              <div style={{ marginTop: 8, color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
             </div>
             <div className="card"><h3>{t("本月流量")}</h3>
               <div className="big">{fmtGb(status?.total_used_gb ?? 0)} GiB / {fmtNum(totalQuota)} GiB{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</div>
-              <div className="muted">{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
+              <div className="muted" style={{ fontSize: 14 }}>{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
             </div>
             <div className="card"><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
-              <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${v} ${c}`).join(" / ") || "—")}</div>
-              <div className="muted">{t("本月费用账期 {month}", { month: status?.month ?? "" })}<br />{costConverted ? t("已查询 {a} / {b} 个账户账单，按汇率 {rate} 换算成 {currency}", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0, rate: costConverted.rate, currency: costConverted.cur }) : t("已查询 {a} / {b} 个账户账单，按币种汇总", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
+              <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
+              <div style={{ color: "var(--accent)", fontSize: 14 }}>{costConverted ? t("已查询 {a} / {b} 个账户账单，按汇率 {rate} 换算成 {currency}", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0, rate: costConverted.rate, currency: costConverted.cur }) : t("已查询 {a} / {b} 个账户账单，按币种汇总", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
             </div>
           </div>
           <div className="card">
@@ -1290,7 +1267,6 @@ export default function App() {
                 { value: "list", label: t("列表") },
               ]} onChange={(v) => setViewMode(v as "card" | "list")} />
             </div>
-            {accounts.length === 0 && <p className="muted">{t("暂无账户，先去「账户管理」添加。")}</p>}
             {viewMode === "card" ? (
               <div className="grid3" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
@@ -1301,10 +1277,10 @@ export default function App() {
                       <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
                       <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
-                      <div className="stat"><span>{t("费用")}</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
+                      <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                       <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
-                    {a.status_detail ? <div className="muted" style={{ marginTop: 6, color: a.status_dot === "green" ? "var(--dot-green)" : undefined }}>{a.status_detail as string}</div> : null}
+                    {a.status_detail ? <div className="muted" style={{ marginTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
                 ))}
               </div>
@@ -1317,7 +1293,7 @@ export default function App() {
                     <td>{a.region as string}</td>
                     <td>{maskIp(a.public_ip)}</td>
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
-                    <td>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</td>
+                    <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table>
             )}
@@ -1347,13 +1323,10 @@ export default function App() {
                 <div className="stat"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
                 <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
-                <div className="stat"><span>{t("费用")}</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
+                <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
-              <div className="muted" style={{ marginTop: 6 }}>
-                {t("阈值动作")} {exclLabel(a.exclusion_action_effective || a.exclusion_action)} · {t("恢复")} {a.recovery_action_effective === "keep_stopped" ? t("入池但保持停机") : t("恢复时拉起")} · {t("每日定时")} {a.daily_schedule_enabled ? `${a.daily_on_time}–${a.daily_off_time}` : t("关")} · {t("日报")} {a.daily_report === "on" ? t("单独开启") : a.daily_report === "off" ? t("单独关闭") : t("跟随全局")}{a.has_secret ? "" : ` · ${t("未配置凭据")}`}
-              </div>
-              {a.status_detail ? <div className="muted" style={{ marginTop: 4, color: a.status_dot === "green" ? "var(--dot-green)" : undefined }}>{a.status_detail as string}</div> : null}
+              {a.status_detail ? <div className="muted" style={{ marginTop: 4, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
@@ -1418,7 +1391,6 @@ export default function App() {
                   </div>
                 )}</td></tr>
               ); })}</tbody></table>
-          <p className="muted">{t("同名存在多条 A / AAAA / CNAME 记录时报告冲突，由用户整理。")}</p>
           <div className="row">
             <input id="dom-name" placeholder={t("域名，如 www.example.xyz")} style={{ flex: 1 }} />
             <select id="dom-group" defaultValue="">
@@ -1449,8 +1421,7 @@ export default function App() {
                 {(timezones.length ? timezones : TZ_FALLBACK).map((tz) => (
                   <option key={tz.value} value={tz.value}>{tz.label}</option>
                 ))}
-              </select>
-              <p className="muted">{t("当前：{tz}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。", { tz: String(settings.timezone ?? "Asia/Shanghai") })}</p></div>
+              </select></div>
           </div>
         </div>
         )}
@@ -1515,10 +1486,8 @@ export default function App() {
               ) : (
                 <div><label className="lbl">{t("切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
               )}
-              <div><p className="muted" style={{ marginTop: 28 }}>{t("负载均衡：% 模式差值 ≥ 10% 切，GB 模式差值 ≥ 10 GB 切。")}</p></div>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
-            <p className="muted">{t("到达阈值默认不停机，只是跳出 DDNS：实例踢出池子、不再参与 DDNS 解析，域名切到下一台用量最低的。恢复线 = 阈值 − 2%（如阈值 95%，回落到 93% 以下才恢复）；被踢出超 24 小时且用量低于阈值时兜底恢复；流量一更新就重新评估，恢复后同一轮重新参与分配。")}</p>
             <div>
               <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
@@ -1526,7 +1495,6 @@ export default function App() {
                 { value: "stop_charging", label: t("节省停机") },
                 { value: "stop", label: t("停机") },
               ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
-              <p className="muted">{t("默认不停机，只跳出 DDNS；如需省流量费再选停机/节省停机。停机永远在切完 DNS 之后，同一台只停一次。")}</p>
             </div>
             <div style={{ marginTop: 12 }}>
               <label className="lbl">{t("阈值恢复")}</label>
@@ -1534,7 +1502,6 @@ export default function App() {
                 { value: "start", label: t("恢复时拉起（默认）") },
                 { value: "keep_stopped", label: t("恢复入池但保持停机") },
               ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
-              <p className="muted">{t("每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。")}</p>
             </div>
             <div style={{ marginTop: 12 }}>
               <label className="req">{t("API 刷新时间 *（分钟）")}</label>
@@ -1546,7 +1513,6 @@ export default function App() {
               ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
               {sRefresh === "custom" && (
               <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
-              <p className="muted">{t("多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。")}</p>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
@@ -1586,17 +1552,14 @@ export default function App() {
               <label className="lbl">{t("汇率")}</label>
               <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} onBlur={() => saveParamSettings()} /><span>&nbsp;CNY</span></div>
             </div>
-            <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
           </div>
           <div className="card"><h2>{t("主题设置")}</h2>
-            <p className="muted">{t("页面外观，与页眉右上角的主题切换同步。")}</p>
             <Seg value={theme} options={[
               { value: "light", label: t("亮色") },
               { value: "dark", label: t("暗色") },
               { value: "system", label: t("跟随系统") },
             ]} onChange={(v) => setTheme(v)} />
             <h3 style={{ marginTop: 16 }}>🎨 {t("主题风格")}</h3>
-            <p className="muted">{t("只改按钮与边框的颜色，卡片磨砂底色不变。")}</p>
             <div className="theme-grid">
               {ACCENTS.map((a) => (
                 <button key={a.id} type="button" className={accent === a.id ? "theme-card sel" : "theme-card"} onClick={() => setAccent(a.id)}>
@@ -1609,7 +1572,7 @@ export default function App() {
               ))}
             </div>
           </div>
-          <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
+          <LoginSecurity settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
           <BackupCard setMsg={setMsg} load={load} />
         </>
       )}

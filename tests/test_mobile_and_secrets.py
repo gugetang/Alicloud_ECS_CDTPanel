@@ -134,9 +134,10 @@ def test_list_font_smaller_and_dash_notice_removed():
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in tsx
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in i18n
     assert '{msg && <div className="notice">{msg}</div>}' in tsx
-    # 在线状态详情（当前在线，正在为域名…提供服务）显示绿色字体，
-    # 仅 status_dot 为 green 时变绿，其它状态仍是 muted 灰色
-    assert tsx.count('a.status_dot === "green" ? "var(--dot-green)"') == 2
+    # 在线/排队状态详情（当前在线…/池内排队待命…）显示主题色字体，
+    # 仅 status_dot 为 green/yellow 时用主题色，其它状态仍是 muted 灰色
+    # （2026-11-22 用户要求：以前的绿色字体统一改成主题字体）
+    assert tsx.count('(a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)"') == 2
     assert "var(--dot-green)" in CSS
 
 
@@ -244,9 +245,9 @@ def test_group_time_section_only_interval():
     assert 't("固定每日切换时刻")' not in tsx
     assert 't("夜间窗口开始")' not in tsx
     assert 't("夜间窗口结束")' not in tsx
-    # 间隔切换周期仍在，说明文字只讲间隔锚点
+    # 间隔切换周期仍在；说明小字已随“取消小字说明”一并去掉
     assert 't("间隔切换周期")' in tsx
-    assert 't("间隔按上次切换锚点每 N 小时切一次。")' in tsx
+    assert 't("间隔按上次切换锚点每 N 小时切一次。")' not in tsx
     assert 'type="time"' not in tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
 
 
@@ -259,3 +260,44 @@ def test_cards_not_draggable_when_settings_open():
     # 分组卡片：showSettings 为真时不展开 gDragProps
     assert 'cursor: showSettings ? "default" : "grab"' in tsx
     assert '{...(showSettings ? {} : (gDragProps || {}))}' in tsx
+
+
+def test_fee_two_decimals_and_theme_font_and_stat_weight():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 费用精确到小数点后 2 位：fmtCost 辅助函数，3 处单账户费用 + 当前费用回退合计都用它
+    assert "const fmtCost" in tsx
+    assert "n.toFixed(2)" in tsx
+    assert tsx.count("fmtCost(a.billing_month_cost)") == 3
+    assert "fmtCost(v)} ${c}" in tsx
+    # 状态详情（在线/排队）用主题色，不再是绿色
+    assert 'var(--dot-green)" : undefined' not in tsx
+    # 实例状态卡片字体缩小一号：卡片 fontSize 14
+    assert '<div className="card" style={{ fontSize: 14 }}><h3>{t("实例状态")}</h3>' in tsx
+    # 本月流量/当前费用小字与实例状态同为 14px
+    assert 'className="muted" style={{ fontSize: 14 }}' in tsx
+    assert 'color: "var(--accent)", fontSize: 14' in tsx
+    # 服务器卡片统计数值不加粗
+    assert ".stat b { font-size:18px; font-weight:400;" in css
+    assert ".stat b { font-size:18px; font-weight:600;" not in css
+
+
+def test_small_notes_removed():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 取消小字说明：全站解释性小字已删（表单/分组/DDNS/通知/登录/备份/域名表/账户卡片配置摘要）
+    for frag in [
+        't("点一下选中 / 取消，被选中的实例参与 DDNS 域名分配；名称前的点是当前状态。")',
+        't("跟随全局：按全局每日财报开关；单独开启：即使全局关了也推这台；单独关闭：即使全局开了也不推这台。")',
+        't("同名存在多条 A / AAAA / CNAME 记录时报告冲突，由用户整理。")',
+        't("当前：{tz}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。',
+        't("本月费用账期 {month}"',
+        't("Token 留空保存时保持不变，只有填了新值才更新。")',
+        't("每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。")',
+        't("下载备份：导出全部数据为一个 JSON 文件',
+        't("恢复备份：整体替换当前数据，管理员密码也会回到备份时的那一个；当前登录会话不受影响，恢复后建议检查一遍再调度。")',
+        't("在 Google Cloud Console 创建 OAuth 应用',
+        't("在 GitHub Settings 创建 OAuth 应用',
+    ]:
+        assert frag not in tsx, frag
+    # 账户卡片配置摘要行（阈值动作/恢复/每日定时/日报）已删
+    assert 'exclLabel(a.exclusion_action_effective' not in tsx

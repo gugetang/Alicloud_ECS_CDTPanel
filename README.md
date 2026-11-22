@@ -107,6 +107,11 @@ docker compose restart   # 或 docker restart Alicloud_ECS_CDTPanel
 
 - **Cloudflare API Token**：用于 DDNS 解析（Zone / 记录 ID 自动发现，
   IP 不变不改）。已配置时输入框一直显示 16 个 `*` 掩码（密码框里显示为圆点），点进框清空以便重填，失焦留空恢复掩码——只在填写了新值时才更新，掩码本身不是新密钥。
+- **IP 变了也会重新解析**：实例重启换 IP 后，即使域名仍指向同一台实例，
+  下一轮调度也会比对实例当前 IP 与域名记录的 IP，不一致就重新同步 DNS
+  （动作为 `ip_changed`；`ddns.sync` 会先读 Cloudflare 现值，IP 一致时不发 PUT）。
+  以前只有“切到另一台”才会改 DNS，同一台换 IP 时解析一直指向旧 IP。
+  切到已停机目标且还没拿到 IP 时只拉起、不发空 IP 的 DNS 动作，下轮拿到新 IP 后由 `ip_changed` 补同步。
 - **时区**（下拉菜单，从 `GET /api/timezones` 拉取，加载失败时回退内置列表）：
   默认 `Asia/Shanghai`（取容器环境变量 `TZ`，缺省 `Asia/Shanghai`）。
   下拉旁显示当前时区。改完自动保存、立即生效，下次调度按新时区走，不用重启。
