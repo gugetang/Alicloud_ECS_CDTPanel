@@ -3,9 +3,10 @@
 - 颜色为 Google 品牌色：绿 #34A853 / 黄 #FBBC04 / 红 #EA4335 / 灰 #9AA0A6，
   在 styles.css 里用 --dot-* 变量集中定义。
 - 尺寸：直径约 2mm，.dot 均为 8px 正圆，垂直居中于字体高度。
-- styles.css 里不含旧的默认色值（#22c55e / #eab308 / #ef4444 / #4ade80 /
+- styles.css 里不含旧的默认色值（#22c55e / #eab308 / #4ade80 /
   #94a3b8）：确认过旧值只在 :root 的 --green/--red 与 .pill 里出现过，
-  已随本轮统一换成 Google 色；App.tsx 里仅剩一处 #f87171 是表单报错
+  已随本轮统一换成 Google 色；#ef4444 不再禁（2026-11-22 23:38 主题色
+  全部改浅后它是绯红月主题的 accent，不作状态点色）；App.tsx 里仅剩一处 #f87171 是表单报错
   文字色，不是状态点，故不在此断言。
 """
 import re
@@ -16,7 +17,7 @@ CSS = (ROOT / "web" / "src" / "styles.css").read_text()
 TSX = (ROOT / "web" / "src" / "App.tsx").read_text()
 
 GOOGLE = ("#34A853", "#FBBC04", "#EA4335", "#9AA0A6")
-OLD = ("#22c55e", "#eab308", "#ef4444", "#4ade80", "#94a3b8")
+OLD = ("#22c55e", "#eab308", "#4ade80", "#94a3b8")
 
 
 def test_styles_css_has_google_dot_colors_as_variables():

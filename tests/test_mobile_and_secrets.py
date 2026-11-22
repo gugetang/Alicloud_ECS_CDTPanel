@@ -587,6 +587,10 @@ def test_two_line_labels_with_two_char_indent():
     # 复合标签分两行：第一行父项，第二行子项缩进 2 字符（全局设置 + 分组设置）
     assert "function TwoLineLabel" in tsx
     assert 'paddingLeft: "2em"' in tsx
+    # 父项（负载均衡）字体与定时轮巡 h3 一样大（16px），子项保持 13px
+    assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
+    # API 刷新时间标签字体也与定时轮巡 h3 一样大（16px）
+    assert '<label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>' in tsx
     # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
     assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
@@ -602,3 +606,41 @@ def test_seg_selected_is_accent_filled():
     assert ".seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted);" in CSS
     # 选中成员按键里的 IP 用浅白字，在主题色底上可读
     assert ".seg button.seg-on .member-ip { color:rgba(255,255,255,0.85); }" in CSS
+
+
+def test_controls_align_with_indented_labels():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 控件与缩进 2 字符的标签左对齐：Seg/输入框包在 paddingLeft 2em 的 div 里，
+    # 阈值动作/阈值恢复整段缩进 2em；全局设置与分组设置都一样
+    assert tsx.count('paddingLeft: "2em"') >= 12
+    # 全局：阈值 Seg、轮巡周期 Seg 包在缩进 div 里
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sDiffMode}' in tsx
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sInterval}' in tsx
+    # 全局：阈值动作/阈值恢复整段缩进
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
+    # 分组：差值 Seg、间隔 Seg 包在缩进 div 里
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={diffMode}' in tsx
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={interval}' in tsx
+
+
+def test_parent_child_hierarchy_global():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 父栏标题比子栏大一号：TwoLineLabel 父项 16px、子项 13px；h3 标题 16px
+    assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
+    assert ".card h3 { margin:0 0 8px; font-size:16px; }" in (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 父栏下的所有子栏后退两字符：分组卡片的选择成员实例、域名选择按键区也缩进 2em
+    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>\n      <div className="seg" style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>\n      <div className="seg" style={{ paddingLeft: "2em" }}>' in tsx
+
+
+def test_theme_accents_are_light():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 5 种主题色全部改浅（600 -> 500）：按钮/边框/选中填充用的 accent 更浅
+    for hexv in ("#10b981", "#3b82f6", "#f97316", "#8b5cf6", "#ef4444"):
+        assert hexv in css.lower(), hexv
+    for old in ("#059669", "#2563eb", "#ea580c", "#7c3aed", "#dc2626"):
+        assert old not in css.lower(), old
+    # 主题卡片渐变色块同步改浅
+    for g in ("#a7f3d0,#10b981", "#bfdbfe,#3b82f6", "#fed7aa,#f97316", "#ddd6fe,#8b5cf6", "#fecaca,#ef4444"):
+        assert g in tsx, g
