@@ -41,23 +41,59 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 ```bash
 git clone https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 cd Alicloud_ECS_CDTPanel
+# 方式一：拉取已发布的 GHCR 镜像（push 到 main 后自动发布）
+docker compose pull
+docker compose up -d
+# 方式二：本地构建（镜像未发布时也可用）
 docker compose up -d --build
+# 查看日志 / 停止
 docker compose logs -f Alicloud_ECS_CDTPanel
+docker compose down
 # 访问 http://服务器:1999
 # 改端口：PORT=8888 docker compose up -d
 ```
 
-`docker-compose.yml`：服务名 `Alicloud_ECS_CDTPanel`（容器同名），
+完整的 `docker-compose.yml`（与仓库根目录文件一致）：
+
+```yaml
+services:
+  Alicloud_ECS_CDTPanel:
+    build: .
+    image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
+    container_name: Alicloud_ECS_CDTPanel
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${PORT:-1999}:1999"
+    environment:
+      TZ: Asia/Shanghai
+      CDT_DATA_DIR: /data
+    volumes:
+      - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:1999/api/health',timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+```
+
+说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），
 `build: .` 与 `image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest` 并存——
 本地 `docker compose up -d` 时构建并打上这个 tag，镜像未发布前也能跑；
 发布后（见 `.github/workflows/docker.yml`，push 到 main 自动构建并推送到
-GHCR）也可直接拉 GHCR 镜像。端口 `${PORT:-1999}:1999`，
+GHCR）也可 `docker compose pull` 直接拉 GHCR 镜像。端口 `${PORT:-1999}:1999`，
 数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
 （与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
 该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
 `restart: unless-stopped`，`init: true`，
 健康检查用 `python -c urllib` 访问 `/api/health`（镜像是 `python:3.13-slim`，
-无 curl），日志限制 `10m × 3`。
+无 curl），日志限制 `10m × 3`。升级：`docker compose pull && docker compose up -d`（或重跑一键部署命令）。
 
 > 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
 > 所以是 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`，
