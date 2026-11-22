@@ -592,15 +592,6 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                 ("fallback", "备用地址已恢复",
                  f"{d.name}：已有可分配 VPS，恢复指向 {target.name}"))
 
-        # --- 当前账户未知流量/状态：保守不动 ---
-        if current is not None and current.usage_rate is None:
-            plan.actions.append(Action("dns", domain_id=d.id, account_id=current.id,
-                                       target_ip=current.public_ip, reason="unknown_keep",
-                                       detail=f"{d.name} 当前账户 {current.name} 流量未知，保守维持"))
-            plan.notifications.append(
-                ("error", "查询异常", f"{current.name} 流量未知，未做切换（保守维持）"))
-            continue
-
         # --- 已是目标：只做保活 ---
         if current is not None and current.id == target_id:
             if current.status == "Stopped" and current.id not in started_ids:
@@ -620,7 +611,13 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
             continue
 
         # --- 需要切换：定原因 ---
-        # 优先级：阈值踢出 > 每日窗口出窗 > 夜间 > 固定时刻 > 间隔 > 流量差值 > 首次分配
+        # 优先级：阈值踢出 > 每日窗口出窗 > 无人服务（首次分配） > 夜间 > 固定时刻 > 间隔 > 流量差值
+        # 无人服务 = 当前实例不是池内 Running 实例（无指向、流量未知、已停机、
+        # 未参与 DDNS、已踢出等）：域名实际上没人服务、池里都在排队时，直接分给
+        # 池内剩余流量最多的（用量最低的），不受差值阈值限制——差值阈值只用来
+        # 阻止“从正在服务的实例切走”，不用来阻止首次分配。
+        serving = (current is not None and current.id in pool_ids
+                   and current.status == "Running" and current.usage_rate is not None)
         reason = ""
         if current is not None and current.id in plan.evicted_account_ids:
             reason = "threshold_eviction"
@@ -628,6 +625,8 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
             # 当前账户已出每日开机窗口：域名切走（切到窗口内账户或备用地址），
             # 不等夜间/差值触发；目标停机时先保活拉起（见下方）。
             reason = "daily_window"
+        elif not serving:
+            reason = "initial_assign"
         elif night_active:
             reason = "night_optimize"
             night_triggered = True
@@ -647,8 +646,6 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                 diff = current.usage_rate - target.usage_rate
                 if diff >= _eff_diff(current, cfg):
                     reason = "traffic_diff"
-        elif current is None:
-            reason = "initial_assign"
 
         if not reason:
             continue  # 差值不够，维持现状

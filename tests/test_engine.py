@@ -458,3 +458,45 @@ def test_account_in_multiple_groups_scheduled_in_each():
         last_switch_by_group={1: noon() - dt.timedelta(hours=2)})
     assert plan.assignments[1] == 1  # 分组 A：a1 用量最低
     assert plan.assignments[2] == 1  # 分组 B：a1 也在池里，同样最低
+
+
+def test_no_serving_instance_assigns_most_remaining_traffic():
+    # 负载均衡：域名无人服务（都在排队）时，差值不到阈值也不卡住——
+    # 直接分给池内剩余流量最多的（用量最低的），不受差值阈值限制。
+    # 差值阈值只阻止“从正在服务的实例切走”。
+    from app.engine import GroupView
+    g = GroupView(id=1, name="Premium", switch_mode="load_balance")
+    cfg = Config(night_optimize_enabled=False)
+    # acc() 的第二个参数是已用 GB（quota 200）：9.48 GiB=4.74%，23.68 GiB=11.84%
+    a1 = acc(1, 9.48)    # 剩余最多
+    a2 = acc(2, 23.68)   # 差值 7.1% < 10%
+    # 1) 无人服务
+    plan = plan_reconcile([a1, a2], [dom(1)], cfg, noon(), groups=[g])
+    assert plan.assignments[1] == 1
+    assert any(a.kind == "dns" and a.account_id == 1 and a.reason == "initial_assign"
+               for a in plan.actions)
+    # 2) 当前实例流量未知：不再保守维持，同样分给剩余流量最多的
+    a3 = acc(3, None)
+    d = dom(1)
+    d.current_account_id = 3
+    plan = plan_reconcile([a1, a2, a3], [d], cfg, noon(), groups=[g])
+    assert any(a.kind == "dns" and a.account_id == 1 and a.reason == "initial_assign"
+               for a in plan.actions)
+    assert not any(a.reason == "unknown_keep" for a in plan.actions)
+    # 3) 当前实例已停机（差值不够也不卡住）
+    a4 = acc(4, 16.0, status="Stopped")  # 8%
+    d = dom(1)
+    d.current_account_id = 4
+    plan = plan_reconcile([a1, a2, a4], [d], cfg, noon(), groups=[g])
+    assert any(a.kind == "dns" and a.account_id == 1 and a.reason == "initial_assign"
+               for a in plan.actions)
+    # 4) 正在服务、差值不足：仍不切（差值阈值继续保护正在服务的实例）
+    d = dom(1)
+    d.current_account_id = 2
+    plan = plan_reconcile([a1, a2], [d], cfg, noon(), groups=[g])
+    assert not any(a.kind == "dns" for a in plan.actions)
+    # 5) 正在服务、差值够：按差值切
+    a2b = acc(2, 40.0)  # 20%
+    plan = plan_reconcile([a1, a2b], [d], cfg, noon(), groups=[g])
+    assert any(a.kind == "dns" and a.account_id == 1 and a.reason == "traffic_diff"
+               for a in plan.actions)
