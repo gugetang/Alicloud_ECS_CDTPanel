@@ -585,18 +585,19 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <label className="lbl">{t("切换阀值")}</label>
+          <label className="lbl">{t("负载均衡切换阀值")}</label>
           <Seg value={diffMode} options={[
             { value: "percent", label: t("百分比（%）") },
             { value: "gb", label: t("固定流量（GB）") },
           ]} onChange={(m) => { setDiffMode(m); savePatch({ switch_diff_mode: m }); }} />
           <div className="form2">
             {diffMode === "percent" ? (
-              <div><label className="lbl">{t("切换阀值（%）")}</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div>
+              <div><label className="lbl">{t("负载均衡切换阀值（%）")}</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div>
             ) : (
-              <div><label className="lbl">{t("切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
+              <div><label className="lbl">{t("负载均衡切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
             )}
           </div>
+          <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6 }}>{t("不适用定时轮巡。")}</div>
         </div>
       )}
       </>)}
@@ -1676,17 +1677,18 @@ export default function App() {
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
             <div className="form2">
-              <div><label className="req">{t("切换阀值 *")}</label>
+              <div><label className="req">{t("负载均衡切换阀值 *")}</label>
                 <Seg value={sDiffMode} options={[
                   { value: "percent", label: t("百分比（%）") },
                   { value: "gb", label: t("固定流量（GB）") },
                 ]} onChange={(v) => { setSDiffMode(v); saveParamSettings({ switch_diff_mode: v }); }} /></div>
               {sDiffMode === "percent" ? (
-                <div><label className="req">{t("切换阀值 *（%）")}</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div>
+                <div><label className="req">{t("负载均衡切换阀值 *（%）")}</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div>
               ) : (
-                <div><label className="lbl">{t("切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
+                <div><label className="lbl">{t("负载均衡切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
               )}
             </div>
+            <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6 }}>{t("不适用定时轮巡。")}</div>
             <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
             <div>
               <label className="lbl">{t("阈值动作")}</label>
