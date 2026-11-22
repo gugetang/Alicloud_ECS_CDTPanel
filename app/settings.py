@@ -62,7 +62,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # logo 文件存在数据目录，由 /api/settings/logo 上传/读取/删除。
     "site_intro": "",
     "site_logo": "",
-    # DDNS 域名（Zone 名，如 kadi.eu.org）：配了以后直接按它查 Zone，
+    # DDNS 域名（Zone 名，如 domainname.com）：配了以后直接按它查 Zone，
     # 二级/三级域名不用再靠后两段推算
     "cloudflare_zone": "",
     # Cloudflare 账户邮箱（账号标识，随 Token 一起填）

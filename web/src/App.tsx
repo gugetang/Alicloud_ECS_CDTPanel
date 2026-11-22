@@ -1527,7 +1527,6 @@ export default function App() {
           <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
-          <div className="notice">{t("1 个分组最多绑定 1 个域名。排在前面的域名优先使用流量使用率较低的账户。Zone ID 与记录 ID 自动发现。")}</div>
           <table><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
@@ -1602,10 +1601,9 @@ export default function App() {
         </div>
         {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
-          <p className="muted">{t("填入域名、账户邮箱、API Token 才能识别 Zone（直接按填的域名查 Zone，二级/三级域名也能识别；Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
           <div className="form2">
             <div><label className="req">{t("域名 *")}</label>
-              <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 kadi.eu.org")} onBlur={() => saveSettings(ddnsPatch())} /></div>
+              <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 domainname.com")} onBlur={() => saveSettings(ddnsPatch())} /></div>
             <div><label>{t("账户邮箱")}</label>
               <input type="text" id="cf-email" defaultValue={(settings.cloudflare_email as string) || ""} placeholder={t("Cloudflare 账户邮箱")} onBlur={() => saveSettings(ddnsPatch())} /></div>
             <div><label className="req">{t("Cloudflare API Token *")}</label>

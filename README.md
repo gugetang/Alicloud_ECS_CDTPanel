@@ -106,8 +106,8 @@ docker compose restart   # 或 docker restart Alicloud_ECS_CDTPanel
 域名管理页的受管理域名卡片（已取消“受管理域名 N”大标题）右上角有 ⚙ 设置按钮，点一下展开/收起下方的「DDNS 设置」卡片（默认展开），保证随时可以改参数：
 
 - **Cloudflare 域名 + 账户邮箱 + API Token**：用于 DDNS 解析。**域名**填
-  Zone 名（如 kadi.eu.org）——直接按它查 Zone，二级/三级域名不用再靠
-  域名后两段推算（以前 premium.kadi.eu.org 会被认成 eu.org 导致解析失败）；
+  Zone 名（如 domainname.com）——直接按它查 Zone，二级/三级域名不用再靠
+  域名后两段推算（以前 premium.domainname.com 会被认成 domainname.com 的父域导致解析失败）；
   **账户邮箱**填 Cloudflare 账户邮箱（保留，选填）；**API Token** 填 Token
   （不要用 Global API Key）。域名与 API Token 是必填（标签带 * 号），账户
   邮箱选填。再按 Zone ID 查 DNS 记录、拿到记录 ID，比对 IP 后才 PUT 更新
