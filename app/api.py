@@ -15,6 +15,26 @@ from .security import (check_session, clear_login_fails, hash_password,
 
 router = APIRouter(prefix="/api")
 
+# DDNS 设置时区下拉：常用 IANA 时区（值 + 中文标签）。前端从
+# GET /api/timezones 取，加载失败时用内置列表回退。
+TIMEZONES: list[dict[str, str]] = [
+    {"value": "Asia/Shanghai", "label": "上海 Asia/Shanghai"},
+    {"value": "Asia/Hong_Kong", "label": "香港 Asia/Hong_Kong"},
+    {"value": "Asia/Taipei", "label": "台北 Asia/Taipei"},
+    {"value": "Asia/Singapore", "label": "新加坡 Asia/Singapore"},
+    {"value": "Asia/Tokyo", "label": "东京 Asia/Tokyo"},
+    {"value": "Asia/Seoul", "label": "首尔 Asia/Seoul"},
+    {"value": "UTC", "label": "UTC 协调世界时"},
+    {"value": "Europe/London", "label": "伦敦 Europe/London"},
+    {"value": "Europe/Berlin", "label": "柏林 Europe/Berlin"},
+    {"value": "Europe/Paris", "label": "巴黎 Europe/Paris"},
+    {"value": "America/New_York", "label": "纽约 America/New_York"},
+    {"value": "America/Chicago", "label": "芝加哥 America/Chicago"},
+    {"value": "America/Denver", "label": "丹佛 America/Denver"},
+    {"value": "America/Los_Angeles", "label": "洛杉矶 America/Los_Angeles"},
+    {"value": "Australia/Sydney", "label": "悉尼 Australia/Sydney"},
+]
+
 
 def _rate_and_threshold(row: dict, settings: dict) -> tuple[float | None, float, bool]:
     """用量使用率 / 生效保护阈值 / 是否已踢出（与引擎 is_allocatable 一致）。"""
@@ -285,7 +305,7 @@ def status(_: bool = Depends(_admin_required)):
             cur = a.get("billing_currency") or "USD"
             total_cost[cur] = round(total_cost.get(cur, 0) + a["billing_month_cost"], 6)
     events = db.list_events(20)
-    month = dt.datetime.now().strftime("%Y-%m")
+    month = scheduler._now().strftime("%Y-%m")
     return {
         "switch_mode": settings.get("switch_mode") or "both",
         "scheduler": {
@@ -393,6 +413,13 @@ def delete_domain(did: int, _: bool = Depends(_admin_required)):
     return {"ok": True}
 
 
+@router.get("/timezones")
+def list_timezones(_: bool = Depends(_admin_required)):
+    """时区下拉列表 + 当前值（DDNS 设置卡片用）。"""
+    return {"current": db.get_settings().get("timezone") or "Asia/Shanghai",
+            "timezones": TIMEZONES}
+
+
 @router.get("/settings")
 def get_settings(_: bool = Depends(_admin_required)):
     s = db.get_settings()
@@ -434,6 +461,12 @@ def _validate_settings(data: dict) -> None:
     if "daily_report_time" in data and not re.fullmatch(
             r"([01]\d|2[0-3]):[0-5]\d", str(data["daily_report_time"])):
         raise HTTPException(400, "daily_report_time 必须是 HH:MM 格式")
+    if "timezone" in data:
+        from zoneinfo import ZoneInfo
+        try:
+            ZoneInfo(str(data["timezone"]))
+        except Exception:
+            raise HTTPException(400, "timezone 必须是合法的 IANA 时区名，如 Asia/Shanghai")
 
 
 def _mask(s: dict) -> dict:
@@ -500,7 +533,7 @@ def daily_preview(_: bool = Depends(_admin_required)):
     """每日财报预览（不发送）：返回第一条消息的 html/text，供通知设置页展示。
     按实例 daily_report 过滤（off 的不显示），与“发送测试财报”保持一致。"""
     from .notify import build_daily_report, filter_daily_report_accounts
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = scheduler._now().strftime("%Y-%m-%d")
     accounts = filter_daily_report_accounts(
         _daily_report_accounts(), db.get_settings(), force=True)
     chunks = build_daily_report(accounts, today)
@@ -516,7 +549,7 @@ def test_daily(_: bool = Depends(_admin_required)):
     跳过每日开关与推送时间，但仍只走已启用的渠道；
     实例 daily_report=off 的不推（follow/on 正常推）。"""
     from .notify import build_daily_report, filter_daily_report_accounts
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = scheduler._now().strftime("%Y-%m-%d")
     accounts = filter_daily_report_accounts(
         _daily_report_accounts(), db.get_settings(), force=True)
     chunks = build_daily_report(accounts, today)
@@ -536,7 +569,7 @@ def send_daily(_: bool = Depends(_admin_required)):
     定时已推过，当天仍可手动再推）。按实例 daily_report 过滤
     （follow 看全局开关、on 强制推、off 排除），记事件“手动推送日报”。"""
     from .notify import build_daily_report, filter_daily_report_accounts
-    today = dt.datetime.now().strftime("%Y-%m-%d")
+    today = scheduler._now().strftime("%Y-%m-%d")
     settings = db.get_settings()
     accounts = filter_daily_report_accounts(
         _daily_report_accounts(), settings)

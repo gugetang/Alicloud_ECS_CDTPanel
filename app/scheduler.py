@@ -33,6 +33,13 @@ _lock = threading.Lock()
 
 
 def _tz():
+    """调度时区：优先读 settings 表的 timezone（UI 可改，立即生效）；
+    无值/非法时回退环境变量 TZ，再回退 UTC+8。"""
+    try:
+        name = (db.get_settings().get("timezone") or "").strip() or cfg.TZ
+        return ZoneInfo(name)
+    except Exception:
+        pass
     try:
         return ZoneInfo(cfg.TZ)
     except Exception:

@@ -33,6 +33,25 @@ const EXCL_OPTIONS = [
 const exclLabel = (v: string | undefined | null) =>
   (EXCL_OPTIONS.find((o) => o.value === (v || "none"))?.title as string) || "踢出DDNS（默认，不停机）";
 
+// 时区下拉内置回退列表（与后端 GET /api/timezones 同款；接口加载失败时用它）。
+const TZ_FALLBACK = [
+  { value: "Asia/Shanghai", label: "上海 Asia/Shanghai" },
+  { value: "Asia/Hong_Kong", label: "香港 Asia/Hong_Kong" },
+  { value: "Asia/Taipei", label: "台北 Asia/Taipei" },
+  { value: "Asia/Singapore", label: "新加坡 Asia/Singapore" },
+  { value: "Asia/Tokyo", label: "东京 Asia/Tokyo" },
+  { value: "Asia/Seoul", label: "首尔 Asia/Seoul" },
+  { value: "UTC", label: "UTC 协调世界时" },
+  { value: "Europe/London", label: "伦敦 Europe/London" },
+  { value: "Europe/Berlin", label: "柏林 Europe/Berlin" },
+  { value: "Europe/Paris", label: "巴黎 Europe/Paris" },
+  { value: "America/New_York", label: "纽约 America/New_York" },
+  { value: "America/Chicago", label: "芝加哥 America/Chicago" },
+  { value: "America/Denver", label: "丹佛 America/Denver" },
+  { value: "America/Los_Angeles", label: "洛杉矶 America/Los_Angeles" },
+  { value: "Australia/Sydney", label: "悉尼 Australia/Sydney" },
+];
+
 // 实例配置表单（按截图结构，深色主题）：站点在地域之前（站点决定端点与币种），
 // 地域来自阿里云 DescribeRegions + 已有实例发现，失败回退内置列表。
 function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
@@ -236,6 +255,7 @@ export default function App() {
   const [domains, setDomains] = useState<Any[]>([]);
   const [groups, setGroups] = useState<Any[]>([]);
   const [settings, setSettings] = useState<Any>({});
+  const [timezones, setTimezones] = useState<Any[]>([]);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [dry, setDry] = useState<Any | null>(null);
@@ -244,21 +264,23 @@ export default function App() {
 
   // 状态点（新映射）：green 在线 / yellow 排队中 / gray 已跳出或未知 /
   // red 停机或离线 / green_pulse 启动中（高亮闪烁绿）/ red_pulse 停止中（闪烁红）
+  // 状态点颜色：Google 品牌色（green #34A853 / yellow #FBBC04 / gray #9AA0A6 / red #EA4335），
+  // 与 styles.css 的 --dot-* 变量一致；尺寸 4px（直径约 1mm），见 .dot。
   const dotColor = (dot: string | undefined) =>
-    dot === "green" ? "#22c55e" : dot === "green_pulse" ? "#4ade80" : dot === "yellow" ? "#eab308" : dot === "gray" ? "#94a3b8" : dot === "red_pulse" ? "#f87171" : "#ef4444";
+    dot === "green" ? "#34A853" : dot === "green_pulse" ? "#34A853" : dot === "yellow" ? "#FBBC04" : dot === "gray" ? "#9AA0A6" : dot === "red_pulse" ? "#EA4335" : "#EA4335";
   const dotClass = (dot: string | undefined) =>
     dot === "green_pulse" ? "dot-pulse" : dot === "red_pulse" ? "dot-pulse-red" : "";
   const dotEl = (dot: string | undefined, title?: string) => (
     <span className={`dot ${dotClass(dot)}`} title={title || ""}
-      style={{ width: 10, height: 10, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6 }} />
+      style={{ width: 4, height: 4, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6 }} />
   );
   const Legend = () => (
     <p className="legend muted">
-      <span><span className="dot" style={{ background: "#22c55e" }} />绿=在线</span>
-      <span><span className="dot" style={{ background: "#eab308" }} />黄=排队中</span>
-      <span><span className="dot" style={{ background: "#94a3b8" }} />灰=已跳出</span>
-      <span><span className="dot" style={{ background: "#ef4444" }} />红=停机/离线</span>
-      <span><span className="dot dot-pulse" style={{ background: "#4ade80" }} />闪烁绿=启动中</span>
+      <span><span className="dot" style={{ background: "#34A853" }} />绿=在线</span>
+      <span><span className="dot" style={{ background: "#FBBC04" }} />黄=排队中</span>
+      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=已跳出</span>
+      <span><span className="dot" style={{ background: "#EA4335" }} />红=停机/离线</span>
+      <span><span className="dot dot-pulse" style={{ background: "#34A853" }} />闪烁绿=启动中</span>
     </p>
   );
 
@@ -271,6 +293,7 @@ export default function App() {
       setGroups((s.groups as Any[]) || []);
     } catch { /* 后端未就绪时先显示空态 */ }
     try { setSettings(await get("/api/settings") as Any); } catch { /* ignore */ }
+    try { setTimezones((((await get("/api/timezones") as Any).timezones as Any[]) || [])); } catch { /* 失败时下拉用内置列表 */ }
   };
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -288,6 +311,15 @@ export default function App() {
 
   const saveSettings = async (patch: Any) => {
     await run(async () => put("/api/settings", patch), "已保存");
+  };
+
+  // DDNS 设置（Cloudflare Token + 时区）：Token 留空保持不变，只有填了
+  // 新值才提交；时区随“保存调度参数”一起保存，也可单独保存。
+  const ddnsPatch = () => {
+    const patch: Any = { timezone: (document.getElementById("s-timezone") as HTMLSelectElement)?.value || "Asia/Shanghai" };
+    const tok = (document.getElementById("cf-token") as HTMLInputElement)?.value || "";
+    if (tok) patch.cloudflare_token = tok;
+    return patch;
   };
 
   // 切换模式按分组设置：全局设置页只保留“新建分组的默认值”，
@@ -624,7 +656,24 @@ export default function App() {
               night_window_start: (document.getElementById("s-nstart") as HTMLInputElement).value,
               night_window_end: (document.getElementById("s-nend") as HTMLInputElement).value,
               fixed_switch_time: (document.getElementById("s-fixed") as HTMLInputElement).value,
+              ...ddnsPatch(),
             })}>保存调度参数</button>
+          </div>
+          <div className="card"><h2>DDNS 设置</h2>
+            <p className="muted">Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。</p>
+            <div className="form2">
+              <div><label>Cloudflare API Token</label>
+                <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? "已配置，留空保持不变" : "未配置，填写 Cloudflare API Token"} />
+                <p className="muted">{settings.cloudflare_configured ? "已配置。留空保存时保持不变，只有填了新值才更新。" : "未配置。填写后才能执行 DDNS 更新。"}</p></div>
+              <div><label>时区 *</label>
+                <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone">
+                  {(timezones.length ? timezones : TZ_FALLBACK).map((tz) => (
+                    <option key={tz.value} value={tz.value}>{tz.label}</option>
+                  ))}
+                </select>
+                <p className="muted">当前：{String(settings.timezone ?? "Asia/Shanghai")}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。</p></div>
+            </div>
+            <button className="btn" onClick={() => saveSettings(ddnsPatch())}>保存 DDNS 设置</button>
           </div>
           <div className="card"><h2>网页访问</h2><p className="muted">保存后在下次启动时生效。启动参数 --listen 优先用于本次启动。</p>
             <div className="form2">

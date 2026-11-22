@@ -1,4 +1,4 @@
-:root { --bg:#0b1220; --card:#111c33; --card2:#0f1930; --border:#1e2d4d; --text:#e6edf7; --muted:#8ea0bf; --accent:#2563eb; --green:#22c55e; --red:#ef4444; }
+:root { --bg:#0b1220; --card:#111c33; --card2:#0f1930; --border:#1e2d4d; --text:#e6edf7; --muted:#8ea0bf; --accent:#2563eb; --green:#34A853; --red:#EA4335; --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; }
 a { color:#7aa5ff; }
@@ -16,21 +16,24 @@ nav button.active { background:var(--accent); border-color:var(--accent); }
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
 .big { font-size:32px; font-weight:700; }
 .big small { font-size:14px; color:var(--muted); font-weight:400; }
-.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--green); margin-right:6px; }
-/* 状态点闪烁：启动中=高亮闪烁绿点（带光晕），停止中=闪烁红点 */
+/* 状态点：Google 色，直径约 1mm（4px，1mm ≈ 3.78px @96dpi），正圆。
+   颜色集中定义在 :root 的 --dot-* 变量，各状态点 class 引用变量。 */
+.dot { display:inline-block; width:4px; height:4px; border-radius:50%; background:var(--dot-green); margin-right:6px; }
+/* 状态点闪烁：启动中=高亮闪烁绿点（Google 绿底色与光晕），停止中=闪烁红点（Google 红）；
+   光晕扩散约 2–3px，不淹没 4px 的小点 */
 .dot-pulse { animation: dotPulse 1.2s ease-in-out infinite; }
 .dot-pulse-red { animation: dotPulseRed 1.2s ease-in-out infinite; }
-@keyframes dotPulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(74,222,128,.7); } 50% { opacity:.55; box-shadow:0 0 0 7px rgba(74,222,128,0); } }
-@keyframes dotPulseRed { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(248,113,113,.7); } 50% { opacity:.55; box-shadow:0 0 0 7px rgba(248,113,113,0); } }
+@keyframes dotPulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(52,168,83,.7); } 50% { opacity:.55; box-shadow:0 0 0 3px rgba(52,168,83,0); } }
+@keyframes dotPulseRed { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(234,67,53,.7); } 50% { opacity:.55; box-shadow:0 0 0 3px rgba(234,67,53,0); } }
 .legend { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
-.legend .dot { width:10px; height:10px; }
+.legend .dot { width:4px; height:4px; }
 /* 每日财报推送预览卡片：标题 16px / 正文 14px / 日期 12px，行高 1.6，手机端不溢出 */
 .report-card { background:#0b1526; border:1px solid var(--border); border-radius:10px; padding:14px 16px; max-width:100%; overflow-wrap:break-word; }
 .report-title { font-size:16px; font-weight:700; line-height:1.5; }
 .report-date { font-size:12px; color:var(--muted); line-height:1.5; }
 .report-body { font-size:14px; line-height:1.6; white-space:pre-line; }
-.pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; background:#123524; color:#4ade80; }
-.pill.gray { background:#1e293b; color:#94a3b8; }
+.pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; background:#123524; color:#34A853; }
+.pill.gray { background:#1e293b; color:#9AA0A6; }
 .pill.blue { background:#172554; color:#93c5fd; }
 .pill.red { background:#3f1d1d; color:#fca5a5; }
 table { width:100%; border-collapse:collapse; font-size:14px; }

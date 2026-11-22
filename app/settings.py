@@ -52,6 +52,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "interval_hours": "6",
     "custom_interval_minutes": "0",
     "fallback_address": "fallback.example.xyz",
+    # 时区（IANA）：夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间
+    # 都按此时区执行。默认取容器环境变量 TZ（compose 里 Asia/Shanghai），
+    # UI 里改了以后以 UI 设置为准，不用重启。
+    "timezone": TZ,
     "cloudflare_token": "",
     "notify_proxy": "http://127.0.0.1:7070",
     "telegram_enabled": "0",

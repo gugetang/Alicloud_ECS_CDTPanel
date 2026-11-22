@@ -18,6 +18,9 @@
 set -euo pipefail
 
 PORT="${PORT:-1999}"
+# DIR 是代码目录（克隆仓库的位置），默认 /opt/docker/alicloud_ECS_CDT。
+# 数据卷在 docker-compose.yml 里写死为绝对路径
+# /opt/docker/cdt-alicloud_ecs_cdtpanel:/data，数据固定落在那里，与 DIR 无关。
 DIR="${DIR:-/opt/docker/alicloud_ECS_CDT}"
 REPO_URL="${REPO_URL:-https://github.com/gugetang/Alicloud_ECS_CDTPanel.git}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
@@ -49,13 +52,13 @@ compose() {
 # ---------------- 卸载 ----------------
 if [ "${UNINSTALL:-0}" = "1" ]; then
   log "卸载 alicloud_ECS_CDT（项目目录：$DIR）"
-  printf '确认删除容器 alicloud-ecs-cdt 吗？输入 yes 继续：'
+  printf '确认删除容器 Alicloud_ECS_CDTPanel 吗？输入 yes 继续：'
   read -r ans
   [ "$ans" = "yes" ] || die "已取消卸载"
   if [ -f "$DIR/$COMPOSE_FILE" ]; then
     (cd "$DIR" && compose down --remove-orphans || true)
   else
-    docker rm -f alicloud-ecs-cdt 2>/dev/null || true
+    docker rm -f Alicloud_ECS_CDTPanel 2>/dev/null || true
   fi
   printf '同时删除数据目录 %s/data 吗？（含 cdt.db 与 master.key，删后无法恢复）输入 yes 删除：' "$DIR"
   read -r ans2
@@ -138,7 +141,7 @@ elif [ -f "$DIR/$COMPOSE_FILE" ]; then
     (cd "$DIR" && git pull --ff-only) || log "git pull 失败，继续使用本地源码"
     AFTER="$(cd "$DIR" && git rev-parse HEAD 2>/dev/null || echo none)"
     if [ "$BEFORE" = "$AFTER" ] && [ "$BEFORE" != "none" ] \
-       && docker ps --format '{{.Names}}' | grep -qx alicloud-ecs-cdt; then
+       && docker ps --format '{{.Names}}' | grep -qx Alicloud_ECS_CDTPanel; then
       log "已是最新版本，容器正在运行，无需重建"
       (cd "$DIR" && PORT="$PORT" compose up -d)
       log "访问地址：http://$(hostname -I 2>/dev/null | awk '{print $1}'):${PORT}"
@@ -177,7 +180,7 @@ for _ in $(seq 1 60); do
 done
 [ "$ok" = "1" ] || {
   compose logs --tail=50
-  die "健康检查 60 秒未通过，请用 docker compose logs -f alicloud_ecs_cdt 查看日志"
+  die "健康检查 60 秒未通过，请用 docker compose logs -f Alicloud_ECS_CDTPanel 查看日志"
 }
 
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

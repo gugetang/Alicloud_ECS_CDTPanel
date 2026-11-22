@@ -42,17 +42,41 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 git clone https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 cd Alicloud_ECS_CDTPanel
 docker compose up -d --build
-docker compose logs -f alicloud_ecs_cdt
+docker compose logs -f Alicloud_ECS_CDTPanel
 # 访问 http://服务器:1999
 # 改端口：PORT=8888 docker compose up -d
 ```
 
-`docker-compose.yml`：服务名 `alicloud_ecs_cdt`，本地构建（`build: .`，镜像
-`alicloud-ecs-cdt:latest`；发布镜像后可用 `image: ghcr.io/gugetang/alicloud_ecs_cdt:latest`），
-端口 `${PORT:-1999}:1999`，挂载 `./data:/data`，`TZ=Asia/Shanghai`、
-`CDT_DATA_DIR=/data`，`restart: unless-stopped`，`init: true`，
+`docker-compose.yml`：服务名 `Alicloud_ECS_CDTPanel`（容器同名），
+`build: .` 与 `image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest` 并存——
+本地 `docker compose up -d` 时构建并打上这个 tag，镜像未发布前也能跑；
+发布后（见 `.github/workflows/docker.yml`，push 到 main 自动构建并推送到
+GHCR）也可直接拉 GHCR 镜像。端口 `${PORT:-1999}:1999`，
+数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
+（与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
+该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
+`restart: unless-stopped`，`init: true`，
 健康检查用 `python -c urllib` 访问 `/api/health`（镜像是 `python:3.13-slim`，
 无 curl），日志限制 `10m × 3`。
+
+> 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
+> 所以是 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`，
+> 不是 `ghcr.io/gugetang/Alicloud_ECS_CDTPanel.git`。
+> 首次使用如未发布过镜像，compose 会本地构建，不会因为拉不到镜像而失败。
+
+### DDNS 设置与时区
+
+全局设置页新增「DDNS 设置」卡片：
+
+- **Cloudflare API Token**：用于 DDNS 解析（Zone / 记录 ID 自动发现，
+  IP 不变不改）。输入框显示“已配置”时留空保存保持不变，只有填了新值才更新。
+- **时区**（下拉菜单，从 `GET /api/timezones` 拉取，加载失败时回退内置列表）：
+  默认 `Asia/Shanghai`（取容器环境变量 `TZ`，缺省 `Asia/Shanghai`）。
+  下拉旁显示当前时区。保存后立即生效，下次调度按新时区走，不用重启。
+- **影响范围**：夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间
+  都按此时区执行；日报日期（`[AliCloud每日报告]` 里的日期）也按此时区算。
+- **与容器 TZ 的关系**：compose 里的 `TZ: Asia/Shanghai` 只作后备默认值；
+  UI 里改了时区后以 UI 设置为准，容器 TZ 不再起作用。
 
 ### 本地
 
@@ -138,6 +162,13 @@ API 刷新时间 5 分钟、夜间优化开启（00:00–04:00）、时间切换
 `status_label`、`status_detail`，另外还有 `serving`（是否正被域名指向）
 与 `queue_rank`（排队位次），前端直接用，不再自己算阈值。
 运行概览页有图例：绿=在线、黄=排队中、灰=已跳出、红=停机/离线、闪烁绿=启动中。
+
+颜色用 Google 品牌色，尺寸直径约 1mm（4px，1mm ≈ 3.78px @96dpi）：
+绿 `#34A853` / 黄 `#FBBC04` / 红 `#EA4335` / 灰 `#9AA0A6`；
+启动中是 Google 绿底色 + 光晕的高亮闪烁绿点，停止中是 Google 红闪烁点，
+光晕扩散约 2–3px。颜色在 `web/src/styles.css` 里用 `--dot-green` /
+`--dot-yellow` / `--dot-red` / `--dot-gray` 变量集中定义，各状态点 class
+引用变量；后端 `status_dot` 值不变。
 
 | 点 | 含义 | 条件 |
 |---|---|---|
