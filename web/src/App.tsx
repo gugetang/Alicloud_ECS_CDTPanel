@@ -351,7 +351,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={onCancel}>{t("取消")}</button>
-        <button className="btn" onClick={save} disabled={formBusy}>{t("保存")}</button>
+        <button className="icon-btn green" title={t("保存")} onClick={save} disabled={formBusy}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
     </div>
   );
@@ -544,7 +544,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
         </div>
       )}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="btn" onClick={saveParams}>{t("保存")}</button>
+        <button className="icon-btn green" title={t("保存")} onClick={saveParams}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("成员实例（参与 DDNS，可多选）")}</h3>
@@ -632,7 +632,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <p className="muted">{t("每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。")}</p>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn ghost" onClick={async () => { await saveConfig(); await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" }); }}>{t("保存")}</button>
+        <button className="icon-btn green" title={t("保存")} onClick={async () => { await saveConfig(); await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" }); }}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
@@ -743,7 +743,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
         <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} /></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="btn" onClick={saveGoogleOAuth}>{t("保存")}</button>
+        <button className="icon-btn green" title={t("保存")} onClick={saveGoogleOAuth}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
       <h3 style={{ marginTop: 20 }}>{t("GitHub 登录")}</h3>
       <p className="muted">{t("在 GitHub Settings 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/github/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
@@ -752,7 +752,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
         <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} /></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="btn" onClick={saveGithubOAuth}>{t("保存")}</button>
+        <button className="icon-btn green" title={t("保存")} onClick={saveGithubOAuth}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
       {secMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{secMsg}</p>}
     </div>
@@ -1244,7 +1244,7 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("已用 / 月度流量额度")}</th><th>{t("使用率")}</th><th>{t("状态")}</th></tr></thead>
+              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
@@ -1252,8 +1252,7 @@ export default function App() {
                     <td>{a.region as string}</td>
                     <td>{maskIp(a.public_ip)}</td>
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
-                    <td>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}<div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div></td>
-                    <td><span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
+                    <td>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table>
             )}
@@ -1388,7 +1387,7 @@ export default function App() {
               <p className="muted">{t("当前：{tz}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。", { tz: String(settings.timezone ?? "Asia/Shanghai") })}</p></div>
           </div>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-            <button className="btn" onClick={() => saveSettings(ddnsPatch())}>{t("保存")}</button>
+            <button className="icon-btn green" title={t("保存")} onClick={() => saveSettings(ddnsPatch())}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
           </div>
         </div>
         )}
@@ -1519,7 +1518,7 @@ export default function App() {
             </div>
             </div>
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="btn" onClick={() => saveSettings({
+              <button className="icon-btn green" title={t("保存")} onClick={() => saveSettings({
               quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
               protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
               switch_diff_mode: sDiffMode,
@@ -1536,7 +1535,7 @@ export default function App() {
               settlement_currency: sCurrency,
               exchange_rate_usd_cny: (document.getElementById("s-fx-rate") as HTMLInputElement).value || String(settings.exchange_rate_usd_cny ?? "6.6719"),
               ...ddnsPatch(),
-            })}>{t("保存")}</button>
+            })}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
             </div>
           </div>
           <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />

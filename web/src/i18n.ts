@@ -147,6 +147,7 @@ export const EN: Record<string, string> = {
   流量: "Traffic",
   使用率: "Usage",
   费用: "Cost",
+  实时费用: "Real-time cost",
   站点: "Site",
   实例: "Instance",
   阈值: "Threshold",
