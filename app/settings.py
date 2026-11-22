@@ -97,4 +97,31 @@ EVENT_TOGGLE_KEYS = {
 
 
 def ensure_dirs() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    """建好数据目录，并确认可写。
+
+    容器以 UID 10001 运行；宿主机上 Docker 自动创建的挂载目录属主是 root，
+    容器写不进去时 sqlite3.connect 会报 OperationalError: unable to open
+    database file。这里提前探测可写性，报错时直接给出修复命令，而不是让
+    用户去猜一个没头没尾的 sqlite 报错。
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise RuntimeError(
+            f"数据目录 {DATA_DIR} 创建失败（{e}）：请确认挂载的数据卷目录存在且"
+            "容器用户（UID 10001）可写；宿主机执行："
+            "sudo chown -R 10001:10001 /opt/docker/cdt-alicloud_ecs_cdtpanel"
+            " 后重启容器。"
+        ) from e
+    probe = DATA_DIR / ".write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as e:
+        raise RuntimeError(
+            f"数据目录 {DATA_DIR} 不可写（{e}）：容器以 UID 10001 运行，但该目录"
+            "属主是 root（Docker 自动创建的挂载目录默认属主就是 root）。"
+            "宿主机执行：sudo chown -R 10001:10001 "
+            "/opt/docker/cdt-alicloud_ecs_cdtpanel，然后重启容器："
+            "docker compose restart（或 docker restart Alicloud_ECS_CDTPanel）。"
+        ) from e

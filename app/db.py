@@ -35,7 +35,16 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     if _conn is None:
         path = db_path or cfg.DB_PATH
         cfg.ensure_dirs()
-        _conn = sqlite3.connect(str(path), check_same_thread=False, timeout=15)
+        try:
+            _conn = sqlite3.connect(str(path), check_same_thread=False, timeout=15)
+        except sqlite3.OperationalError as e:
+            # ensure_dirs 已确认目录可写，这里还失败通常是数据库文件本身
+            # 不可写（如旧文件属主是 root）或路径被目录占用。
+            raise RuntimeError(
+                f"打不开数据库文件 {path}（{e}）：请确认该文件与所在目录对容器"
+                "用户（UID 10001）可写；宿主机执行：sudo chown -R 10001:10001 "
+                "/opt/docker/cdt-alicloud_ecs_cdtpanel，然后重启容器。"
+            ) from e
         _conn.row_factory = sqlite3.Row
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA busy_timeout=15000")
