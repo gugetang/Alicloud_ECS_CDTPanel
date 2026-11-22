@@ -44,7 +44,7 @@ nav button.active { background:#dbeafe; border:2px solid var(--accent); color:#1
 .muted { color:var(--muted); font-size:13px; }
 .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
-.big { font-size:32px; font-weight:700; }
+.big { font-size:14px; font-weight:700; }
 .big small { font-size:14px; color:var(--muted); font-weight:400; }
 /* 状态点：Google 色，直径约 2mm（8px，1mm ≈ 3.78px @96dpi），正圆，
    垂直居中于字体高度（vertical-align: middle）。
@@ -85,6 +85,12 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .icon-btn:disabled { opacity:.45; cursor:default; }
 .icon-btn.danger { color:#EA4335; }
 .icon-btn.danger:hover { border-color:#EA4335; color:#EA4335; background:rgba(234,67,53,.08); }
+.icon-btn.green { color:#34A853; }
+.icon-btn.green:hover { border-color:#34A853; color:#34A853; background:rgba(52,168,83,.08); }
+.icon-btn.blue { color:#2563eb; }
+.icon-btn.blue:hover { border-color:#2563eb; color:#2563eb; background:rgba(37,99,235,.08); }
+.icon-btn.gray { color:#9AA0A6; }
+.icon-btn.gray:hover { border-color:#9AA0A6; color:#9AA0A6; background:rgba(154,160,166,.08); }
 /* 滑动开关：开=蓝底（--accent），关=灰底；圆点左右滑动。 */
 .switch { width:44px; height:24px; border-radius:999px; border:none; background:#cbd5e1; position:relative; cursor:pointer; padding:0; flex:none; transition:background .2s; }
 .switch.on { background:var(--accent); }

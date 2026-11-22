@@ -975,12 +975,15 @@ export default function App() {
     }
   };
   // 单台操作图标按钮（放卡片右下角；列表的操作列同样用图标）。
+  // 启动按钮随状态变：已停机时绿色三角可点，其余状态灰色方块不可点；
+  // 重启蓝色，停机红色，刷新默认色。
   const ActionButtons = ({ a }: { a: Any }) => {
     const busy = !!acting[a.id];
     const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "停机中…" } as const;
+    const stopped = a.instance_status === "Stopped";
     const btn = (action: "refresh" | "start" | "restart" | "stop", label: string,
-                 disabled: boolean, icon: JSX.Element) => (
-      <button key={action} className="icon-btn" title={acting[a.id] === action ? t(busyLabel[action]) : label}
+                 disabled: boolean, icon: JSX.Element, cls = "") => (
+      <button key={action} className={cls ? `icon-btn ${cls}` : "icon-btn"} title={acting[a.id] === action ? t(busyLabel[action]) : label}
         aria-label={label} disabled={busy || disabled}
         onClick={() => accountAction(a, action)}>{icon}</button>
     );
@@ -988,12 +991,15 @@ export default function App() {
       <div className="row" style={{ gap: 6 }}>
         {btn("refresh", t("刷新"), false,
           <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
-        {btn("start", t("启动"), a.instance_status === "Running",
-          <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>)}
+        {btn("start", t("启动"), !stopped,
+          stopped
+            ? <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>
+            : <Ico label={t("启动")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>,
+          stopped ? "green" : "gray")}
         {btn("restart", t("重启"), a.instance_status !== "Running",
-          <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>)}
+          <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
         {btn("stop", t("停机"), a.instance_status !== "Running",
-          <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>)}
+          <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
       </div>
     );
   };
@@ -1487,6 +1493,7 @@ export default function App() {
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                   { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
                 ]} onChange={setSInterval} /></div>
+              {sInterval === "0" && (
               <div><label className="lbl">{t("自定义间隔")}</label>
                 <div className="row" style={{ alignItems: "center" }}>
                   <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: 120 }} />
@@ -1495,7 +1502,7 @@ export default function App() {
                     { value: "hour", label: t("小时") },
                     { value: "day", label: t("天") },
                   ]} onChange={changeCustUnit} />
-                </div></div>
+                </div></div>)}
             </div>
             </div>
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
