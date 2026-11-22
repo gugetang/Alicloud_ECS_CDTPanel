@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 
-type Tab = "dash" | "accounts" | "groups" | "config";
+type Tab = "dash" | "accounts" | "groups" | "config" | "logs";
 type SubTab = "settings" | "domains" | "notify";
 type Any = Record<string, any>;
 
 const TABS: [Tab, string][] = [
-  ["dash", "运行概览"], ["accounts", "Ali 账户"],
-  ["groups", "分组管理"], ["config", "设置"],
+  ["dash", "运行概览"], ["accounts", "账户管理"],
+  ["groups", "分组管理"], ["config", "设置"], ["logs", "日志"],
 ];
 
 // 设置页内的子标签（从左到右）：全局设置、域名管理、通知设置
@@ -483,7 +483,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
       </div>
       <h3 style={{ marginTop: 12 }}>成员实例（参与 DDNS，可多选）</h3>
       <p className="muted">点一下选中 / 取消，被选中的实例参与 DDNS 域名分配；名称前的点是当前状态。</p>
-      {members.length === 0 && <p className="muted">暂无成员，去「Ali 账户」添加并选本分组。</p>}
+      {members.length === 0 && <p className="muted">暂无成员，去「账户管理」添加并选本分组。</p>}
       <div className="seg">
         {members.map((a) => {
           const on = a.ddns_enabled == null ? true : Boolean(a.ddns_enabled);
@@ -852,6 +852,13 @@ export default function App() {
   };
   useEffect(() => { if (authState === "authed") load(); }, [authState]);
 
+  const [logs, setLogs] = useState<Any[]>([]);
+  const loadLogs = async () => {
+    try { setLogs(await get("/api/logs?limit=100") as Any[]); }
+    catch (e) { setMsg(String((e as Error).message)); }
+  };
+  useEffect(() => { if (tab === "logs" && authState === "authed") loadLogs(); }, [tab, authState]);
+
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true); setMsg("");
     try { const r = await fn(); setMsg(ok); setDry(r as Any); await load(); }
@@ -977,7 +984,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "groups" ? "分组管理" : subTab === "settings" ? "全局设置" : subTab === "domains" ? "域名管理" : "通知设置"}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "账户管理" : tab === "groups" ? "分组管理" : tab === "logs" ? "日志" : subTab === "settings" ? "全局设置" : subTab === "domains" ? "域名管理" : "通知设置"}</h1>
           <select value={theme} onChange={(e) => setTheme(e.target.value)}
             aria-label="主题" style={{ width: "auto" }}>
             <option value="light">白</option>
@@ -985,7 +992,7 @@ export default function App() {
             <option value="system">跟随系统</option>
           </select>
         </div>
-        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : subTab === "settings" ? "设置调度规则和登录方式。" : subTab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
+        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : tab === "logs" ? "最近的事件记录，最新的在前面。" : subTab === "settings" ? "设置调度规则和登录方式。" : subTab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>
@@ -1001,7 +1008,6 @@ export default function App() {
         <>
           <div className="notice">调度运行时会按当前配置执行 VPS 和 DNS 操作。</div>
           <div className="row" style={{ marginBottom: 16 }}>
-            <button className="btn ghost" onClick={() => run(() => get("/api/logs"), "日志已刷新")}>查看日志</button>
             <button className="btn ghost" onClick={() => run(() => post("/api/cloud/status"), "云端状态已查询")}>查询云端状态</button>
             <button className="btn ghost" disabled={busy} onClick={() => run(() => post("/api/schedule/dry-run"), "调度试算完成（未执行任何 VPS / DNS 操作）")}>调度试算</button>
             <button className="btn" disabled={busy} onClick={() => run(() => post("/api/schedule/run"), "立即调度完成")}>立即调度</button>
@@ -1010,12 +1016,12 @@ export default function App() {
             </button>
           </div>
           <div className="grid3">
-            <div className="card"><h3>调度状态</h3>
-              <div className="big"><span className="dot" />{(status?.scheduler as Any)?.paused ? "已暂停" : "运行中"}</div>
-              <div className="muted">API 刷新 {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} 分钟<br />DNS 已确认 {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
+            <div className="card"><h3>实例状态</h3>
+              <div className="big">在线 {accounts.filter((a) => a.status_dot === "green").length} 台</div>
+              <div className="muted">排队 {accounts.filter((a) => a.status_dot === "yellow").length} · 已跳出 {accounts.filter((a) => a.evicted).length} · 停机/离线 {accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length}{accounts.some((a) => a.status_label === "未参与") ? ` · 未参与 ${accounts.filter((a) => a.status_label === "未参与").length}` : ""}{accounts.some((a) => a.status_dot === "green_pulse") ? ` · 启动中 ${accounts.filter((a) => a.status_dot === "green_pulse").length}` : ""}<br />调度{(status?.scheduler as Any)?.paused ? "已暂停" : "运行中"} · API 刷新 {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} 分钟 · DNS 已确认 {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
             </div>
             <div className="card"><h3>本月已用流量</h3>
-              <div className="big">{status?.total_used_gb ?? 0} <small>GiB</small></div>
+              <div className="big">{status?.total_used_gb ?? 0} GiB</div>
               <div className="muted">已取得 {status?.accounts_known ?? 0} / {status?.accounts_total ?? 0} 个账户用量</div>
             </div>
             <div className="card"><h3>本月费用 <span className="muted" style={{ float: "right" }}>账期 {status?.month}</span></h3>
@@ -1032,7 +1038,7 @@ export default function App() {
               ]} onChange={(v) => setViewMode(v as "card" | "list")} />
             </div>
             <Legend />
-            {accounts.length === 0 && <p className="muted">暂无账户，先去「Ali 账户」添加。</p>}
+            {accounts.length === 0 && <p className="muted">暂无账户，先去「账户管理」添加。</p>}
             {viewMode === "card" ? (
               <div className="grid3" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
@@ -1071,29 +1077,13 @@ export default function App() {
                   </tr>
                 ))}</tbody></table>
             )}
-            <p className="muted">已跳出：达保护阈值被踢出池子，不再参与 DDNS，用量回落后自动恢复；排队中：在线待命，按使用率排队等接替。卡片右上角 ⚙ 打开卡片设置（配置 / 复制 / 删除实例）。</p>
-          </div>
-          <div className="card"><h2>当前 DNS 指向</h2>
-            {domains.map((d) => (
-              <div key={d.id as number} className="row" style={{ padding: "8px 0", borderBottom: "1px solid #1e2d4d" }}>
-                <span className="pill blue">{String(d.priority + 1).padStart(2, "0")}</span>
-                <b>{d.name as string}</b><span className="muted">A · 仅 DNS</span><span className="spacer" />
-                <span>{(d.current_ip as string) || "未分配"}</span>
-              </div>
-            ))}
-            <p className="muted">备用地址：{String(settings.fallback_address || "—")}</p>
-          </div>
-          <div className="card"><h2>最近活动</h2>
-            {((status?.events as Any[]) || []).slice(0, 8).map((e) => (
-              <div key={e.id as number} className="row" style={{ padding: "6px 0" }}><span>•</span><span>{e.title as string}</span><span className="muted">{e.detail as string}</span></div>
-            ))}
           </div>
           {dry && <div className="card"><h2>调度试算结果</h2><pre>{JSON.stringify(dry, null, 2)}</pre></div>}
         </>
       )}
 
       {tab === "accounts" && (
-        <div className="card"><h2>Ali 账户 {accounts.length}</h2>
+        <div className="card"><h2>账户管理 {accounts.length}</h2>
           <p className="muted">每台实例一个卡片，点右上角 ⚙ 打开卡片设置（配置 / 复制 / 删除实例）。账户默认继承全局参数，可单独覆盖阈值动作、恢复方式、每日定时开关机与日报推送。地域来自阿里云 DescribeRegions，站点决定端点与币种。</p>
           <Legend />
           <div className="row" style={{ marginBottom: 12 }}>
@@ -1343,6 +1333,22 @@ export default function App() {
             <p className="muted">持续故障仅在首次发生和恢复时通知。测试使用已保存的配置，调度暂停时也可发送。</p>
           </div>
         </>
+      )}
+
+      {tab === "logs" && (
+        <div className="card"><h2>日志</h2>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <button className="btn ghost" onClick={() => loadLogs()}>刷新日志</button>
+          </div>
+          {logs.length === 0 && <p className="muted">暂无日志。</p>}
+          {logs.map((e) => (
+            <div key={e.id as number} className="row" style={{ padding: "6px 0" }}>
+              <span>•</span><span>{e.title as string}</span><span className="muted">{e.detail as string}</span>
+              <span className="spacer" />
+              <span className="muted">{e.created_at ? new Date((e.created_at as number) * 1000).toLocaleString("zh-CN", { hour12: false }) : ""}</span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
