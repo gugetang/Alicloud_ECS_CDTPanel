@@ -76,6 +76,18 @@ function Seg({ value, options, onChange }: {
   );
 }
 
+// 单台操作图标（内联 SVG）：刷新 / 启动 / 重启 / 停机。
+function Ico({ label, children }: { label: string; children: any }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={label}>{children}</svg>
+  );
+}
+
+// 流量用量条颜色：绿 <80%、黄 ≥80%、红 ≥保护阈值，未知为灰。
+const usageColor = (rate: number | null | undefined, threshold: number) =>
+  rate == null ? "#9AA0A6" : rate >= threshold ? "#EA4335" : rate >= 80 ? "#FBBC04" : "#34A853";
+
 // WebAuthn（指纹登录）用的 base64url / ArrayBuffer 互转。
 const b64urlToBuf = (s: string): ArrayBuffer => {
   const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
@@ -901,14 +913,28 @@ export default function App() {
       setActing((m) => { const n = { ...m }; delete n[a.id]; return n; });
     }
   };
-  const ActionButtons = ({ a }: { a: Any }) => (
-    <div className="row">
-      <button className="btn ghost" disabled={!!acting[a.id]} onClick={() => accountAction(a, "refresh")}>{acting[a.id] === "refresh" ? "刷新中…" : "刷新"}</button>
-      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status === "Running"} onClick={() => accountAction(a, "start")}>{acting[a.id] === "start" ? "启动中…" : "启动"}</button>
-      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status !== "Running"} onClick={() => accountAction(a, "restart")}>{acting[a.id] === "restart" ? "重启中…" : "重启"}</button>
-      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status !== "Running"} onClick={() => accountAction(a, "stop")}>{acting[a.id] === "stop" ? "停机中…" : "停机"}</button>
-    </div>
-  );
+  // 单台操作图标按钮（放卡片右下角；列表的操作列同样用图标）。
+  const ActionButtons = ({ a }: { a: Any }) => {
+    const busy = !!acting[a.id];
+    const btn = (action: "refresh" | "start" | "restart" | "stop", label: string,
+                 disabled: boolean, icon: JSX.Element) => (
+      <button key={action} className="icon-btn" title={acting[a.id] === action ? `${label}中…` : label}
+        aria-label={label} disabled={busy || disabled}
+        onClick={() => accountAction(a, action)}>{icon}</button>
+    );
+    return (
+      <div className="row" style={{ gap: 6 }}>
+        {btn("refresh", "刷新", false,
+          <Ico label="刷新"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
+        {btn("start", "启动", a.instance_status === "Running",
+          <Ico label="启动"><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>)}
+        {btn("restart", "重启", a.instance_status !== "Running",
+          <Ico label="重启"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>)}
+        {btn("stop", "停机", a.instance_status !== "Running",
+          <Ico label="停机"><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>)}
+      </div>
+    );
+  };
 
   // ---------- 卡片设置面板：右上角 ⚙ 打开；配置表单 + 复制 + 删除实例（最下面） ----------
   const CardSettings = ({ a }: { a: Any }) => (
@@ -1044,20 +1070,20 @@ export default function App() {
                 {accounts.map((a) => (
                   <div className="card" key={a.id as number} style={{ marginBottom: 0 }}>
                     <div className="row" style={{ justifyContent: "space-between" }}>
-                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></div>
+                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</div>
                       <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
                     </div>
-                    <div style={{ marginTop: 8 }}>
-                      <span className="pill">{a.status_label || a.instance_status || "未知"}</span>
-                      {a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}
+                    <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
+                    <div className="stats">
+                      <div className="stat"><span>地域</span><b>{a.region as string}</b></div>
+                      <div className="stat"><span>IP</span><b>{a.public_ip as string || "—"}</b></div>
+                      <div className="stat"><span>流量</span><b>{a.traffic_used_gb ?? "—"} / {a.quota_gb ?? 200} GiB</b></div>
+                      <div className="stat"><span>使用率</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
+                      <div className="stat"><span>费用</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
+                      <div className="stat"><span>站点</span><b>{a.site === "cn" ? "中国站" : "国际站"}</b></div>
                     </div>
-                    <div className="muted" style={{ marginTop: 8 }}>
-                      {a.site === "cn" ? "中国站" : "国际站"} · {a.region as string} · IP {a.public_ip as string || "—"}
-                    </div>
-                    <div style={{ marginTop: 8 }}>流量 <b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB{a.usage_rate != null ? `（${a.usage_rate}%）` : ""}</div>
-                    <div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div>
                     {a.status_detail ? <div className="muted" style={{ marginTop: 6 }}>{a.status_detail as string}</div> : null}
-                    <div style={{ marginTop: 12 }}><ActionButtons a={a} /></div>
+                    <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
                     {cardSettingsId === a.id && <CardSettings a={a} />}
                   </div>
                 ))}
@@ -1096,19 +1122,24 @@ export default function App() {
           {accounts.map((a) => (
             <div className="card" key={a.id as number} style={{ marginTop: 12 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}<br />
+                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? "中国站 cn" : "国际站 global"} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? "按时间切换" : "按负载均衡"}）</span></div>
                 <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
               </div>
-              <div className="muted" style={{ marginTop: 8 }}>
-                实例 {a.instance_id as string} · IP {a.public_ip as string || "—"} · 流量 <b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB{a.usage_rate != null ? `（${a.usage_rate}%）` : ""} · 本月费用 <b>{a.billing_month_cost ?? "—"}</b> {a.billing_currency || ""}
+              <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
+              <div className="stats">
+                <div className="stat"><span>实例</span><b>{a.instance_id as string}</b></div>
+                <div className="stat"><span>IP</span><b>{a.public_ip as string || "—"}</b></div>
+                <div className="stat"><span>流量</span><b>{a.traffic_used_gb ?? "—"} / {a.quota_gb ?? 200} GiB</b></div>
+                <div className="stat"><span>使用率</span><b>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</b></div>
+                <div className="stat"><span>费用</span><b>{a.billing_month_cost ?? "—"} {a.billing_currency || ""}</b></div>
+                <div className="stat"><span>阈值</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
-              <div className="bar" style={{ marginTop: 6 }}><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div>
               <div className="muted" style={{ marginTop: 6 }}>
-                阈值动作 {exclLabel(a.exclusion_action_effective || a.exclusion_action)} · 阈值 {a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}% · 恢复 {a.recovery_action_effective === "keep_stopped" ? "入池但保持停机" : "恢复时拉起"} · 每日定时 {a.daily_schedule_enabled ? `${a.daily_on_time}–${a.daily_off_time}` : "关"} · 日报 {a.daily_report === "on" ? "单独开启" : a.daily_report === "off" ? "单独关闭" : "跟随全局"}{a.has_secret ? "" : " · 未配置凭据"}
+                阈值动作 {exclLabel(a.exclusion_action_effective || a.exclusion_action)} · 恢复 {a.recovery_action_effective === "keep_stopped" ? "入池但保持停机" : "恢复时拉起"} · 每日定时 {a.daily_schedule_enabled ? `${a.daily_on_time}–${a.daily_off_time}` : "关"} · 日报 {a.daily_report === "on" ? "单独开启" : a.daily_report === "off" ? "单独关闭" : "跟随全局"}{a.has_secret ? "" : " · 未配置凭据"}
               </div>
               {a.status_detail ? <div className="muted" style={{ marginTop: 4 }}>{a.status_detail as string}</div> : null}
-              <div style={{ marginTop: 12 }}><ActionButtons a={a} /></div>
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
           ))}
