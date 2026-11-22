@@ -965,11 +965,12 @@ export default function App() {
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "domains" ? "域名管理" : tab === "groups" ? "分组管理" : tab === "settings" ? "全局设置" : "通知设置"}</h1>
-          <Seg value={theme} options={[
-            { value: "light", label: "白" },
-            { value: "dark", label: "黑" },
-            { value: "system", label: "跟随系统" },
-          ]} onChange={setTheme} />
+          <select value={theme} onChange={(e) => setTheme(e.target.value)}
+            aria-label="主题" style={{ width: "auto" }}>
+            <option value="light">白</option>
+            <option value="dark">黑</option>
+            <option value="system">跟随系统</option>
+          </select>
         </div>
         <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : tab === "settings" ? "设置调度规则和登录方式。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
       </header>
