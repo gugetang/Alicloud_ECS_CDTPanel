@@ -787,6 +787,8 @@ def list_timezones(_: bool = Depends(_admin_required)):
 def get_settings(_: bool = Depends(_admin_required)):
     s = db.get_settings()
     s["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    s["email_configured"] = bool(s.get("email_password"))
+    s["telegram_configured"] = bool(s.get("telegram_token"))
     s["google_oauth_configured"] = _oauth_configured(s, "google")
     s["github_oauth_configured"] = _oauth_configured(s, "github")
     s.pop("cloudflare_token", None)
@@ -848,6 +850,8 @@ def _validate_settings(data: dict) -> None:
 def _mask(s: dict) -> dict:
     out = dict(s)
     out["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    out["email_configured"] = bool(s.get("email_password"))
+    out["telegram_configured"] = bool(s.get("telegram_token"))
     out["google_oauth_configured"] = _oauth_configured(s, "google")
     out["github_oauth_configured"] = _oauth_configured(s, "github")
     out.pop("cloudflare_token", None)

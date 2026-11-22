@@ -6,6 +6,12 @@ type Tab = "dash" | "accounts" | "groups" | "config" | "logs";
 type SubTab = "settings" | "domains" | "notify";
 type Any = Record<string, any>;
 
+// 已配置的密钥一律显示 * 掩码（密码框里显示为圆点），不显示明文；
+// 掩码本身不是新密钥，保存时跳过。点进框清空以便重填，失焦留空则恢复掩码。
+const SECRET_MASK = "****************";
+const secretFocus = (e: { target: HTMLInputElement }) => { if (e.target.value === SECRET_MASK) e.target.value = ""; };
+const secretBlurRestore = (e: { target: HTMLInputElement }, configured: boolean) => { if (!e.target.value && configured) e.target.value = SECRET_MASK; };
+
 const TABS: [Tab, string][] = [
   ["dash", "运行概览"], ["accounts", "账户管理"],
   ["groups", "分组管理"], ["config", "设置"], ["logs", "日志"],
@@ -171,7 +177,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const isNew = !account;
   const [name, setName] = useState((account?.name as string) || "");
   const [akId, setAkId] = useState((account?.access_key_id as string) || "");
-  const [akSecret, setAkSecret] = useState("");
+  const [akSecret, setAkSecret] = useState(account?.has_secret ? SECRET_MASK : "");
   const [instanceId, setInstanceId] = useState((account?.instance_id as string) || "");
   const [site, setSite] = useState((account?.site as string) || "global");
   const [region, setRegion] = useState((account?.region as string) || "cn-hongkong");
@@ -263,7 +269,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       daily_off_time: offTime, daily_report: report,
       exclusion_action: excl || "", recovery_action: recovery || "",
     };
-    if (akSecret) payload.access_key_secret = akSecret;  // 留空保持不变，绝不清空
+    if (akSecret && akSecret !== SECRET_MASK) payload.access_key_secret = akSecret;  // 掩码不是新密钥，留空/掩码都保持不变，绝不清空
     try {
       if (isNew) { payload.priority = count; await post("/api/accounts", payload); onDone(); }
       else { await put(`/api/accounts/${account.id}`, payload); onAutoSaved?.(); }
@@ -285,7 +291,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
         <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveAuto} placeholder={t("如 AliCloud-HK-1")} /></div>
         <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} onBlur={saveAuto} placeholder="i-..." /></div>
         <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} onBlur={saveAuto} placeholder="LTAI..." /></div>
-        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onBlur={saveAuto} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
+        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onFocus={() => { if (akSecret === SECRET_MASK) setAkSecret(""); }} onBlur={() => { if (!akSecret && account?.has_secret) setAkSecret(SECRET_MASK); saveAuto(); }} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
         <div onBlur={saveAuto}><label className="req">{t("站点类型 *")}</label>
           <Seg value={site} options={[
             { value: "global", label: t("国际站（USD）") },
@@ -596,17 +602,19 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
   const title = isEmail ? "E-Mail" : "Telegram";
   const saveConfig = () => {
     if (isEmail) {
+      const emPass = (document.getElementById("em-pass") as HTMLInputElement)?.value || "";
       return saveSettings({
         email_smtp_host: (document.getElementById("em-host") as HTMLInputElement)?.value ?? "",
         email_smtp_port: (document.getElementById("em-port") as HTMLInputElement)?.value ?? "465",
         email_user: (document.getElementById("em-user") as HTMLInputElement)?.value ?? "",
         email_to: (document.getElementById("em-to") as HTMLInputElement)?.value ?? "",
-        ...(((document.getElementById("em-pass") as HTMLInputElement)?.value || "") ? { email_password: (document.getElementById("em-pass") as HTMLInputElement).value } : {}),
+        ...(emPass && emPass !== SECRET_MASK ? { email_password: emPass } : {}),
       });
     } else {
+      const tgTok = (document.getElementById("tg-token") as HTMLInputElement)?.value || "";
       return saveSettings({
         telegram_chat_id: (document.getElementById("tg-chat") as HTMLInputElement)?.value ?? "",
-        ...(((document.getElementById("tg-token") as HTMLInputElement)?.value || "") ? { telegram_token: (document.getElementById("tg-token") as HTMLInputElement).value } : {}),
+        ...(tgTok && tgTok !== SECRET_MASK ? { telegram_token: tgTok } : {}),
       });
     }
   };
@@ -626,12 +634,12 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
           <label>{t("SMTP 服务器")}</label><input id="em-host" defaultValue={String(settings.email_smtp_host ?? "")} placeholder="smtp.example.com" onBlur={saveAll} />
           <label>{t("SMTP 端口")}</label><input id="em-port" defaultValue={String(settings.email_smtp_port ?? 465)} onBlur={saveAll} />
           <label>{t("发件邮箱")}</label><input id="em-user" defaultValue={String(settings.email_user ?? "")} placeholder="sender@example.com" onBlur={saveAll} />
-          <label>{t("SMTP 密码")}</label><input type="password" id="em-pass" placeholder={t("留空保持不变")} onBlur={saveAll} />
+          <label>{t("SMTP 密码")}</label><input type="password" id="em-pass" key={String(settings.email_configured)} defaultValue={settings.email_configured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.email_configured)); saveAll(); }} />
           <label>{t("收件邮箱")}</label><input id="em-to" defaultValue={String(settings.email_to ?? "")} placeholder="receiver@example.com" onBlur={saveAll} />
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <label>Bot Token</label><input type="password" id="tg-token" placeholder={t("留空保持不变")} onBlur={saveAll} />
+          <label>Bot Token</label><input type="password" id="tg-token" key={String(settings.telegram_configured)} defaultValue={settings.telegram_configured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.telegram_configured)); saveAll(); }} />
           <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} onBlur={saveAll} />
           <p className="muted">{t("Token 留空保存时保持不变，只有填了新值才更新。")}</p>
         </div>
@@ -704,7 +712,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
       google_oauth_client_id: (document.getElementById("oauth-google-id") as HTMLInputElement)?.value ?? "",
     };
     const gsec = (document.getElementById("oauth-google-secret") as HTMLInputElement)?.value || "";
-    if (gsec) patch.google_oauth_client_secret = gsec;
+    if (gsec && gsec !== SECRET_MASK) patch.google_oauth_client_secret = gsec;
     saveSettings(patch);
     setMsg(t("已保存成功"));
   };
@@ -714,7 +722,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
       github_oauth_client_id: (document.getElementById("oauth-github-id") as HTMLInputElement)?.value ?? "",
     };
     const hsec = (document.getElementById("oauth-github-secret") as HTMLInputElement)?.value || "";
-    if (hsec) patch.github_oauth_client_secret = hsec;
+    if (hsec && hsec !== SECRET_MASK) patch.github_oauth_client_secret = hsec;
     saveSettings(patch);
     setMsg(t("已保存成功"));
   };
@@ -749,13 +757,13 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
       <p className="muted">{t("在 Google Cloud Console 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/google/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
         <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
-        <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onBlur={saveGoogleOAuth} /></div>
+        <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" key={String(settings.google_oauth_configured)} defaultValue={settings.google_oauth_configured ? SECRET_MASK : ""} placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.google_oauth_configured)); saveGoogleOAuth(); }} /></div>
       </div>
       <h3 style={{ marginTop: 20 }}>{t("GitHub 登录")}</h3>
       <p className="muted">{t("在 GitHub Settings 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/github/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
         <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
-        <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onBlur={saveGithubOAuth} /></div>
+        <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" key={String(settings.github_oauth_configured)} defaultValue={settings.github_oauth_configured ? SECRET_MASK : ""} placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.github_oauth_configured)); saveGithubOAuth(); }} /></div>
       </div>
       {secMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{secMsg}</p>}
     </div>
@@ -984,7 +992,7 @@ export default function App() {
   const ddnsPatch = () => {
     const patch: Any = { timezone: (document.getElementById("s-timezone") as HTMLSelectElement)?.value || "Asia/Shanghai" };
     const tok = (document.getElementById("cf-token") as HTMLInputElement)?.value || "";
-    if (tok) patch.cloudflare_token = tok;
+    if (tok && tok !== SECRET_MASK) patch.cloudflare_token = tok;
     return patch;
   };
 
@@ -1426,7 +1434,7 @@ export default function App() {
           <p className="muted">{t("Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
           <div className="form2">
             <div><label>Cloudflare API Token</label>
-              <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onBlur={() => saveSettings(ddnsPatch())} />
+              <input type="password" id="cf-token" key={String(settings.cloudflare_configured)} defaultValue={settings.cloudflare_configured ? SECRET_MASK : ""} placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.cloudflare_configured)); saveSettings(ddnsPatch()); }} />
               <p className="muted">{settings.cloudflare_configured ? t("已配置。留空保存时保持不变，只有填了新值才更新。") : t("未配置。填写后才能执行 DDNS 更新。")}</p></div>
             <div><label className="req">{t("时区 *")}</label>
               <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone" onChange={() => saveSettings(ddnsPatch())}>
@@ -1442,11 +1450,13 @@ export default function App() {
       )}
 
       {tab === "groups" && (
-        <div className="card">
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setShowNewGroup(!showNewGroup)}>{t("+ 新建分组")}</button>
-          </div>
-          <div className="notice">{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
+        <>
+          <div className="notice" style={{ marginBottom: 12 }}>{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
+          {groups.map((g) => (
+            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
+              g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
+              dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
+          ))}
           {showNewGroup && (
             <div className="instance-form" style={{ marginBottom: 12 }}>
               <label className="req">{t("分组名 *")}</label>
@@ -1467,12 +1477,10 @@ export default function App() {
               </div>
             </div>
           )}
-          {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
-              g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
-              dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
-          ))}
-        </div>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn" onClick={() => setShowNewGroup(!showNewGroup)}>{t("+ 新建分组")}</button>
+          </div>
+        </>
       )}
 
       {tab === "config" && subTab === "settings" && (
