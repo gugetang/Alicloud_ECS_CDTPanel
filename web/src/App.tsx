@@ -1084,8 +1084,6 @@ export default function App() {
 
       {tab === "accounts" && (
         <div className="card"><h2>账户管理 {accounts.length}</h2>
-          <p className="muted">每台实例一个卡片，点右上角 ⚙ 打开卡片设置（配置 / 复制 / 删除实例）。账户默认继承全局参数，可单独覆盖阈值动作、恢复方式、每日定时开关机与日报推送。地域来自阿里云 DescribeRegions，站点决定端点与币种。</p>
-          <Legend />
           <div className="row" style={{ marginBottom: 12 }}>
             <button className="btn" onClick={() => setEditingId("new")}>+ 添加实例</button>
             <button className="btn ghost" onClick={() => run(() => post("/api/cloud/status"), "云端状态已查询")}>查询云端状态</button>
