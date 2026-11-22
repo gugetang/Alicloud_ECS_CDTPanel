@@ -175,8 +175,20 @@ def test_login_button_shows_theme_border():
     css = (Path(__file__).resolve().parent.parent / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 登录按钮不再被盖成透明边框，.btn 自带的 2px 主题色边框直接显示
     assert ".auth-wrap .btn { border-color:transparent; }" not in css
+    # 登录/首次设置页输入框默认显示边框（与全站一致，不再是透明）
+    assert ".auth-wrap input, .auth-wrap select, .auth-wrap textarea { border-color:transparent; }" not in css
+    assert ".auth-wrap .oauth-btn { border-color:transparent; }" not in css
     # 输入框聚焦仍是主题色边框
     assert ".auth-wrap input:focus" in css and "border-color:var(--accent)" in css
+
+
+def test_password_field_has_show_toggle():
+    tsx = (Path(__file__).resolve().parent.parent / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 登录页与首次设置页的密码框带显示/隐藏切换（眼睛图标）
+    assert "function PasswordField" in tsx
+    assert 't("显示密码")' in tsx and 't("隐藏密码")' in tsx
+    assert 'type={show ? "text" : "password"}' in tsx
+    assert tsx.count("<PasswordField") == 3  # 登录 1 + 首次设置 2（登录密码/确认密码）
 
 
 # ---------------- 邮件失败原因回传（与 Telegram 同款） ----------------

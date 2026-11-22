@@ -195,13 +195,11 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 .auth-title { font-size:22px; font-weight:700; margin:0 0 4px; }
 .oauth-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; background:transparent; border:1px solid var(--border); color:var(--text); border-radius:10px; padding:9px 16px; cursor:pointer; font-size:14px; margin-top:8px; }
 .oauth-btn:disabled { opacity:.5; cursor:default; }
-/* 登录 / 首次设置页：输入框平时无边框，点中/聚焦时才显示主题色边框；
+/* 登录 / 首次设置页：输入框默认显示边框（与全站一致），聚焦时显示主题色边框；
    登录按钮一直显示主题色边框（.btn 自带 2px 主题色边框，这里不再盖掉）。 */
-.auth-wrap input, .auth-wrap select, .auth-wrap textarea { border-color:transparent; }
 .auth-wrap input:focus, .auth-wrap select:focus, .auth-wrap textarea:focus { border-color:var(--accent); outline:none; }
 .auth-wrap .btn:focus, .auth-wrap .btn:active { outline:none; }
-.auth-wrap .oauth-btn { border-color:transparent; }
-.auth-wrap .oauth-btn:focus, .auth-wrap .oauth-btn:active { border-color:var(--border); outline:none; }
+.auth-wrap .oauth-btn:focus, .auth-wrap .oauth-btn:active { outline:none; }
 /* 电脑端 / 手机端分别适配：电脑端保持 1200px 三列布局不变；
    手机端（≤800px）单独排版——单列卡片、指标两列、表格横向滚动、
    触控目标放大、输入框 16px（防 iOS 聚焦时自动放大）。颜色与字体风格两端一致。 */

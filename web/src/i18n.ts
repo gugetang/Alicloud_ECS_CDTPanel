@@ -272,6 +272,8 @@ export const EN: Record<string, string> = {
   "管理员：{name}": "Admin: {name}",
   "请输入管理员密码登录。": "Please enter the admin password to sign in.",
   管理员密码: "Admin password",
+  显示密码: "Show password",
+  隐藏密码: "Hide password",
   登录: "Sign in",
   指纹登录: "Fingerprint sign-in",
   "（当前浏览器不支持）": "(not supported by this browser)",

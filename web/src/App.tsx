@@ -393,6 +393,27 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   );
 }
 
+// ---------------- 密码输入框：带显示/隐藏切换（眼睛图标） ----------------
+function PasswordField({ value, onChange, placeholder, onKeyDown }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void }) {
+  const { t } = useI18n();
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} onKeyDown={onKeyDown} style={{ paddingRight: 40 }} />
+      <button type="button" aria-label={show ? t("隐藏密码") : t("显示密码")} title={show ? t("隐藏密码") : t("显示密码")}
+        onClick={() => setShow(!show)}
+        style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, display: "flex", alignItems: "center" }}>
+        {show ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 // ---------------- 首次登录：填写管理员信息 ----------------
 function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
   const { t } = useI18n();
@@ -416,9 +437,9 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
         <label className="req">{t("管理员名称 *")}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 管理员")} />
         <label className="req">{t("登录密码 *")}</label>
-        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={t("至少 6 位")} />
+        <PasswordField value={pw} onChange={setPw} placeholder={t("至少 6 位")} />
         <label className="req">{t("确认密码 *")}</label>
-        <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder={t("再输一次")} />
+        <PasswordField value={pw2} onChange={setPw2} placeholder={t("再输一次")} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
         <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={submit}>{t("创建管理员并进入")}</button>
         <button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSkip}>{t("稍后设置，直接进入")}</button>
@@ -470,8 +491,8 @@ function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; 
       <div className="card">
         <div className="auth-title">{t("登录 CDT 面板")}</div>
         <label className="req">{t("登录密码 *")}</label>
-        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
-          placeholder={t("管理员密码")} onKeyDown={(e) => { if (e.key === "Enter") loginPw(); }} />
+        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")}
+          onKeyDown={(e) => { if (e.key === "Enter") loginPw(); }} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
         <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy}>{t("登录")}</button>
         {info.webauthn && (
