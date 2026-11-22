@@ -818,6 +818,15 @@ def _validate_settings(data: dict) -> None:
             ZoneInfo(str(data["timezone"]))
         except Exception:
             raise HTTPException(400, "timezone 必须是合法的 IANA 时区名，如 Asia/Shanghai")
+    if "settlement_currency" in data and data["settlement_currency"] not in ("USD", "CNY"):
+        raise HTTPException(400, "settlement_currency 只能是 USD/CNY")
+    if "exchange_rate_usd_cny" in data:
+        try:
+            r = float(data["exchange_rate_usd_cny"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "exchange_rate_usd_cny 必须是大于 0 的数字")
+        if not r > 0:
+            raise HTTPException(400, "exchange_rate_usd_cny 必须是大于 0 的数字")
 
 
 def _mask(s: dict) -> dict:

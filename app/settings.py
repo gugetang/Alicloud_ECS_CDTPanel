@@ -89,6 +89,11 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "notify_daily_report": "1",
     "scheduler_paused": "0",
     "billing_enabled": "1",
+    # 货币结算：概览“当前费用”卡片按此货币 + 汇率换算成单一货币显示。
+    # 汇率 = 1 USD 兑多少 CNY；默认值 6.6719 是 2026-11-22 的市价，
+    # 用户可在设置里改；日报仍按各账户币种显示，不换算。
+    "settlement_currency": "USD",
+    "exchange_rate_usd_cny": "6.6719",
 }
 
 EVENT_TOGGLE_KEYS = {

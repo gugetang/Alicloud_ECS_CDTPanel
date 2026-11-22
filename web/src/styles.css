@@ -83,6 +83,23 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
 .icon-btn:hover { border-color:var(--accent); color:#1d4ed8; background:#dbeafe; }
 .icon-btn:disabled { opacity:.45; cursor:default; }
+/* 滑动开关：开=蓝底（--accent），关=灰底；圆点左右滑动。 */
+.switch { width:44px; height:24px; border-radius:999px; border:none; background:#cbd5e1; position:relative; cursor:pointer; padding:0; flex:none; transition:background .2s; }
+.switch.on { background:var(--accent); }
+.switch-knob { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.3); transition:left .2s; }
+.switch.on .switch-knob { left:22px; }
+html[data-theme="dark"] .switch { background:#475569; }
+html[data-theme="dark"] .switch.on { background:var(--accent); }
+/* 主题菜单（页眉）：图标按钮 + 下拉菜单，选中项浅蓝底、右侧打勾。 */
+.theme-menu { position:relative; }
+.theme-btn { padding:6px 8px; display:flex; align-items:center; }
+.menu-backdrop { position:fixed; inset:0; z-index:40; }
+.menu { position:absolute; right:0; top:calc(100% + 6px); z-index:41; min-width:180px; background:var(--card); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:6px; }
+.menu button { display:flex; align-items:center; gap:10px; width:100%; padding:8px 10px; background:none; border:none; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; text-align:left; }
+.menu button:hover { background:var(--card2); }
+.menu button.sel { background:#dbeafe; color:#1d4ed8; }
+.menu-ico { display:flex; color:inherit; }
+.menu-check { margin-left:auto; font-weight:700; }
 .btn { background:transparent; color:#1d4ed8; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
 .btn:hover { background:#dbeafe; }
 html[data-theme="dark"] .btn { color:#93c5fd; }
