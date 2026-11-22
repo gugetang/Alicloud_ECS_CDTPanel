@@ -398,7 +398,9 @@ def test_theme_lines_alignment_dash_left_accounts_left():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 运行概览：主题字体的小字行都钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）——
     # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”、服务器卡片状态详情
-    assert 'marginTop: "auto", paddingTop: 8, color: "var(--accent)"' in tsx
+    # 调度状态行是 flex 行：文字在左、恢复/暂停按钮在右，仍用 marginTop: auto 钉在卡片底部
+    assert 'marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8' in tsx
+    assert '<span style={{ color: "var(--accent)" }}>{t("调度")}' in tsx
     assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
     assert tsx.count('color: "var(--accent)", fontSize: 14, marginTop: "auto"') >= 2
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
@@ -551,3 +553,23 @@ def test_group_card_settings_collapsed_by_default():
     # 点开分组管理后，每个分组卡片默认是不被编辑状态（设置区收起），
     # 点右上角 ⚙ 才展开
     assert "const [showSettings, setShowSettings] = useState(false);" in tsx
+
+
+def test_accounts_tab_renamed_to_instances():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    # 顶部导航与页眉标题：账户管理改名实例管理
+    assert '["accounts", "实例管理"]' in tsx
+    assert 'tab === "accounts" ? t("实例管理")' in tsx
+    assert "账户管理" not in tsx or "// 拖动排序" in tsx and tsx.count("账户管理") == 0
+    assert '实例管理: "Instance Management"' in i18n
+    assert "账户管理" not in i18n
+
+
+def test_dash_footer_has_pause_resume_button():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 运行概览实例状态卡片底部：调度状态旁有恢复/暂停调度按钮，
+    # 点一下调 POST /api/schedule/pause，调度暂停时能从页面上恢复
+    assert 'post("/api/schedule/pause"' in tsx
+    assert 't("恢复调度")' in tsx
+    assert 't("暂停调度")' in tsx

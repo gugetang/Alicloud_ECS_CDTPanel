@@ -13,7 +13,7 @@ const secretFocus = (e: { target: HTMLInputElement }) => { if (e.target.value ==
 const secretBlurRestore = (e: { target: HTMLInputElement }, configured: boolean) => { if (!e.target.value && configured) e.target.value = SECRET_MASK; };
 
 const TABS: [Tab, string][] = [
-  ["dash", "运行概览"], ["accounts", "账户管理"],
+  ["dash", "运行概览"], ["accounts", "实例管理"],
   ["groups", "分组管理"], ["domains", "域名管理"], ["config", "设置"],
 ];
 
@@ -877,7 +877,7 @@ export default function App() {
   const [accounts, setAccounts] = useState<Any[]>([]);
   const [domains, setDomains] = useState<Any[]>([]);
   const [groups, setGroups] = useState<Any[]>([]);
-  // 拖动排序：账户管理 / 分组管理卡片可拖拽换位
+  // 拖动排序：实例管理 / 分组管理卡片可拖拽换位
   const [dragId, setDragId] = useState<number | null>(null);
   const [dragKind, setDragKind] = useState<"account" | "group" | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -1253,7 +1253,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("实例管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
           <div className="row">
             <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
               <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
@@ -1321,7 +1321,10 @@ export default function App() {
                   <div>{dotEl("green_pulse")}{t("启动中 {count}", { count: accounts.filter((a) => a.status_dot === "green_pulse").length })}</div>
                 )}
               </div>
-              <div style={{ marginTop: "auto", paddingTop: 8, color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</div>
+              <div style={{ marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} {t("分钟")} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</span>
+                <button className="btn ghost" style={{ padding: "2px 10px", fontSize: 12, flexShrink: 0 }} onClick={() => run(() => post("/api/schedule/pause", { paused: !(status?.scheduler as Any)?.paused }), (status?.scheduler as Any)?.paused ? t("调度已恢复") : t("调度已暂停"))}>{(status?.scheduler as Any)?.paused ? t("恢复调度") : t("暂停调度")}</button>
+              </div>
             </div>
             <div className="card" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
               <div className="big">{fmtGb(status?.total_used_gb ?? 0)} GiB / {fmtNum(totalQuota)} GiB{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</div>
