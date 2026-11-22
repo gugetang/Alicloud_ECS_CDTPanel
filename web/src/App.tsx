@@ -485,7 +485,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
-  const [showSettings, setShowSettings] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
 
   const dom = domains.find((d) => d.group_id === g.id);
 

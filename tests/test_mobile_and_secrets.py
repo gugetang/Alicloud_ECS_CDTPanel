@@ -534,3 +534,10 @@ def test_ddns_settings_domain_email_token_form():
     # 新增/编辑域名时优先用 DDNS 设置里填的 Zone 名，不再只按后两段推算
     assert '(settings.cloudflare_zone as string) || name.split(".").slice(-2)' in tsx
     assert '(settings.cloudflare_zone as string) || nm.split(".").slice(-2)' in tsx
+
+
+def test_group_card_settings_collapsed_by_default():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 点开分组管理后，每个分组卡片默认是不被编辑状态（设置区收起），
+    # 点右上角 ⚙ 才展开
+    assert "const [showSettings, setShowSettings] = useState(false);" in tsx
