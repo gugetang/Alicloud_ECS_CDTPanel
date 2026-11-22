@@ -67,7 +67,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "cloudflare_zone": "",
     # Cloudflare 账户邮箱（账号标识，随 Token 一起填）
     "cloudflare_email": "",
-    "notify_proxy": "http://127.0.0.1:7070",
+    # 默认直连，不假设本地有代理：旧默认值 http://127.0.0.1:7070 会让
+    # 没有跑该代理的部署上 Telegram 通知全部失败（连接被拒）。
+    "notify_proxy": "",
     "telegram_enabled": "0",
     "telegram_chat_id": "",
     "telegram_token": "",

@@ -309,3 +309,12 @@ def test_regions_post_not_get(tmpdb):
     # GET 并返回 404“接口不存在”，所以 GET 关掉后表现为 404。
     r = client.get("/api/aliyun/regions?site=global")
     assert r.status_code == 404
+
+
+def test_notify_proxy_default_is_empty():
+    from app.notify import Notifier
+    from app.settings import DEFAULT_SETTINGS
+    # 默认不走代理：旧默认值 http://127.0.0.1:7070 会让没有跑该代理的
+    # 部署上 Telegram 通知全部失败（代理不存在，连接被拒）。
+    assert DEFAULT_SETTINGS["notify_proxy"] == ""
+    assert Notifier(DEFAULT_SETTINGS)._proxies() == {}
