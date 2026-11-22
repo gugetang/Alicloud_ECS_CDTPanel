@@ -160,7 +160,7 @@ const credentialToJSON = (cred: any) => {
   };
 };
 
-// 实例配置表单：备注（服务器名）排在最上面；分组不出现（新建默认进默认分组，
+// 实例配置表单：服务器名排在最上面；分组不出现（新建默认进默认分组，
 // 编辑保持原分组）；必填项标签加粗（label.req）。站点/阈值动作/恢复方式/
 // 日报参与都用按键式选择。
 function InstanceForm({ account, settings, count, onDone, onCancel }: {
@@ -243,7 +243,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
 
   const save = async () => {
     const vName = name.trim();
-    if (!vName) { setFormMsg(t("请填写备注（服务器名）")); return; }
+    if (!vName) { setFormMsg(t("请填写服务器名")); return; }
     if (!akId.trim()) { setFormMsg(t("请填写 AccessKey ID")); return; }
     if (!instanceId.trim()) { setFormMsg(t("请填写实例 ID")); return; }
     const q = Number(quota);
@@ -276,16 +276,15 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
   return (
     <div className="instance-form">
       <div className="form2">
-        <div><label className="req">{t("备注（服务器名）*")}</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 AliCloud-HK-1")} /></div>
+        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 AliCloud-HK-1")} /></div>
+        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
         <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} placeholder="LTAI..." /></div>
         <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
-        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
         <div><label className="req">{t("站点类型 *")}</label>
           <Seg value={site} options={[
             { value: "global", label: t("国际站（USD）") },
             { value: "cn", label: t("国内站（CNY）") },
-          ]} onChange={setSite} />
-          <p className="muted">{t("站点决定调用哪套阿里云端点与币种；选站点后自动重新拉取该站点的地域列表。")}</p></div>
+          ]} onChange={setSite} /></div>
         <div><label className="req">{t("地域 *")}</label>
           <select value={regionCustom ? "__custom" : region} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
@@ -847,6 +846,7 @@ export default function App() {
     try { return localStorage.getItem("cdt-theme") || "system"; } catch { return "system"; }
   });
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1020,20 +1020,33 @@ export default function App() {
   const [sExcl, setSExcl] = useState("none");
   const [sRecovery, setSRecovery] = useState("start");
   const [sDiffMode, setSDiffMode] = useState("percent");
-  const [sTsMode, setSTsMode] = useState("");
   const [sInterval, setSInterval] = useState("6");
+  const [sCustVal, setSCustVal] = useState("0");
+  const [sCustUnit, setSCustUnit] = useState("minute");
   const [sRefresh, setSRefresh] = useState("5");
   const [sCurrency, setSCurrency] = useState("USD");
   useEffect(() => {
     setSExcl(settings.exclusion_action ?? "none");
     setSRecovery(settings.threshold_recovery_action ?? "start");
     setSDiffMode(settings.switch_diff_mode ?? "percent");
-    setSTsMode(settings.time_switch_mode ?? "");
     setSInterval(String(settings.interval_hours ?? 6));
+    const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
+    const cu = cm > 0 && cm % 1440 === 0 ? "day" : cm > 0 && cm % 60 === 0 ? "hour" : "minute";
+    setSCustUnit(cu);
+    setSCustVal(String(cu === "day" ? cm / 1440 : cu === "hour" ? cm / 60 : cm));
     const r = String(settings.api_refresh_minutes ?? 5);
     setSRefresh(["5", "10", "15", "30", "60"].includes(r) ? r : "custom");
     setSCurrency(settings.settlement_currency === "CNY" ? "CNY" : "USD");
   }, [settings]);
+
+  // 自定义间隔单位换算：后端存的一律是分钟；分钟 1 / 小时 60 / 天 1440。
+  const custMult = (u: string) => (u === "day" ? 1440 : u === "hour" ? 60 : 1);
+  const fmtCust = (v: number) => String(Number.isInteger(v) ? v : Math.round(v * 100) / 100);
+  const changeCustUnit = (u: string) => {
+    const mins = (parseFloat(sCustVal) || 0) * custMult(sCustUnit);
+    setSCustUnit(u);
+    setSCustVal(fmtCust(mins / custMult(u)));
+  };
 
   // ---------- 每日财报（通知设置两个渠道框体共用同一组开关） ----------
   const [drEnabled, setDrEnabled] = useState(true);
@@ -1103,12 +1116,26 @@ export default function App() {
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "logs" ? t("日志") : subTab === "settings" ? t("全局设置") : subTab === "domains" ? t("域名管理") : t("通知设置")}</h1>
           <div className="row">
-            <Seg value={lang} options={[
-              { value: "en", label: "EN" },
-              { value: "zh", label: "中文" },
-            ]} onChange={(v) => setLang(v as "en" | "zh")} />
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} onClick={() => setThemeMenuOpen(!themeMenuOpen)}>
+              <button className="btn ghost" aria-label={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
+                {lang === "zh" ? t("简体中文") : "English"}
+              </button>
+              {langMenuOpen && (
+                <>
+                  <div className="menu-backdrop" onClick={() => setLangMenuOpen(false)} />
+                  <div className="menu">
+                    {(["zh", "en"] as const).map((v) => (
+                      <button key={v} className={lang === v ? "sel" : ""} onClick={() => { setLang(v); setLangMenuOpen(false); }}>
+                        <span>{v === "zh" ? t("简体中文") : "English"}</span>
+                        <span className="menu-check">{lang === v ? "✓" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="theme-menu">
+              <button className="btn ghost theme-btn" aria-label={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
                 <ThemeIcon theme={theme} />
               </button>
               {themeMenuOpen && (
@@ -1421,30 +1448,23 @@ export default function App() {
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
             <div className="form2">
-              <div><label className="req">{t("时间切换模式 *")}</label>
-                <Seg value={sTsMode} options={[
-                  { value: "", label: t("自动") },
-                  { value: "off", label: t("关闭") },
-                  { value: "night_only", label: t("仅夜间窗口") },
-                  { value: "interval", label: t("仅间隔切换") },
-                  { value: "fixed_time", label: t("仅固定时刻") },
-                ]} onChange={setSTsMode} /></div>
-              <div><label className="lbl">{t("间隔切换周期")}</label>
+              <div><label className="lbl">{t("轮巡周期")}</label>
                 <Seg value={sInterval} options={[
                   { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
                   { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                  { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义分钟") },
+                  { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
                 ]} onChange={setSInterval} /></div>
-              <div><label className="lbl">{t("自定义间隔（分钟）")}</label><input defaultValue={String(settings.custom_interval_minutes ?? 0)} id="s-custmin" /></div>
-              <div><label className="lbl">{t("固定每日切换时刻")}</label><input type="time" defaultValue={String(settings.fixed_switch_time ?? "")} id="s-fixed" /></div>
+              <div><label className="lbl">{t("自定义间隔")}</label>
+                <div className="row" style={{ alignItems: "center" }}>
+                  <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: 120 }} />
+                  <Seg value={sCustUnit} options={[
+                    { value: "minute", label: t("分钟") },
+                    { value: "hour", label: t("小时") },
+                    { value: "day", label: t("天") },
+                  ]} onChange={changeCustUnit} />
+                </div></div>
             </div>
-            <label className="check"><input type="checkbox" defaultChecked={settings.night_optimize_enabled === "1"} id="s-night" />{t("启用夜间主动优化")}</label>
-            <div className="form2">
-              <div><label className="req">{t("夜间窗口开始 *")}</label><input type="time" defaultValue={String(settings.night_window_start ?? "00:00")} id="s-nstart" /></div>
-              <div><label className="req">{t("夜间窗口结束 *")}</label><input type="time" defaultValue={String(settings.night_window_end ?? "04:00")} id="s-nend" /></div>
-            </div>
-            <p className="muted">{t("定时轮巡仅在“定时轮巡 / 两者都启用”时评估。夜间窗口内第一轮有效检查可切换至使用率更低的候选，每晚仅一次。间隔切换按上次切换锚点每 N 小时切一次（1 小时=每小时整点，6 小时=00/06/12/18），重启后按锚点继续，不重复切。固定时刻每天仅一次。按程序本地时间执行，支持跨午夜。")}</p>
             </div>
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
               <button className="btn" onClick={() => saveSettings({
@@ -1453,19 +1473,14 @@ export default function App() {
               switch_diff_mode: sDiffMode,
               switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement)?.value || String(settings.switch_diff_pct ?? 10),
               switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
-              time_switch_mode: sTsMode,
               interval_hours: sInterval,
-              custom_interval_minutes: (document.getElementById("s-custmin") as HTMLInputElement).value,
+              custom_interval_minutes: String(Math.round((parseFloat(sCustVal) || 0) * custMult(sCustUnit))),
               exclusion_action: sExcl,
               threshold_recovery_action: sRecovery,
               api_refresh_minutes: (() => {
                 if (sRefresh === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement).value || "5";
                 return sRefresh;
               })(),
-              night_optimize_enabled: (document.getElementById("s-night") as HTMLInputElement).checked ? "1" : "0",
-              night_window_start: (document.getElementById("s-nstart") as HTMLInputElement).value,
-              night_window_end: (document.getElementById("s-nend") as HTMLInputElement).value,
-              fixed_switch_time: (document.getElementById("s-fixed") as HTMLInputElement).value,
               settlement_currency: sCurrency,
               exchange_rate_usd_cny: (document.getElementById("s-fx-rate") as HTMLInputElement).value || String(settings.exchange_rate_usd_cny ?? "6.6719"),
               ...ddnsPatch(),
