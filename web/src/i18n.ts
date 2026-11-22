@@ -310,7 +310,6 @@ export const EN: Record<string, string> = {
   定时轮巡: "Scheduled rotation",
   负载均衡: "Load balancing",
   "+ 新建分组": "+ New group",
-  "一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。": "Each group uses exactly one switch mode: scheduled rotation or load balancing; different groups can use different modes. Each group binds at most one domain. Threshold eviction, keepalive, and the fallback address are not affected by the switch mode.",
   "分组名 *": "Group name *",
   "如 分组C": "e.g. Group C",
   请填写分组名: "Please fill in the group name",

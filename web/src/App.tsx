@@ -1509,7 +1509,6 @@ export default function App() {
 
       {tab === "groups" && (
         <>
-          <div className="notice" style={{ marginBottom: 12 }}>{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
           {groups.map((g) => (
             <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}`}
               g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
