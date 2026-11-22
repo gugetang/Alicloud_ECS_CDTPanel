@@ -1,36 +1,13 @@
 services:
   Alicloud_ECS_CDTPanel:
-    # 本地构建：仓库根目录有 Dockerfile（Node 22 建前端 + python:3.13-slim 运行）。
-    # build 与 image 并存：本地 `docker compose up -d` 时构建并打上 GHCR 的 tag，
-    # 镜像未发布前也能跑；发布后也可直接拉 GHCR 镜像。
-    build: .
-    # 镜像名说明：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
-    # 所以是 ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest（不是
-    # ghcr.io/gugetang/Alicloud_ECS_CDTPanel.git）。
     image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
     ports:
-      # 默认端口 1999；改端口用 PORT 环境变量，如 PORT=8888 docker compose up -d
-      - "${PORT:-1999}:1999"
+      - "1999:1999"
     environment:
-      # 容器 TZ 只作后备默认值：UI 里改了时区后以 UI 设置为准，不用重启。
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
     volumes:
-      # 数据卷用绝对路径，固定落在 /opt/docker/cdt-alicloud_ecs_cdtpanel，
-      # 与 install.sh 的代码目录 DIR（默认 /opt/docker/alicloud_ECS_CDT）无关。
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      # 镜像为 python:3.13-slim，无 curl：用 python -c urllib（与 Dockerfile 一致）
-      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:1999/api/health',timeout=4).status==200 else 1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s

@@ -163,11 +163,17 @@ fi
 
 mkdir -p "$PROJECT_DIR/data"
 
-# ---------------- 构建并启动 ----------------
+# ---------------- 拉取镜像并启动 ----------------
+# 精简版 compose 只拉 GHCR 镜像，不本地构建；端口固定 1999。
+if [ "$PORT" != "1999" ]; then
+  log "注意：精简版 compose 端口固定为 1999，PORT=$PORT 已忽略（改端口请编辑 docker-compose.yml 的 ports 一行）"
+  PORT=1999
+fi
 cd "$PROJECT_DIR"
 export PORT
-log "构建并启动（端口 $PORT，目录 $PROJECT_DIR）…"
-compose up -d --build
+log "拉取镜像并启动（端口 $PORT，目录 $PROJECT_DIR）…"
+compose pull
+compose up -d
 
 # ---------------- 等待健康检查 ----------------
 log "等待健康检查通过（最多 60 秒）…"

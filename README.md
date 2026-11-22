@@ -20,12 +20,13 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 ```
 
 脚本会：检测/自动安装 Docker + Docker Compose（apt/yum/dnf/apk，装不上就报错退出）、
-克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、构建并 `docker compose up -d`、
+克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
 轮询 `/api/health` 最多 60 秒，成功后打印访问地址 `http://<服务器>:1999`。
+端口固定 1999，改端口请编辑 `docker-compose.yml` 的 `ports` 一行。
 
 ```bash
-# 改端口 / 改目录（改回 8888 也用 PORT）
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | PORT=8888 DIR=/srv/cdt bash
+# 改目录
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DIR=/srv/cdt bash
 # 升级：重跑同一条命令（git 已是最新且容器在跑时不重建）
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
 # 卸载（会二次确认是否删数据）
@@ -41,64 +42,46 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 ```bash
 git clone https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 cd Alicloud_ECS_CDTPanel
-# 方式一：拉取已发布的 GHCR 镜像（push 到 main 后自动发布）
 docker compose pull
 docker compose up -d
-# 方式二：本地构建（镜像未发布时也可用）
-docker compose up -d --build
 # 查看日志 / 停止
 docker compose logs -f Alicloud_ECS_CDTPanel
 docker compose down
 # 访问 http://服务器:1999
-# 改端口：PORT=8888 docker compose up -d
+# 改端口：编辑 docker-compose.yml 的 ports 一行，如 - "8888:1999"
 ```
 
-完整的 `docker-compose.yml`（与仓库根目录文件一致）：
+完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
 
 ```yaml
 services:
   Alicloud_ECS_CDTPanel:
-    build: .
     image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
     ports:
-      - "${PORT:-1999}:1999"
+      - "1999:1999"
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:1999/api/health',timeout=4).status==200 else 1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
 ```
 
-说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），
-`build: .` 与 `image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest` 并存——
-本地 `docker compose up -d` 时构建并打上这个 tag，镜像未发布前也能跑；
-发布后（见 `.github/workflows/docker.yml`，push 到 main 自动构建并推送到
-GHCR）也可 `docker compose pull` 直接拉 GHCR 镜像。端口 `${PORT:-1999}:1999`，
+说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），只拉已发布的 GHCR 镜像
+`ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`（见 `.github/workflows/docker.yml`，
+push 到 main 自动构建并推送到 GHCR）。端口固定 `1999:1999`，
 数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
 （与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
 该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
-`restart: unless-stopped`，`init: true`，
-健康检查用 `python -c urllib` 访问 `/api/health`（镜像是 `python:3.13-slim`，
-无 curl），日志限制 `10m × 3`。升级：`docker compose pull && docker compose up -d`（或重跑一键部署命令）。
+`restart: unless-stopped`，`init: true`。
+升级：`docker compose pull && docker compose up -d`（或重跑一键部署命令）。
 
 > 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
 > 所以是 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`，
 > 不是 `ghcr.io/gugetang/Alicloud_ECS_CDTPanel.git`。
-> 首次使用如未发布过镜像，compose 会本地构建，不会因为拉不到镜像而失败。
+> 首次使用前镜像必须已发布（push 到 main 后 Actions 自动发布）；本地构建方式已移除。
 
 ### DDNS 设置与时区
 
