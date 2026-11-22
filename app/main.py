@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -15,9 +16,19 @@ BASE = Path(__file__).resolve().parent
 STATIC_DIR = BASE / "static"
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启停钩子（lifespan，替代已废弃的 @app.on_event）：启动调度线程，
+    关闭时停掉。CDT_NO_SCHEDULER=1 时不启动调度（测试/单次任务用）。"""
+    if os.environ.get("CDT_NO_SCHEDULER") != "1":
+        scheduler.start()
+    yield
+    scheduler.stop()
+
+
 def create_app() -> FastAPI:
     db.init_db()
-    app = FastAPI(title="alicloud_ECS_CDT", version="0.1.0")
+    app = FastAPI(title="alicloud_ECS_CDT", version="0.1.0", lifespan=lifespan)
     app.include_router(router)
 
     if STATIC_DIR.exists():
@@ -37,15 +48,6 @@ def create_app() -> FastAPI:
             if candidate.is_file():
                 return FileResponse(candidate)
             return FileResponse(STATIC_DIR / "index.html")
-
-    @app.on_event("startup")
-    def _startup():
-        if os.environ.get("CDT_NO_SCHEDULER") != "1":
-            scheduler.start()
-
-    @app.on_event("shutdown")
-    def _shutdown():
-        scheduler.stop()
 
     return app
 

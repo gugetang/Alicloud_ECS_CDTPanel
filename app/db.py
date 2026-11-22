@@ -292,6 +292,64 @@ def delete_flag(key: str) -> None:
         conn.commit()
 
 
+def get_flags(keys: list[str]) -> dict[str, str]:
+    """批量读 flags（一次查询）：列表接口/调度轮次一次取齐所需旗标，
+    避免每账户、每分组各一次 get_flag 的 N+1。"""
+    if not keys:
+        return {}
+    conn = connect()
+    rows = conn.execute(
+        "SELECT key, value FROM flags WHERE key IN (%s)"
+        % ",".join("?" * len(keys)),
+        tuple(keys)).fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+def list_evicted_account_ids() -> set[int]:
+    """上一轮被踢出的账户 id（flags.evicted:<id>），一次查询。"""
+    conn = connect()
+    rows = conn.execute(
+        "SELECT key FROM flags WHERE key LIKE 'evicted:%'").fetchall()
+    out: set[int] = set()
+    for r in rows:
+        try:
+            out.add(int(r["key"].split(":", 1)[1]))
+        except (ValueError, IndexError):
+            continue
+    return out
+
+
+# 数据保留期（调度循环每天清理一次，见 scheduler._maybe_prune_daily）：
+# 事件留 90 天且最多 5000 条；流量采样留 90 天。
+EVENTS_RETENTION_DAYS = 90
+EVENTS_MAX_ROWS = 5000
+TRAFFIC_SAMPLES_RETENTION_DAYS = 90
+
+
+def prune_old_data(now: int | None = None) -> dict:
+    """清理过期事件与流量采样。事件：删 90 天前的，超过 5000 条时只留
+    最新 5000 条；流量采样：删 90 天前的。返回删掉的行数。"""
+    conn = connect()
+    now = now if now is not None else int(time.time())
+    with _lock:
+        cur = conn.execute(
+            "DELETE FROM events WHERE created_at < ?",
+            (now - EVENTS_RETENTION_DAYS * 86400,))
+        n_events_old = cur.rowcount
+        cur = conn.execute(
+            "DELETE FROM events WHERE id NOT IN "
+            "(SELECT id FROM events ORDER BY id DESC LIMIT ?)",
+            (EVENTS_MAX_ROWS,))
+        n_events_over = cur.rowcount
+        cur = conn.execute(
+            "DELETE FROM traffic_samples WHERE created_at < ?",
+            (now - TRAFFIC_SAMPLES_RETENTION_DAYS * 86400,))
+        n_samples = cur.rowcount
+        conn.commit()
+    return {"events_deleted": n_events_old + n_events_over,
+            "traffic_samples_deleted": n_samples}
+
+
 def add_event(kind: str, title: str, detail: str = "",
               account_id: int | None = None, domain_id: int | None = None) -> int:
     conn = connect()

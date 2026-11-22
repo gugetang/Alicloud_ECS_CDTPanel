@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 node_modules/
 web/dist/
+# 前端构建产物：Docker 每次构建都从 web/ 重新生成并覆盖 app/static，
+# 本地 npm run build 也会重新生成，不再提交进仓库（已跟踪的旧文件需
+# 一次性 git rm -r --cached app/static 才能彻底移出版本控制）。
+app/static/
 .env
 *.db
 master.key

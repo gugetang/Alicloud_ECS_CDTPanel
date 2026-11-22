@@ -14,6 +14,7 @@ import datetime as dt
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from zoneinfo import ZoneInfo
 
 from . import db, engine
@@ -172,11 +173,37 @@ def refresh_one_account(account_id: int) -> dict:
 
 
 def refresh_cloud_status(settings: dict) -> list[dict]:
-    """刷新全部账户快照并写回 DB。返回更新后的账户行。"""
+    """刷新全部账户快照并写回 DB。返回更新后的账户行。
+
+    并行刷新：每账户独立调阿里云接口（DescribeInstances + CDT 流量 +
+    BSS 费用，最多 3 次往返），串行时 N 个账户要 N×3 次往返，一轮
+    耗时随账户数线性增长；线程池并行后一轮耗时接近最慢的 1 个账户。
+    _refresh_one 内部已捕获全部业务异常；DB 写经 db._lock 串行，
+    单连接跨线程共享安全；_refresh_one_safe 再兜一层防意外抛错
+    导致整轮失败。"""
     accounts = db.list_accounts()
-    for a in accounts:
-        _refresh_one(a, settings)
+    if len(accounts) > 1:
+        workers = min(REFRESH_MAX_WORKERS, len(accounts))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(lambda a: _refresh_one_safe(a, settings), accounts))
+    else:
+        for a in accounts:
+            _refresh_one_safe(a, settings)
     return db.list_accounts()
+
+
+# 并行刷新线程数：阿里云接口以网络等待为主，5 路并行足够把一轮
+# 耗时压到接近单个账户；再多对总耗时改善有限，反而容易触发限流。
+REFRESH_MAX_WORKERS = 5
+
+
+def _refresh_one_safe(a: dict, settings: dict) -> None:
+    """_refresh_one 的线程池包装：任何意外异常只记日志跳过，
+    不让单个账户的失败拖垮整轮并行刷新。"""
+    try:
+        _refresh_one(a, settings)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("刷新 %s 失败（已跳过）: %s", a.get("name"), exc)
 
 
 class _CloudOps(engine.CloudOps):
@@ -240,19 +267,24 @@ def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
     groups = _to_group_views(db.list_groups())
     # 旗标按组命名空间：night_done:<gid> / fixed_done:<gid> /
     # last_time_switch:<gid>；无分组 legacy 路径仍用旧的无后缀键。
-    night_by_group = {g.id: set(filter(None, [db.get_flag(f"night_done:{g.id}")]))
+    # 批量一次查齐（3×分组数 次 get_flag → 1 次查询）。
+    _flag_keys = ([f"night_done:{g.id}" for g in groups]
+                  + [f"fixed_done:{g.id}" for g in groups]
+                  + [f"last_time_switch:{g.id}" for g in groups])
+    _flags = db.get_flags(_flag_keys)
+    night_by_group = {g.id: set(filter(None, [_flags.get(f"night_done:{g.id}", "")]))
                       for g in groups}
-    fixed_by_group = {g.id: set(filter(None, [db.get_flag(f"fixed_done:{g.id}")]))
+    fixed_by_group = {g.id: set(filter(None, [_flags.get(f"fixed_done:{g.id}", "")]))
                       for g in groups}
-    anchor_by_group = {g.id: _flag_dt(f"last_time_switch:{g.id}") for g in groups}
+    anchor_by_group = {g.id: _flag_dt(_flags.get(f"last_time_switch:{g.id}", ""))
+                       for g in groups}
     # 流量更新后自动重新加入 DDNS：每轮开始先恢复评估，再算分配。
     # 恢复的实例在同一轮就重新进入候选池（dry-run 同样体现，不等下一轮）。
     recovered = _evaluate_threshold_recovery(settings, accounts, now)
     recovered_ids = {r["account"]["id"] for r in recovered}
     # 上一轮已踢出的账户（flags.evicted:<id>），去掉本轮已恢复的：
-    # 供引擎做恢复滞后判断
-    prev_evicted = ({a["id"] for a in accounts if db.get_flag(f"evicted:{a['id']}")}
-                    - recovered_ids)
+    # 供引擎做恢复滞后判断。一次查询取齐，不再每账户查一次 flag。
+    prev_evicted = db.list_evicted_account_ids() - recovered_ids
     plan = engine.plan_reconcile(_to_views(accounts, settings),
                                  _to_domain_views(domains), cfg_obj, now,
                                  set(filter(None, [db.get_flag("night_done")])),
@@ -661,6 +693,22 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     return True
 
 
+def _maybe_prune_daily() -> None:
+    """每天清理一次过期事件/流量采样（见 db.prune_old_data）。
+    用 flags.prune_done 记日期，重启当天不重复；清理失败只记日志，
+    不影响调度轮次，失败也记当天已处理、明天再试。"""
+    today = _now().strftime("%Y-%m-%d")
+    if db.get_flag("prune_done") == today:
+        return
+    try:
+        pruned = db.prune_old_data()
+        log.info("数据清理：事件 %s 条，流量采样 %s 条",
+                 pruned["events_deleted"], pruned["traffic_samples_deleted"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("数据清理失败: %s", exc)
+    db.set_flag("prune_done", today)
+
+
 def last_run() -> dict:
     with _lock:
         return dict(_last_run)
@@ -678,6 +726,10 @@ def _loop() -> None:
             _wake.wait(timeout=60)
             _wake.clear()
             continue
+        try:
+            _maybe_prune_daily()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("数据清理检查失败: %s", exc)
         try:
             run_once()
         except Exception as exc:  # noqa: BLE001

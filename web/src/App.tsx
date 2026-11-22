@@ -197,7 +197,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [formBusy, setFormBusy] = useState(false);
 
   const loadRegions = async (withAk: boolean) => {
-    // 优先调发现接口（已有实例所在地域分组 + 全部可用地域）；失败回退 GET 列表，再失败用内置列表
+    // 优先调发现接口（已有实例所在地域分组 + 全部可用地域）；失败回退 POST 列表，再失败用内置列表
     try {
       const body: Any = { site };
       if (account?.id) body.account_id = account.id;
@@ -211,13 +211,12 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       setRegionsNote(t("地域来自阿里云 DescribeRegions；“已有实例”组为该账号下已有实例所在地域"));
     } catch {
       try {
-        const q = account?.id
-          ? `/api/aliyun/regions?account_id=${account.id}&site=${site}`
-          : (akId && akSecret
-            ? `/api/aliyun/regions?site=${site}&access_key_id=${encodeURIComponent(akId)}&access_key_secret=${encodeURIComponent(akSecret)}`
-            : "");
-        if (!q) throw new Error("no-credentials");
-        const r = await get(q) as Any;
+        // 回退接口同样走 POST + JSON body：临时 AK 不再放 URL 查询参数里（会进访问日志）
+        const body: Any = { site };
+        if (account?.id) body.account_id = account.id;
+        else if (akId && akSecret) { body.access_key_id = akId; body.access_key_secret = akSecret; }
+        else throw new Error("no-credentials");
+        const r = await post("/api/aliyun/regions", body) as Any;
         setRegions(((r.regions as Any[]) || BUILTIN_REGIONS) as { region_id: string; local_name: string }[]);
         setOwnedIds(new Set());
         setRegionsNote(t("地域来自阿里云 DescribeRegions"));

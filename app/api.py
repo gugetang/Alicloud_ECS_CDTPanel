@@ -42,8 +42,13 @@ TIMEZONES: list[dict[str, str]] = [
 ]
 
 
-def _rate_and_threshold(row: dict, settings: dict) -> tuple[float | None, float, bool]:
-    """用量使用率 / 生效保护阈值 / 是否已踢出（与引擎 is_allocatable 一致）。"""
+def _rate_and_threshold(row: dict, settings: dict | None = None,
+                        evicted_ids: set[int] | None = None) -> tuple[float | None, float, bool]:
+    """用量使用率 / 生效保护阈值 / 是否已踢出（与引擎 is_allocatable 一致）。
+    settings / evicted_ids 不传时现场查（单次调用兼容旧行为）；列表接口
+    应一次查好传入，避免每账户各一次 get_settings + get_flag 的 N+1。"""
+    if settings is None:
+        settings = db.get_settings()
     quota = row.get("quota_gb")
     if quota is None:
         try:
@@ -63,23 +68,32 @@ def _rate_and_threshold(row: dict, settings: dict) -> tuple[float | None, float,
         # 恢复滞后（与引擎一致）：上一轮已踢出的账户，只有回落到恢复线
         # （阈值 - 2%）以下才算恢复；介于恢复线与阈值之间仍视为已踢出，
         # 避免状态点在阈值上下反复横跳。
-        try:
-            previously_evicted = bool(db.get_flag(f"evicted:{row['id']}"))
-        except Exception:
-            previously_evicted = False
+        if evicted_ids is not None:
+            previously_evicted = row["id"] in evicted_ids
+        else:
+            try:
+                previously_evicted = bool(db.get_flag(f"evicted:{row['id']}"))
+            except Exception:
+                previously_evicted = False
         if (previously_evicted
                 and rate >= threshold - engine.RECOVERY_HYSTERESIS_PCT):
             evicted = True
     return rate, threshold, evicted
 
 
-def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, str], dict[int, int]]:
+def _status_context(accounts_raw: list[dict] | None = None,
+                    settings: dict | None = None,
+                    evicted_ids: set[int] | None = None) -> tuple[dict[int, str], dict[int, int]]:
     """当前域名指向的账户（serving_map: account_id -> 域名）与排队位次。
 
     排队位次：同一分组内 Running、流量已知、未踢出、未被任何域名指向的
     可分配账户，按使用率升序排，第 1 位最先接替。返回 (serving_map, queue_ranks)。
-    """
-    settings = db.get_settings()
+    settings / evicted_ids 不传时现场查；列表接口应一次查好传入。
+    每账户的使用率只算一次（旧代码在过滤与排序里各算一次）。"""
+    if settings is None:
+        settings = db.get_settings()
+    if evicted_ids is None:
+        evicted_ids = db.list_evicted_account_ids()
     serving_map: dict[int, str] = {}
     try:
         for d in db.list_domains():
@@ -94,8 +108,10 @@ def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, s
         except Exception:
             accounts_raw = []
     by_group: dict[int, list[dict]] = {}
+    rates: dict[int, tuple[float | None, bool]] = {}
     for row in accounts_raw:
-        rate, _t, evicted = _rate_and_threshold(row, settings)
+        rate, _t, evicted = _rate_and_threshold(row, settings, evicted_ids)
+        rates[row["id"]] = (rate, evicted)
         if (row.get("instance_status") or "").strip() != "Running":
             continue
         if row.get("ddns_enabled") in (0, False):
@@ -106,7 +122,7 @@ def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, s
     ranks: dict[int, int] = {}
     for rows in by_group.values():
         ordered = sorted(rows, key=lambda r: (
-            _rate_and_threshold(r, settings)[0] or 0.0,
+            rates[r["id"]][0] or 0.0,
             r.get("priority", 0), r["id"]))
         for i, r in enumerate(ordered, 1):
             ranks[r["id"]] = i
@@ -115,14 +131,20 @@ def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, s
 
 def _public_account(a: dict, serving_map: dict[int, str] | None = None,
                     queue_ranks: dict[int, int] | None = None,
-                    serving_ids: set[int] | None = None) -> dict:
+                    serving_ids: set[int] | None = None,
+                    settings: dict | None = None,
+                    evicted_ids: set[int] | None = None) -> dict:
+    """公开账户行（去掉 AK Secret，补算使用率/状态点/排队位次）。
+    settings / evicted_ids 不传时现场查；列表接口应一次查好传入，
+    并把 serving_map + queue_ranks 一起传入，避免每账户重复推导。"""
     out = dict(a)
     out.pop("access_key_secret_enc", None)
     out["has_secret"] = bool(a.get("access_key_secret_enc"))
     # 流量显示保留 2 位小数（用量条/卡片/列表/日报都直接用它）。
     if out.get("traffic_used_gb") is not None:
         out["traffic_used_gb"] = round(float(out["traffic_used_gb"]), 2)
-    settings = db.get_settings()
+    if settings is None:
+        settings = db.get_settings()
     quota = a.get("quota_gb")
     if quota is None:
         try:
@@ -130,7 +152,7 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         except (TypeError, ValueError):
             quota = 200.0
         out["quota_gb"] = quota
-    rate, threshold, evicted = _rate_and_threshold(a, settings)
+    rate, threshold, evicted = _rate_and_threshold(a, settings, evicted_ids)
     out["usage_rate"] = rate
     out["evicted"] = evicted
     out["protection_threshold_pct"] = (
@@ -154,11 +176,11 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
     # 8. 未知 gray：Running 但流量未知（保守不动）
     # status_dot 枚举：green | yellow | gray | red | green_pulse | red_pulse
     if serving_map is None and serving_ids is None:
-        serving_map, queue_ranks = _status_context()
+        serving_map, queue_ranks = _status_context(None, settings, evicted_ids)
     elif serving_map is None:
         serving_map = {i: "" for i in (serving_ids or set())}
     if queue_ranks is None:
-        _sm, queue_ranks = _status_context()
+        _sm, queue_ranks = _status_context(None, settings, evicted_ids)
         serving_map = serving_map or _sm
     out["serving"] = a["id"] in serving_map
     out["serving_domain"] = serving_map.get(a["id"]) or None
@@ -524,17 +546,29 @@ def webauthn_delete(credential_id: str, _: bool = Depends(_admin_required)):
 
 
 def _public_group(g: dict, serving_map: dict[int, str] | None = None,
-                  queue_ranks: dict[int, int] | None = None) -> dict:
+                  queue_ranks: dict[int, int] | None = None,
+                  settings: dict | None = None,
+                  evicted_ids: set[int] | None = None,
+                  accounts_raw: list[dict] | None = None) -> dict:
+    """公开分组（含该组账户的公开行）。accounts_raw 不传时现场查；
+    列表接口应把已查好的全量账户传进来，避免每分组各一次 list_accounts。
+    settings / evicted_ids 同理一次查好传入。"""
     out = dict(g)
-    accounts = [a for a in db.list_accounts() if (a.get("group_id") or 1) == g["id"]]
+    if accounts_raw is None:
+        accounts_raw = db.list_accounts()
+    accounts = [a for a in accounts_raw if (a.get("group_id") or 1) == g["id"]]
     dom = db.group_domain(g["id"])
     out["account_count"] = len(accounts)
     out["account_ids"] = [a["id"] for a in accounts]
     out["domain"] = dom
     out["domain_id"] = dom["id"] if dom else None
     if serving_map is None or queue_ranks is None:
-        serving_map, queue_ranks = _status_context(accounts)
-    out["accounts"] = [_public_account(x, serving_map, queue_ranks) for x in accounts]
+        serving_map, queue_ranks = _status_context(
+            accounts_raw, settings, evicted_ids)
+    out["accounts"] = [_public_account(x, serving_map, queue_ranks,
+                                       settings=settings,
+                                       evicted_ids=evicted_ids)
+                       for x in accounts]
     out["evicted_account_ids"] = [
         a["id"] for a in out["accounts"] if a.get("evicted")]
     return out
@@ -542,8 +576,12 @@ def _public_group(g: dict, serving_map: dict[int, str] | None = None,
 
 @router.get("/groups")
 def list_groups(_: bool = Depends(_admin_required)):
-    serving_map, queue_ranks = _status_context()
-    return [_public_group(g, serving_map, queue_ranks) for g in db.list_groups()]
+    settings = db.get_settings()
+    evicted_ids = db.list_evicted_account_ids()
+    raw = db.list_accounts()
+    serving_map, queue_ranks = _status_context(raw, settings, evicted_ids)
+    return [_public_group(g, serving_map, queue_ranks, settings, evicted_ids, raw)
+            for g in db.list_groups()]
 
 
 @router.post("/groups")
@@ -585,9 +623,11 @@ def reorder_groups(body: dict, _: bool = Depends(_admin_required)):
 @router.get("/status")
 def status(_: bool = Depends(_admin_required)):
     settings = db.get_settings()
+    evicted_ids = db.list_evicted_account_ids()
     raw_accounts = db.list_accounts()
-    serving_map, queue_ranks = _status_context(raw_accounts)
-    accounts = [_public_account(a, serving_map, queue_ranks) for a in raw_accounts]
+    serving_map, queue_ranks = _status_context(raw_accounts, settings, evicted_ids)
+    accounts = [_public_account(a, serving_map, queue_ranks, settings=settings,
+                                evicted_ids=evicted_ids) for a in raw_accounts]
     domains = db.list_domains()
     total_used = sum(a["traffic_used_gb"] for a in accounts
                      if a.get("traffic_used_gb") is not None)
@@ -616,7 +656,9 @@ def status(_: bool = Depends(_admin_required)):
         "total_cost": total_cost,
         "accounts": accounts,
         "domains": domains,
-        "groups": [_public_group(g, serving_map, queue_ranks) for g in db.list_groups()],
+        "groups": [_public_group(g, serving_map, queue_ranks, settings,
+                                 evicted_ids, raw_accounts)
+                   for g in db.list_groups()],
         "events": events,
         "evicted_account_ids": [a["id"] for a in accounts if a.get("evicted")],
         "dns_confirmed": sum(1 for d in domains if d.get("current_ip")),
@@ -626,9 +668,12 @@ def status(_: bool = Depends(_admin_required)):
 
 @router.get("/accounts")
 def list_accounts(_: bool = Depends(_admin_required)):
+    settings = db.get_settings()
+    evicted_ids = db.list_evicted_account_ids()
     raw = db.list_accounts()
-    serving_map, queue_ranks = _status_context(raw)
-    return [_public_account(a, serving_map, queue_ranks) for a in raw]
+    serving_map, queue_ranks = _status_context(raw, settings, evicted_ids)
+    return [_public_account(a, serving_map, queue_ranks, settings=settings,
+                            evicted_ids=evicted_ids) for a in raw]
 
 
 @router.post("/accounts")
@@ -804,7 +849,7 @@ def put_settings(body: dict, _: bool = Depends(_admin_required)):
         "cloudflare_token", "telegram_token", "email_password"}
     data = {k: str(v) for k, v in body.items() if k in allowed}
     _validate_settings(data)
-    return db.get_settings() | data if False else _mask(db.set_settings(data))
+    return _mask(db.set_settings(data))
 
 
 def _validate_settings(data: dict) -> None:
@@ -890,8 +935,11 @@ def _daily_report_accounts() -> list[dict]:
     """财报账户列表（带新状态点）。无真实账户时用虚构演示数据，仅用于预览/测试。"""
     raw = db.list_accounts()
     if raw:
-        serving_map, queue_ranks = _status_context(raw)
-        return [_public_account(a, serving_map, queue_ranks) for a in raw]
+        settings = db.get_settings()
+        evicted_ids = db.list_evicted_account_ids()
+        serving_map, queue_ranks = _status_context(raw, settings, evicted_ids)
+        return [_public_account(a, serving_map, queue_ranks, settings=settings,
+                                evicted_ids=evicted_ids) for a in raw]
     # 演示数据（虚构：203.0.113.x 测试网段、example.xyz），不含真实凭据/域名/IP
     demo = [
         {"id": 1, "name": "Demo-HK-1", "quota_gb": 200, "traffic_used_gb": 37.77,
@@ -1028,9 +1076,12 @@ def logs(limit: int = 100, _: bool = Depends(_admin_required)):
 
 @router.post("/cloud/status")
 def cloud_status(_: bool = Depends(_admin_required)):
-    accounts = scheduler.refresh_cloud_status(db.get_settings())
-    serving_map, queue_ranks = _status_context(accounts)
-    return [_public_account(a, serving_map, queue_ranks) for a in accounts]
+    settings = db.get_settings()
+    accounts = scheduler.refresh_cloud_status(settings)
+    evicted_ids = db.list_evicted_account_ids()
+    serving_map, queue_ranks = _status_context(accounts, settings, evicted_ids)
+    return [_public_account(a, serving_map, queue_ranks, settings=settings,
+                            evicted_ids=evicted_ids) for a in accounts]
 
 
 # ---------------------------------------------------------------------------
@@ -1077,18 +1128,19 @@ def _regions_error(exc: Exception):
         "fallback_regions": BUILTIN_REGIONS})
 
 
-@router.get("/aliyun/regions")
-def aliyun_regions(site: str | None = None, account_id: int | None = None,
-                   access_key_id: str | None = None,
-                   access_key_secret: str | None = None,
+@router.post("/aliyun/regions")
+def aliyun_regions(body: dict | None = None,
                    _: bool = Depends(_admin_required)):
     """该站点下的可用地域列表（ECS DescribeRegions），按 local_name 排序。
-    账户级：?account_id=<id>（同时可用 ?site= 覆盖站点）；
-    临时查询：?access_key_id=...&access_key_secret=...（不保存）。"""
+    POST + JSON body：临时 AK 不再走 URL 查询参数（密钥会进访问日志）。
+    body: {"site": ..., "account_id": ..., "access_key_id": ...,
+           "access_key_secret": ...}（临时查询，不保存）。"""
     from .aliyun import AliyunError
+    body = body or {}
     try:
-        client = _aliyun_client_for_regions(site, account_id,
-                                            access_key_id, access_key_secret)
+        client = _aliyun_client_for_regions(body.get("site"), body.get("account_id"),
+                                            body.get("access_key_id"),
+                                            body.get("access_key_secret"))
         regions = client.describe_regions()
     except HTTPException:
         raise
@@ -1096,7 +1148,7 @@ def aliyun_regions(site: str | None = None, account_id: int | None = None,
         return _regions_error(exc)
     except Exception as exc:  # noqa: BLE001
         return _regions_error(exc)
-    return {"site": site or client.account.get("site") or "global",
+    return {"site": body.get("site") or client.account.get("site") or "global",
             "regions": regions, "source": "aliyun"}
 
 
