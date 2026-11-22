@@ -498,7 +498,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
         <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
         <button className="btn ghost" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
-        <button className="btn ghost" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>{t("删除")}</button>
+        <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
+          <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+        </button>
       </div>
       {showSettings && (<>
       <div style={{ marginTop: 12 }}>
@@ -587,7 +589,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
   const title = isEmail ? "E-Mail" : "Telegram";
   const saveConfig = () => {
     if (isEmail) {
-      saveSettings({
+      return saveSettings({
         email_smtp_host: (document.getElementById("em-host") as HTMLInputElement)?.value ?? "",
         email_smtp_port: (document.getElementById("em-port") as HTMLInputElement)?.value ?? "465",
         email_user: (document.getElementById("em-user") as HTMLInputElement)?.value ?? "",
@@ -595,7 +597,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         ...(((document.getElementById("em-pass") as HTMLInputElement)?.value || "") ? { email_password: (document.getElementById("em-pass") as HTMLInputElement).value } : {}),
       });
     } else {
-      saveSettings({
+      return saveSettings({
         telegram_chat_id: (document.getElementById("tg-chat") as HTMLInputElement)?.value ?? "",
         ...(((document.getElementById("tg-token") as HTMLInputElement)?.value || "") ? { telegram_token: (document.getElementById("tg-token") as HTMLInputElement).value } : {}),
       });
@@ -630,8 +632,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <p className="muted">{t("每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。")}</p>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn ghost" title={t("保存{title}设置", { title })} onClick={saveConfig}>{t("保存")}</button>
-        <button className="btn ghost" title={t("保存财报设置")} onClick={() => saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" })}>{t("保存")}</button>
+        <button className="btn ghost" onClick={async () => { await saveConfig(); await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" }); }}>{t("保存")}</button>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
@@ -730,7 +731,9 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
           <span>{c.label as string || t("指纹")}</span>
           <span className="muted">{new Date((c.created_at as number) * 1000).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US")}</span>
           <span className="spacer" />
-          <button className="btn ghost" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }} onClick={async () => { if (!confirm(t("删除指纹 {label}？", { label: (c.label as string) || t("指纹") }))) return; await del(`/api/auth/webauthn/${c.credential_id}`); await loadCreds(); }}>{t("删除")}</button>
+          <button className="icon-btn danger" title={t("删除")} onClick={async () => { if (!confirm(t("删除指纹 {label}？", { label: (c.label as string) || t("指纹") }))) return; await del(`/api/auth/webauthn/${c.credential_id}`); await loadCreds(); }}>
+            <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+          </button>
         </div>
       ))}
       <h3 style={{ marginTop: 20 }}>{t("Google 登录")}</h3>
@@ -1321,14 +1324,18 @@ export default function App() {
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
                 <td>{editing ? (
                   <div className="row" style={{ gap: 6 }}>
-                    <button className="btn" onClick={() => {
+                    <button className="icon-btn green" title={t("保存")} onClick={() => {
                       const nm = editDomName.trim();
                       if (!nm) { setMsg(t("请填写域名")); return; }
                       const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(editDomGroup) };
                       if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
                       run(async () => { await put(`/api/domains/${d.id}`, payload); setEditDomId(null); }, t("域名已更新"));
-                    }}>{t("保存")}</button>
-                    <button className="btn ghost" onClick={() => setEditDomId(null)}>{t("取消")}</button>
+                    }}>
+                      <Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico>
+                    </button>
+                    <button className="icon-btn" title={t("取消")} onClick={() => setEditDomId(null)}>
+                      <Ico label={t("取消")}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Ico>
+                    </button>
                   </div>
                 ) : (
                   <div className="row" style={{ gap: 6 }}>

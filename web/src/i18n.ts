@@ -415,8 +415,6 @@ export const EN: Record<string, string> = {
   推送时间: "Push time",
   "每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。": "Push once a day at this time, only to enabled channels. Changing the time takes effect after saving; if the new time has already passed today, it will push tomorrow instead of catching up today.",
   "{title}启用": "{title} enabled",
-  "保存{title}设置": "Save {title} settings",
-  保存财报设置: "Save report settings",
   发送测试通知: "Send test notification",
   发送测试财报: "Send test report",
   立即推送日报: "Push daily report now",
