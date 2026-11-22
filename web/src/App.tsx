@@ -1704,17 +1704,6 @@ export default function App() {
                 { value: "keep_stopped", label: t("恢复入池但保持停机") },
               ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
             </div>
-            <div style={{ marginTop: 12 }}>
-              <label className="req">{t("API 刷新时间 *（分钟）")}</label>
-              <Seg value={sRefresh} options={[
-                { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
-                { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
-                { value: "60", label: t("60 分钟") },
-                { value: "custom", label: t("自定义") },
-              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
-              {sRefresh === "custom" && (
-              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
-            </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
             <div>
             <div className="form2">
@@ -1735,6 +1724,17 @@ export default function App() {
                     { value: "day", label: t("天") },
                   ]} onChange={changeCustUnit} />
                 </div></div>)}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <label className="req">{t("API 刷新时间 *（分钟）")}</label>
+              <Seg value={sRefresh} options={[
+                { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
+                { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
+                { value: "60", label: t("60 分钟") },
+                { value: "custom", label: t("自定义") },
+              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
+              {sRefresh === "custom" && (
+              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
             </div>
             </div>
           </div>

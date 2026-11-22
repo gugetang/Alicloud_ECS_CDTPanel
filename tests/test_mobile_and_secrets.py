@@ -174,14 +174,14 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
 
 def test_api_refresh_own_row_and_other_settings_tab():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 全局的 API 刷新时间单独占一行，移到定时轮巡上面（不在两列 form2 里）；
+    # 全局的 API 刷新时间单独占一行，移到轮巡周期下面（不在两列 form2 里）；
     # 实例表单里另有一项单账户 API 刷新时间（跟随全局/自定义），两者各出现一次
     assert tsx.count('API 刷新时间 *（分钟）') == 1
     assert tsx.count('t("API 刷新时间")') == 1
     api_idx = tsx.index('API 刷新时间 *（分钟）')
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
-    assert tsx.index('阈值恢复') < api_idx
-    assert api_idx < tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>')
+    assert tsx.index('轮巡周期') < api_idx
+    assert tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>') < api_idx
     # 其它设置是设置页的第四个子标签（在通知设置后面、日志统计前面），
     # 只剩货币结算与主题设置；登录与安全、备份与恢复已移到新开的“账号设置”
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
