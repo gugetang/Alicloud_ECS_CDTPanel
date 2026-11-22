@@ -130,6 +130,11 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 /* 主题菜单（页眉）：图标按钮 + 下拉菜单，选中项浅蓝底、右侧打勾。 */
 .theme-menu { position:relative; }
 .theme-btn { padding:6px 8px; display:flex; align-items:center; }
+/* 语言切换：图标式 中/En 切换键，点一下切语言；当前语言用主题色加粗，未选的灰色。 */
+.lang-btn { padding:6px 10px; display:flex; align-items:center; gap:2px; font-size:14px; }
+.lang-on { color:var(--accent-text); font-weight:600; }
+.lang-off { color:var(--muted); }
+.lang-sep { color:var(--muted); }
 .menu-backdrop { position:fixed; inset:0; z-index:40; }
 .menu { position:absolute; right:0; top:calc(100% + 6px); z-index:41; min-width:180px; background:var(--card); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:6px; }
 .menu button { display:flex; align-items:center; gap:10px; width:100%; padding:8px 10px; background:none; border:none; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; text-align:left; }

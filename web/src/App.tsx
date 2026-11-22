@@ -867,7 +867,6 @@ export default function App() {
     try { return localStorage.getItem("cdt-theme") || "system"; } catch { return "system"; }
   });
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-  const [langMenuOpen, setLangMenuOpen] = useState(false);
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1202,26 +1201,13 @@ export default function App() {
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("账户管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
           <div className="row">
+            <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
+              <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
+              <span className="lang-sep">/</span>
+              <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
+            </button>
             <div className="theme-menu">
-              <button className="btn ghost" aria-label={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
-                {lang === "zh" ? t("简体中文") : "English"}
-              </button>
-              {langMenuOpen && (
-                <>
-                  <div className="menu-backdrop" onClick={() => setLangMenuOpen(false)} />
-                  <div className="menu">
-                    {(["zh", "en"] as const).map((v) => (
-                      <button key={v} className={lang === v ? "sel" : ""} onClick={() => { setLang(v); setLangMenuOpen(false); }}>
-                        <span>{v === "zh" ? t("简体中文") : "English"}</span>
-                        <span className="menu-check">{lang === v ? "✓" : ""}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
+              <button className="btn ghost theme-btn" aria-label={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
                 <ThemeIcon theme={theme} />
               </button>
               {themeMenuOpen && (
@@ -1239,6 +1225,17 @@ export default function App() {
                 </>
               )}
             </div>
+            <button className="btn ghost theme-btn" aria-label={t("退出登录")} title={t("退出登录")} onClick={() => {
+              post("/api/auth/logout", {}).catch(() => {});
+              setToken(null);
+              setAuthState("login");
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
           </div>
         </div>
         <p>{tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。")}</p>

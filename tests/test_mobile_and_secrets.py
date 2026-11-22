@@ -354,3 +354,25 @@ def test_save_toast_bottom_right_theme_color():
     assert "right:16px" in rule and "bottom:16px" in rule
     assert "color:var(--accent-text)" in rule
     assert "setTimeout" in tsx and "5000" in tsx
+
+
+def test_header_lang_toggle_and_logout():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 语言切换：图标式 中/En 切换键，点一下切语言，不再是下拉菜单；
+    # 当前语言主题色加粗（.lang-on），未选的灰色（.lang-off）
+    assert 'className="btn ghost lang-btn"' in tsx
+    assert 'setLang(lang === "zh" ? "en" : "zh")' in tsx
+    assert '>中</span>' in tsx and '>En</span>' in tsx
+    assert 'langMenuOpen' not in tsx
+    assert ".lang-on { color:var(--accent-text)" in css
+    assert ".lang-off { color:var(--muted)" in css
+    # 退出登录图标在页眉最右边（主题按钮之后）：调 /api/auth/logout、
+    # 清 token、回登录页
+    assert 'aria-label={t("退出登录")}' in tsx
+    assert 'post("/api/auth/logout", {})' in tsx
+    assert 'setToken(null)' in tsx
+    assert 'setAuthState("login")' in tsx
+    # 顺序：语言键、主题键、退出键（退出在最右）
+    assert tsx.index("lang-btn") < tsx.index("theme-btn")
+    assert tsx.index("theme-btn") < tsx.index('t("退出登录")')

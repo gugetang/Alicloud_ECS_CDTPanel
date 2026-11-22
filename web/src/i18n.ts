@@ -84,6 +84,7 @@ export const EN: Record<string, string> = {
   跟随系统: "Follow system",
   主题: "Theme",
   语言: "Language",
+  退出登录: "Sign out",
   // 导航 / 页眉
   设置: "Settings",
   运行概览: "Overview",
