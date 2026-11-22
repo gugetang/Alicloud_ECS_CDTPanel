@@ -33,9 +33,6 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | UNINSTALL=1 bash
 ```
 
-> 注意：如需换仓库，可用 `REPO_URL=... bash` 指定仓库地址。
-> 本机无 Docker，本仓库只做了静态检查（`bash -n`、Dockerfile/compose 人工核对），
-> 未在本机实测 Docker 部署。
 
 ### Docker Compose 部署
 
@@ -51,7 +48,7 @@ docker compose down
 # 改端口：编辑 docker-compose.yml 的 ports 一行，如 - "8888:1999"
 ```
 
-完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
+完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版）：
 
 ```yaml
 services:
@@ -83,23 +80,6 @@ push 到 main 自动构建并推送到 GHCR）。端口固定 `1999:1999`，
 > 不是 `ghcr.io/gugetang/Alicloud_ECS_CDTPanel.git`。
 > 首次使用前镜像必须已发布（push 到 main 后 Actions 自动发布）；本地构建方式已移除。
 
-### 常见问题
-
-**容器启动报 `sqlite3.OperationalError: unable to open database file`**
-
-容器里的服务以 UID 10001 运行，但宿主机上的数据卷目录 `/opt/docker/cdt-alicloud_ecs_cdtpanel`
-是 Docker 自动创建的，属主是 root，容器写不进去。
-
-新版镜像已自动修复：容器入口脚本（`entrypoint.sh`）启动时先以 root 把 `/data`
-改属主为 10001，再切到 10001 用户运行服务，`docker compose pull && docker compose up -d`
-直接拉取启动，不用手动处理。一键部署脚本也会在 `up` 之前提前改好属主（双保险）。
-
-只有旧版镜像（没有入口脚本的版本）才需要手动修：
-
-```bash
-sudo chown -R 10001:10001 /opt/docker/cdt-alicloud_ecs_cdtpanel
-docker compose restart   # 或 docker restart Alicloud_ECS_CDTPanel
-```
 
 ### DDNS 设置与时区
 
