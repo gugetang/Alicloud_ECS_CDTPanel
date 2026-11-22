@@ -247,8 +247,11 @@ class Notifier:
             elif detail:
                 self.last_errors["telegram"] = detail
         if (channel is None or channel == "email") and self.s.get("email_enabled") == "1":
-            if self._email(title, text):
+            ok, detail = self._email(title, text)
+            if ok:
                 sent.append("email")
+            elif detail:
+                self.last_errors["email"] = detail
         if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
             if self._webhook(title, text):
                 sent.append("webhook")
@@ -284,8 +287,11 @@ class Notifier:
                 elif detail:
                     self.last_errors["telegram"] = detail
             if (channel is None or channel == "email") and self.s.get("email_enabled") == "1":
-                if self._email_html(DAILY_TITLE, ch["text"], ch["email_html"]):
+                ok, detail = self._email_html(DAILY_TITLE, ch["text"], ch["email_html"])
+                if ok:
                     sent.add("email")
+                elif detail:
+                    self.last_errors["email"] = detail
             if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
                 if self._webhook(DAILY_TITLE, ch["text"]):
                     sent.add("webhook")
@@ -333,11 +339,14 @@ class Notifier:
             log.warning("Telegram 发送失败: %s", exc)
             return False, _proxy_hint(str(exc)[:200])
 
-    def _email(self, subject: str, text: str, html_body: str | None = None) -> bool:
+    def _email(self, subject: str, text: str, html_body: str | None = None) -> tuple[bool, str]:
+        """返回 (是否成功, 失败原因)。以前只返回 False，SMTP 登录失败、
+        连不上服务器这类原因全被吞掉，前端只能显示“该渠道未启用或未配置”；
+        现在把原因带回来（与 _telegram 同款）。"""
         host = (self.s.get("email_smtp_host") or "").strip()
         to = (self.s.get("email_to") or "").strip()
         if not host or not to:
-            return False
+            return False, "SMTP 服务器或收件邮箱未配置"
         try:
             msg = EmailMessage()
             msg["Subject"] = subject
@@ -352,12 +361,12 @@ class Notifier:
                 if user:
                     smtp.login(user, self.s.get("email_password") or "")
                 smtp.send_message(msg)
-            return True
+            return True, ""
         except Exception as exc:
             log.warning("邮件发送失败: %s", exc)
-            return False
+            return False, f"邮件发送失败：{str(exc)[:200]}"
 
-    def _email_html(self, subject: str, text: str, html_body: str) -> bool:
+    def _email_html(self, subject: str, text: str, html_body: str) -> tuple[bool, str]:
         """邮件 HTML 版：标题 16px / 正文 14px / 辅助 12px，不用浏览器默认大标题。"""
         doc = ("<html><body style=\"font-family:system-ui,sans-serif;color:#111;"
                "max-width:560px;margin:0 auto\">"

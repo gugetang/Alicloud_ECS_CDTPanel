@@ -1251,7 +1251,7 @@ export default function App() {
           <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{t(label)}</button>
         ))}</div>
       )}
-      {msg && <div className="notice">{msg}</div>}
+      {msg && <div className="toast">{msg}</div>}
 
       {tab === "dash" && (
         <>

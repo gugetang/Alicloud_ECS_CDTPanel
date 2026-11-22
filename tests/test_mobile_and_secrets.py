@@ -130,10 +130,11 @@ def test_list_font_smaller_and_dash_notice_removed():
     assert re.search(r"table\s*\{[^}]*font-size:\s*12px", CSS)
     assert re.search(r"th\s*\{[^}]*font-size:\s*12px", CSS)
     assert "table { width:100%; border-collapse:collapse; font-size:14px; }" not in CSS
-    # 运行概览顶部的调度提示说明已取消（临时消息条 msg 不动）
+    # 运行概览顶部的调度提示说明已取消；临时消息条 msg 改成右下角悬浮 toast
+    #（字体主题色），不再是顶部通栏 notice——见 test_save_toast_bottom_right_theme_color
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in tsx
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in i18n
-    assert '{msg && <div className="notice">{msg}</div>}' in tsx
+    assert '{msg && <div className="toast">{msg}</div>}' in tsx
     # 在线/排队状态详情（当前在线…/池内排队待命…）显示主题色字体，
     # 仅 status_dot 为 green/yellow 时用主题色，其它状态仍是 muted 灰色
     # （2026-11-22 用户要求：以前的绿色字体统一改成主题字体）
@@ -337,3 +338,19 @@ def test_managed_domains_title_removed():
     assert 't("受管理域名 {count}"' not in tsx
     assert 'title={t("DDNS 设置")}' in tsx
     assert "setShowDdns(!showDdns)" in tsx
+
+
+def test_save_toast_bottom_right_theme_color():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 自动保存后的提示框：右下角悬浮 toast，不再是顶部通栏 notice；
+    # 字体用主题色；5 秒自动隐藏的定时器仍在
+    assert '<div className="toast">{msg}</div>' in tsx
+    assert '<div className="notice">{msg}</div>' not in tsx
+    m = re.search(r"\.toast \{([^}]*)\}", css)
+    assert m, ".toast rule missing"
+    rule = m.group(1)
+    assert "position:fixed" in rule
+    assert "right:16px" in rule and "bottom:16px" in rule
+    assert "color:var(--accent-text)" in rule
+    assert "setTimeout" in tsx and "5000" in tsx

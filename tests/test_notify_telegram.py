@@ -177,3 +177,65 @@ def test_login_button_shows_theme_border():
     assert ".auth-wrap .btn { border-color:transparent; }" not in css
     # 输入框聚焦仍是主题色边框
     assert ".auth-wrap input:focus" in css and "border-color:var(--accent)" in css
+
+
+# ---------------- 邮件失败原因回传（与 Telegram 同款） ----------------
+
+def test_email_error_surfaces_reason(monkeypatch):
+    """_email 返回 (ok, detail)：缺配置给可读原因，SMTP 异常把异常文本带回来，
+    而不是只返回 False 让前端猜“未启用或未配置”。"""
+    import smtplib
+
+    n = Notifier({"email_enabled": "1", "email_smtp_host": "", "email_to": ""})
+    ok, detail = n._email("t", "b")
+    assert ok is False and "未配置" in detail
+
+    class BoomSMTP:
+        def __init__(self, *a, **k):
+            raise smtplib.SMTPAuthenticationError(535, b"Username and Password not accepted")
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    n2 = Notifier({"email_enabled": "1", "email_smtp_host": "smtp.gmail.com",
+                   "email_smtp_port": "465", "email_user": "a@gmail.com",
+                   "email_password": "wrong", "email_to": "b@gmail.com"})
+    monkeypatch.setattr("app.notify.smtplib.SMTP_SSL", BoomSMTP)
+    ok, detail = n2._email("t", "b")
+    assert ok is False
+    assert "535" in detail or "not accepted" in detail.lower()
+
+    # send() 把邮件失败原因记进 last_errors，接口层能返回给前端
+    sent = n2.send("error", "t", "b", channel="email", force=True)
+    assert sent == []
+    assert "email" in n2.last_errors
+    assert "535" in n2.last_errors["email"] or "not accepted" in n2.last_errors["email"].lower()
+
+
+def test_notify_test_api_returns_email_error(tmpdb, monkeypatch):
+    """POST /api/notify/test 返回 errors.email，页面显示真实 SMTP 原因。"""
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    class BoomSMTP:
+        def __init__(self, *a, **k):
+            raise ConnectionRefusedError("Connection refused")
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("app.notify.smtplib.SMTP_SSL", BoomSMTP)
+    tmpdb.set_settings({
+        "email_enabled": "1", "email_smtp_host": "smtp.gmail.com",
+        "email_smtp_port": "465", "email_user": "a@gmail.com",
+        "email_password": "x", "email_to": "b@gmail.com",
+    })
+    client = TestClient(create_app())
+    r = client.post("/api/notify/test", json={"event": "error", "channel": "email"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sent"] == []
+    assert "email" in body["errors"]
+    assert "Connection refused" in body["errors"]["email"]
