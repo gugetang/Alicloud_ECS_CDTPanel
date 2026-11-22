@@ -280,7 +280,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
         <p className="muted">开启后每天在设定时间开机/关机；错过时间窗口（重启/延迟）时在 1 小时内补偿一次。阈值踢出优先于定时开机：被踢出的实例到点也不拉起；关机窗口内恢复拉起也不执行。</p>
       </div>
       <div style={{ marginTop: 12 }}>
-        <label>参与日报推送</label>
+        <label className="lbl">参与日报推送</label>
         <Seg value={report} options={[
           { value: "follow", label: "跟随全局" },
           { value: "on", label: "单独开启" },
@@ -289,7 +289,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
         <p className="muted">跟随全局：按全局每日财报开关；单独开启：即使全局关了也推这台；单独关闭：即使全局开了也不推这台。</p>
       </div>
       <div style={{ marginTop: 12 }}>
-        <label>阈值动作（三选一）</label>
+        <label className="lbl">阈值动作</label>
         <Seg value={excl} options={[
           { value: "", label: "跟随全局" },
           { value: "none", label: "踢出DDNS" },
@@ -299,7 +299,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
         <p className="muted">跟随全局：按全局设置（当前：{exclLabel(settings.exclusion_action)}）。踢出DDNS 默认不停机，只跳出 DDNS 继续跑；停机/节省停机都在切完 DNS 之后。</p>
       </div>
       <div style={{ marginTop: 12 }}>
-        <label>阈值恢复（用量回落后）</label>
+        <label className="lbl">阈值恢复</label>
         <Seg value={recovery} options={[
           { value: "", label: "跟随全局" },
           { value: "start", label: "恢复时拉起" },
@@ -449,43 +449,46 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
   return (
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="row"><b>{g.name as string}</b>
-        <span className="pill">{g.switch_mode === "time" ? "按时间切换" : "按负载均衡"}</span>
+        <span className="pill">{g.switch_mode === "time" ? "定时轮巡" : "负载均衡"}</span>
         <span className="spacer" />
         <button className="btn ghost" onClick={() => { if (confirm(`删除分组 ${g.name}？须先移走其账户/域名。`)) run(() => del(`/api/groups/${g.id}`), "已删除"); }}>删除</button>
       </div>
       <div style={{ marginTop: 12 }}>
-        <label>切换模式（单选）</label>
+        <label className="lbl">切换模式</label>
         <Seg value={g.switch_mode as string} options={[
-          { value: "time", label: "按时间切换" },
-          { value: "load_balance", label: "按负载均衡" },
+          { value: "time", label: "定时轮巡" },
+          { value: "load_balance", label: "负载均衡" },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), "已切换模式")} />
       </div>
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
           <div className="form2">
-            <div><label>间隔切换周期</label>
+            <div><label className="lbl">间隔切换周期</label>
               <Seg value={interval} options={[
                 { value: "1", label: "1 小时" }, { value: "2", label: "2 小时" },
                 { value: "3", label: "3 小时" }, { value: "4", label: "4 小时" },
                 { value: "6", label: "6 小时" }, { value: "12", label: "12 小时" },
                 { value: "24", label: "24 小时" },
               ]} onChange={setInterval} /></div>
-            <div><label>固定每日切换时刻（留空不启用）</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} /></div>
-            <div><label>夜间窗口开始</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} /></div>
-            <div><label>夜间窗口结束</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} /></div>
+            <div><label className="lbl">固定每日切换时刻</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} /></div>
+            <div><label className="lbl">夜间窗口开始</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} /></div>
+            <div><label className="lbl">夜间窗口结束</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} /></div>
           </div>
           <p className="muted">未填的项继承全局设置。夜间窗口内每晚切换一次至使用率更低的候选；间隔按上次切换锚点每 N 小时切一次。</p>
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <label>切换差值模式</label>
+          <label className="lbl">切换阀值</label>
           <Seg value={diffMode} options={[
-            { value: "percent", label: "按使用率差值（%）" },
-            { value: "gb", label: "按已用流量差值（GB）" },
+            { value: "percent", label: "百分比（%）" },
+            { value: "gb", label: "固定流量（GB）" },
           ]} onChange={setDiffMode} />
           <div className="form2">
-            <div><label>切换差值阈值（%）</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} /></div>
-            <div><label>切换差值（GB）</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} /></div>
+            {diffMode === "percent" ? (
+              <div><label className="lbl">切换阀值（%）</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} /></div>
+            ) : (
+              <div><label className="lbl">切换阀值（GB）</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} /></div>
+            )}
           </div>
           <p className="muted">负载均衡：% 模式差值 ≥ 阈值切，GB 模式差值 ≥ 阈值 GB 切。未填的项继承全局设置。</p>
         </div>
@@ -1109,10 +1112,10 @@ export default function App() {
       )}
 
       {tab === "accounts" && (
-        <div className="card"><h2>账户管理 {accounts.length}</h2>
-          <div className="row" style={{ marginBottom: 12 }}>
+        <div className="card">
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <h2 style={{ margin: 0 }}>账户管理 {accounts.length}</h2>
             <button className="btn" onClick={() => setEditingId("new")}>+ 添加实例</button>
-            <button className="btn ghost" onClick={() => run(() => post("/api/cloud/status"), "云端状态已查询")}>查询云端状态</button>
           </div>
           {editingId === "new" && (
             <InstanceForm account={null} settings={settings} count={accounts.length}
@@ -1123,7 +1126,7 @@ export default function App() {
             <div className="card" key={a.id as number} style={{ marginTop: 12 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}<br />
-                <span className="muted">{a.site === "cn" ? "中国站 cn" : "国际站 global"} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? "按时间切换" : "按负载均衡"}）</span></div>
+                <span className="muted">{a.site === "cn" ? "中国站 cn" : "国际站 global"} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? "定时轮巡" : "负载均衡"}）</span></div>
                 <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
@@ -1158,7 +1161,7 @@ export default function App() {
                 <button className="btn ghost" disabled={i === 0} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, "已调整顺序")}>↑</button>
                 <button className="btn ghost" disabled={i === domains.length - 1} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, "已调整顺序")}>↓</button></td>
                 <td><b>{d.name as string}</b></td>
-                <td>{groupName(d.group_id)}<br /><span className="muted">{groupMode(d.group_id) === "time" ? "按时间切换" : "按负载均衡"}</span></td>
+                <td>{groupName(d.group_id)}<br /><span className="muted">{groupMode(d.group_id) === "time" ? "定时轮巡" : "负载均衡"}</span></td>
                 <td>{d.zone as string || "自动发现"}</td>
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? "备用地址生效中" : (cur?.name as string) || ""}{cur ? `（${cur.status_label || cur.instance_status || ""}）` : ""}</span></td>
                 <td><span className="pill blue">仅 DNS</span><br /><span className="muted">TTL 自动</span></td>
@@ -1208,15 +1211,15 @@ export default function App() {
             <h2 style={{ margin: 0 }}>分组 {groups.length}</h2>
             <button className="btn" onClick={() => setShowNewGroup(!showNewGroup)}>+ 新建分组</button>
           </div>
-          <div className="notice">一个分组只选一种切换模式（单选）：按时间切换或按负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。</div>
+          <div className="notice">一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。</div>
           {showNewGroup && (
             <div className="instance-form" style={{ marginBottom: 12 }}>
               <label className="req">分组名 *</label>
               <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="如 分组C" />
-              <label style={{ marginTop: 12 }}>切换模式（单选）</label>
+              <label className="lbl" style={{ marginTop: 12 }}>切换模式</label>
               <Seg value={newGroupMode} options={[
-                { value: "time", label: "按时间切换" },
-                { value: "load_balance", label: "按负载均衡" },
+                { value: "time", label: "定时轮巡" },
+                { value: "load_balance", label: "负载均衡" },
               ]} onChange={setNewGroupMode} />
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
                 <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); }}>取消</button>
@@ -1240,7 +1243,7 @@ export default function App() {
         <>
           <div className="card"><h2>调度参数</h2><p className="muted">账户未配置覆盖值时，使用以下全局设置。</p>
             <div className="notice" style={{ marginBottom: 0 }}><b>切换模式按分组设置，请到「分组管理」选择。</b>
-              一个分组只选一种模式（按时间切换 / 按负载均衡），不同分组可以选不同模式。
+              一个分组只选一种模式（定时轮巡 / 负载均衡），不同分组可以选不同模式。
               这里的时间/差值参数是<b>新建分组的默认值</b>，分组里未填的项继承这里的值。
               旧的全局切换模式只作默认值与无分组 legacy 回退，不再直接控制分组。
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>去分组管理</button>
@@ -1250,13 +1253,16 @@ export default function App() {
               <div><label className="req">流量保护阈值 *（%）</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" /></div>
             </div>
             <div className="form2">
-              <div><label className="req">切换差值模式 *</label>
+              <div><label className="req">切换阀值 *</label>
                 <Seg value={sDiffMode} options={[
-                  { value: "percent", label: "按使用率差值（%）" },
-                  { value: "gb", label: "按已用流量差值（GB）" },
+                  { value: "percent", label: "百分比（%）" },
+                  { value: "gb", label: "固定流量（GB）" },
                 ]} onChange={setSDiffMode} /></div>
-              <div><label className="req">切换差值阈值 *（%）</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" /></div>
-              <div><label>切换差值（GB，仅 GB 模式）</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" /></div>
+              {sDiffMode === "percent" ? (
+                <div><label className="req">切换阀值 *（%）</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" /></div>
+              ) : (
+                <div><label className="lbl">切换阀值（GB）</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" /></div>
+              )}
               <div><p className="muted" style={{ marginTop: 28 }}>负载均衡：% 模式差值 ≥ 10% 切，GB 模式差值 ≥ 10 GB 切。</p></div>
               <div><label className="req">API 刷新时间 *（分钟）</label>
                 <Seg value={sRefresh} options={[
@@ -1272,7 +1278,7 @@ export default function App() {
             <h3 style={{ marginTop: 20 }}>阈值</h3>
             <p className="muted">到达阈值默认不停机，只是跳出 DDNS：实例踢出池子、不再参与 DDNS 解析，域名切到下一台用量最低的。恢复线 = 阈值 − 2%（如阈值 95%，回落到 93% 以下才恢复）；被踢出超 24 小时且用量低于阈值时兜底恢复；流量一更新就重新评估，恢复后同一轮重新参与分配。</p>
             <div>
-              <label>阈值动作（三选一）</label>
+              <label className="lbl">阈值动作</label>
               <Seg value={sExcl} options={[
                 { value: "none", label: "踢出DDNS" },
                 { value: "stop_charging", label: "节省停机" },
@@ -1281,14 +1287,14 @@ export default function App() {
               <p className="muted">默认不停机，只跳出 DDNS；如需省流量费再选停机/节省停机。停机永远在切完 DNS 之后，同一台只停一次。</p>
             </div>
             <div style={{ marginTop: 12 }}>
-              <label>阈值恢复</label>
+              <label className="lbl">阈值恢复</label>
               <Seg value={sRecovery} options={[
                 { value: "start", label: "恢复时拉起（默认）" },
                 { value: "keep_stopped", label: "恢复入池但保持停机" },
               ]} onChange={setSRecovery} />
               <p className="muted">每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。</p>
             </div>
-            <h3 style={{ marginTop: 20 }}>按时间切换</h3>
+            <h3 style={{ marginTop: 20 }}>定时轮巡</h3>
             <div>
             <div className="form2">
               <div><label className="req">时间切换模式 *</label>
@@ -1299,29 +1305,29 @@ export default function App() {
                   { value: "interval", label: "仅间隔切换" },
                   { value: "fixed_time", label: "仅固定时刻" },
                 ]} onChange={setSTsMode} /></div>
-              <div><label>间隔切换周期（仅间隔模式）</label>
+              <div><label className="lbl">间隔切换周期</label>
                 <Seg value={sInterval} options={[
                   { value: "1", label: "1 小时" }, { value: "2", label: "2 小时" },
                   { value: "3", label: "3 小时" }, { value: "4", label: "4 小时" },
                   { value: "6", label: "6 小时" }, { value: "12", label: "12 小时" },
                   { value: "24", label: "24 小时" }, { value: "0", label: "自定义分钟" },
                 ]} onChange={setSInterval} /></div>
-              <div><label>自定义间隔（分钟，周期选“自定义分钟”时生效）</label><input defaultValue={String(settings.custom_interval_minutes ?? 0)} id="s-custmin" /></div>
-              <div><label>固定每日切换时刻（自动/固定时刻模式，留空不启用）</label><input type="time" defaultValue={String(settings.fixed_switch_time ?? "")} id="s-fixed" /></div>
+              <div><label className="lbl">自定义间隔（分钟）</label><input defaultValue={String(settings.custom_interval_minutes ?? 0)} id="s-custmin" /></div>
+              <div><label className="lbl">固定每日切换时刻</label><input type="time" defaultValue={String(settings.fixed_switch_time ?? "")} id="s-fixed" /></div>
             </div>
             <label className="check"><input type="checkbox" defaultChecked={settings.night_optimize_enabled === "1"} id="s-night" /> 启用夜间主动优化</label>
             <div className="form2">
               <div><label className="req">夜间窗口开始 *</label><input type="time" defaultValue={String(settings.night_window_start ?? "00:00")} id="s-nstart" /></div>
               <div><label className="req">夜间窗口结束 *</label><input type="time" defaultValue={String(settings.night_window_end ?? "04:00")} id="s-nend" /></div>
             </div>
-            <p className="muted">按时间切换仅在“按时间切换 / 两者都启用”时评估。夜间窗口内第一轮有效检查可切换至使用率更低的候选，每晚仅一次。间隔切换按上次切换锚点每 N 小时切一次（1 小时=每小时整点，6 小时=00/06/12/18），重启后按锚点继续，不重复切。固定时刻每天仅一次。按程序本地时间执行，支持跨午夜。</p>
+            <p className="muted">定时轮巡仅在“定时轮巡 / 两者都启用”时评估。夜间窗口内第一轮有效检查可切换至使用率更低的候选，每晚仅一次。间隔切换按上次切换锚点每 N 小时切一次（1 小时=每小时整点，6 小时=00/06/12/18），重启后按锚点继续，不重复切。固定时刻每天仅一次。按程序本地时间执行，支持跨午夜。</p>
             </div>
             <button className="btn" onClick={() => saveSettings({
               quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
               protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
               switch_diff_mode: sDiffMode,
-              switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement).value,
-              switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement).value,
+              switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement)?.value || String(settings.switch_diff_pct ?? 10),
+              switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
               time_switch_mode: sTsMode,
               interval_hours: sInterval,
               custom_interval_minutes: (document.getElementById("s-custmin") as HTMLInputElement).value,

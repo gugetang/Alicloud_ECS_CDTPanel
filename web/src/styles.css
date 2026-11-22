@@ -100,6 +100,8 @@ input,select,textarea { background:var(--input); color:var(--text); border:1px s
 label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
 /* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（GiB）） */
 label.req { font-weight:700; color:var(--text); }
+/* 参数标签加粗（如切换模式、切换阀值、间隔切换周期） */
+label.lbl { font-weight:700; color:var(--text); }
 .form2 { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; }
 @media (max-width:800px){ .form2{grid-template-columns:1fr;} }
 .notice { background:rgba(23,37,84,0.5); border:1px solid #1e3a8a; border-radius:10px; padding:12px 16px; color:#bfdbfe; font-size:14px; margin-bottom:16px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }

@@ -325,7 +325,7 @@ def get_group(gid: int) -> dict | None:
 def _check_switch_mode(mode: str) -> str:
     m = (mode or "load_balance").strip().lower()
     if m not in ("time", "load_balance"):
-        raise ValueError("分组切换模式只能是 time（按时间切换）或 load_balance（按负载均衡）")
+        raise ValueError("分组切换模式只能是 time（定时轮巡）或 load_balance（负载均衡）")
     return m
 
 
