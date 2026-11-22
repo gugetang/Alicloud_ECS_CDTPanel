@@ -23,11 +23,12 @@ MAX_ROWS = {"events": 500, "traffic_samples": 5000}
 
 COLUMNS: dict[str, list[str]] = {
     "groups": ["id", "name", "switch_mode", "interval_hours",
-               "custom_interval_minutes", "fixed_switch_time",
+               "custom_interval_minutes", "interval_start_time",
+               "fixed_switch_time",
                "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode",
                "switch_diff_gb", "switch_diff_pct", "time_switch_mode",
-               "created_at"],
+               "priority", "created_at"],
     "accounts": ["id", "name", "site", "region", "access_key_id",
                  "access_key_secret_enc", "instance_id", "quota_gb",
                  "protection_threshold_pct", "switch_diff_pct",
@@ -50,11 +51,13 @@ COLUMNS: dict[str, list[str]] = {
     "webauthn_credentials": ["id", "credential_id", "public_key",
                              "sign_count", "transports", "label",
                              "created_at"],
+    "account_groups": ["account_id", "group_id"],
 }
 
 # 恢复顺序：先分组（域名/账户引用它），再账户、域名，其余随意
 TABLE_ORDER = ["groups", "accounts", "domains", "dns_records",
-               "events", "traffic_samples", "webauthn_credentials"]
+               "events", "traffic_samples", "webauthn_credentials",
+               "account_groups"]
 
 
 def build_backup() -> dict:
@@ -74,11 +77,14 @@ def build_backup() -> dict:
     for table in TABLE_ORDER:
         cols = COLUMNS[table]
         limit = MAX_ROWS.get(table)
-        sql = f"SELECT {', '.join(cols)} FROM {table} ORDER BY id DESC"
+        # account_groups 没有 id 列，按 account_id/group_id 排序
+        order = "account_id, group_id" if table == "account_groups" else "id DESC"
+        sql = f"SELECT {', '.join(cols)} FROM {table} ORDER BY {order}"
         if limit:
             sql += f" LIMIT {limit}"
         rows = [dict(r) for r in conn.execute(sql)]
-        rows.reverse()
+        if order == "id DESC":
+            rows.reverse()
         data[table] = rows
     return data
 
@@ -141,14 +147,20 @@ def restore_backup(data: dict) -> dict:
         conn.execute("DELETE FROM flags")
         for k, v in flags.items():
             conn.execute("INSERT INTO flags(key, value) VALUES(?, ?)", (k, v))
-        # 兜底：保证默认分组存在，域名引用的分组不存在时归默认分组
+        # 兜底：默认分组被用户删过（flags.default_group_removed）时不再重建；
+        # 否则保证默认分组存在，域名引用的分组不存在时归默认分组
         import time as _time
-        conn.execute(
-            "INSERT OR IGNORE INTO groups(id, name, switch_mode, created_at) "
-            "VALUES(1, '默认分组', 'load_balance', ?)", (int(_time.time()),))
-        conn.execute(
-            "UPDATE domains SET group_id=1 WHERE group_id IS NOT NULL AND "
-            "group_id NOT IN (SELECT id FROM groups)")
+        if flags.get("default_group_removed") != "1":
+            conn.execute(
+                "INSERT OR IGNORE INTO groups(id, name, switch_mode, created_at) "
+                "VALUES(1, '默认分组', 'load_balance', ?)", (int(_time.time()),))
+            conn.execute(
+                "UPDATE domains SET group_id=1 WHERE group_id IS NOT NULL AND "
+                "group_id NOT IN (SELECT id FROM groups)")
+        else:
+            conn.execute(
+                "UPDATE domains SET group_id=NULL WHERE group_id IS NOT NULL AND "
+                "group_id NOT IN (SELECT id FROM groups)")
         conn.commit()
     except Exception:
         conn.rollback()

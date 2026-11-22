@@ -217,16 +217,25 @@ def test_account_belongs_to_exactly_one_group(tmpdb):
         tmpdb.create_account({"name": "IPX", "group_id": 9999})
 
 
-def test_delete_nonempty_or_default_group_rejected(tmpdb):
+def test_delete_group_with_members_unassigns_and_default_deletable(tmpdb, tmp_path):
+    # 默认分组也可删；有成员的分组可删，成员只解除该分组关系（账户本身不删）
     ga = tmpdb.create_group({"name": "分组A", "switch_mode": "time"})
-    tmpdb.create_account({"name": "IP1", "group_id": ga["id"]})
+    a1 = tmpdb.create_account({"name": "IP1", "group_id": ga["id"]})
+    tmpdb.delete_group(ga["id"])
+    assert tmpdb.get_group(ga["id"]) is None
+    assert tmpdb.get_account(a1["id"])["group_id"] is None
+    assert tmpdb.get_account_group_ids(a1["id"]) == []
+    # 默认分组可删，删后重启（重新 init_db）不再自动重建
+    tmpdb.delete_group(1)
+    assert tmpdb.get_group(1) is None
+    tmpdb.close()
+    tmpdb.init_db(db_path=Path(tmp_path) / "t.db")
+    assert tmpdb.get_group(1) is None
+    # 有域名引用的分组仍拒绝删除
+    gb = tmpdb.create_group({"name": "分组B", "switch_mode": "time"})
+    tmpdb.create_domain({"name": "b.example.xyz", "group_id": gb["id"]})
     with pytest.raises(ValueError, match="请先删除或移走"):
-        tmpdb.delete_group(ga["id"])
-    with pytest.raises(ValueError, match="默认分组不能删除"):
-        tmpdb.delete_group(1)
-    empty = tmpdb.create_group({"name": "空分组", "switch_mode": "time"})
-    tmpdb.delete_group(empty["id"])  # 空分组可删
-    assert tmpdb.get_group(empty["id"]) is None
+        tmpdb.delete_group(gb["id"])
 
 
 def test_default_group_created_and_invalid_mode_rejected(tmpdb):
@@ -385,3 +394,47 @@ def test_api_duplicate_domain_in_group_returns_400(tmpdb):
     # 删分组前必须先处理成员
     r3 = client.delete(f"/api/groups/{g['id']}")
     assert r3.status_code == 400
+
+
+def test_group_interval_start_time_persist_and_normalize(tmpdb):
+    # 新建分组默认开始时间 00:00:00；改成合法值存住，非法值归一化回 00:00:00
+    g = tmpdb.create_group({"name": "分组C", "switch_mode": "time",
+                            "interval_hours": 2})
+    assert g["interval_start_time"] == "00:00:00"
+    row = tmpdb.update_group(g["id"], {"interval_start_time": "08:30:00"})
+    assert row["interval_start_time"] == "08:30:00"
+    row = tmpdb.update_group(g["id"], {"interval_start_time": "8:30"})
+    assert row["interval_start_time"] == "08:30:00"
+    row = tmpdb.update_group(g["id"], {"interval_start_time": "99:99"})
+    assert row["interval_start_time"] == "00:00:00"
+    # 自定义间隔分钟数随分组保存
+    row = tmpdb.update_group(g["id"], {"custom_interval_minutes": 90})
+    assert row["custom_interval_minutes"] == 90
+
+
+def test_account_in_multiple_groups(tmpdb):
+    # 同一台实例可同时选进多个分组；调度时它在每个组的池子里都能被选中
+    ga = tmpdb.create_group({"name": "分组A", "switch_mode": "time"})
+    gb = tmpdb.create_group({"name": "分组B", "switch_mode": "load_balance"})
+    a1 = tmpdb.create_account({"name": "IP1", "group_id": ga["id"]})
+    assert tmpdb.get_account_group_ids(a1["id"]) == [ga["id"]]
+    tmpdb.set_account_groups(a1["id"], [ga["id"], gb["id"]])
+    assert tmpdb.get_account_group_ids(a1["id"]) == [ga["id"], gb["id"]]
+    # update_account 的 group_ids 替换整个成员关系，主分组顺延为第一个
+    row = tmpdb.update_account(a1["id"], {"group_ids": [gb["id"]]})
+    assert row["group_id"] == gb["id"]
+    assert tmpdb.get_account_group_ids(a1["id"]) == [gb["id"]]
+
+
+def test_bind_domain_to_group_swaps(tmpdb):
+    # 域名选择（单选）：绑到分组时，该分组原有域名自动解绑，目标域名从原分组移过来
+    ga = tmpdb.create_group({"name": "分组A", "switch_mode": "time"})
+    gb = tmpdb.create_group({"name": "分组B", "switch_mode": "load_balance"})
+    d1 = tmpdb.create_domain({"name": "a.example.xyz", "group_id": ga["id"]})
+    d2 = tmpdb.create_domain({"name": "b.example.xyz", "group_id": gb["id"]})
+    row = tmpdb.bind_domain_to_group(d2["id"], ga["id"])
+    assert row["group_id"] == ga["id"]
+    assert tmpdb.get_domain(d1["id"])["group_id"] is None  # 原域名被解绑
+    assert tmpdb.get_domain(d2["id"])["group_id"] == ga["id"]
+    with pytest.raises(ValueError, match="不存在"):
+        tmpdb.bind_domain_to_group(d2["id"], 99999)

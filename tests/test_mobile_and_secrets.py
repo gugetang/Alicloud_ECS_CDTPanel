@@ -252,14 +252,18 @@ def test_group_member_shows_masked_ip():
 
 def test_group_time_section_only_interval():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 分组定时轮巡设置区只剩间隔切换周期，固定每日切换时刻/夜间窗口开始/结束三个时间框已取消
+    # 分组定时轮巡设置区只剩间隔切换周期 + 开始时间，固定每日切换时刻/夜间窗口开始/结束三个时间框已取消
     assert 't("固定每日切换时刻")' not in tsx
     assert 't("夜间窗口开始")' not in tsx
     assert 't("夜间窗口结束")' not in tsx
     # 间隔切换周期仍在；说明小字已随“取消小字说明”一并去掉
     assert 't("间隔切换周期")' in tsx
     assert 't("间隔按上次切换锚点每 N 小时切一次。")' not in tsx
-    assert 'type="time"' not in tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 开始时间是分组里唯一的 time 输入（默认 00:00:00，带秒）
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    assert 't("开始时间")' in group_card
+    assert 'type="time" step="1"' in group_card
+    assert group_card.count('type="time"') == 1
 
 
 def test_cards_not_draggable_when_settings_open():
@@ -285,9 +289,9 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     assert 'var(--dot-green)" : undefined' not in tsx
     # 实例状态卡片字体缩小一号：卡片 fontSize 14
     assert '<div className="card" style={{ fontSize: 14 }}><h3>{t("实例状态")}</h3>' in tsx
-    # 本月流量/当前费用小字与实例状态同为 14px
-    assert 'className="muted" style={{ fontSize: 14 }}' in tsx
-    assert 'color: "var(--accent)", fontSize: 14' in tsx
+    # 本月流量“已取得”与当前费用“已查询”小字都用主题色、14px
+    assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
+    assert 'className="muted" style={{ fontSize: 14 }}' not in tsx
     # 服务器卡片统计数值不加粗
     assert ".stat b { font-size:18px; font-weight:400;" in css
     assert ".stat b { font-size:18px; font-weight:600;" not in css
@@ -376,3 +380,75 @@ def test_header_lang_toggle_and_logout():
     # 顺序：语言键、主题键、退出键（退出在最右）
     assert tsx.index("lang-btn") < tsx.index("theme-btn")
     assert tsx.index("theme-btn") < tsx.index('t("退出登录")')
+
+
+def test_traffic_obtained_line_uses_theme_color():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 本月流量卡片的“已取得 X / Y 个账户用量”用主题色（与“已查询 X / Y 个账户账单”一致），
+    # 出现在卡片左下角（左对齐，默认）
+    line = [l for l in tsx.splitlines() if "已取得 {a} / {b} 个账户用量" in l]
+    assert len(line) == 1
+    assert 'color: "var(--accent)"' in line[0]
+    assert 'textAlign' not in line[0]
+    assert 'className="muted"' not in line[0]
+
+
+def test_theme_lines_alignment_dash_left_accounts_left():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 运行概览：主题字体的小字行都出现在卡片左下角（左对齐，默认）——
+    # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”、服务器卡片状态详情
+    assert 'marginTop: 8, color: "var(--accent)"' in tsx
+    assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
+    assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
+    assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
+    dash_detail = [l for l in tsx.splitlines() if "marginTop: 6" in l and "status_detail" in l]
+    assert len(dash_detail) == 1 and 'textAlign' not in dash_detail[0]
+    # 账户管理：状态详情行移到卡片左下角——与操作按钮同一行、居左，
+    # 操作按钮在右；不再是单独一行放在按钮上面
+    assert 'justifyContent: "space-between", alignItems: "center", marginTop: 12' in tsx
+    assert 'marginTop: 4, color: (a.status_dot' not in tsx
+    assert 'justifyContent: "flex-end", marginTop: 12 }}><ActionButtons' not in tsx
+
+
+def test_group_card_custom_interval_and_start_time():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 间隔切换周期有“自定义”选项（值 0），选自定义时显示自定义间隔行（数字+分钟/小时/天）
+    assert '{ value: "0", label: t("自定义") }' in group_card
+    assert 'interval === "0"' in group_card
+    assert 't("自定义间隔")' in group_card
+    assert 'custom_interval_minutes' in group_card
+    # 开始时间在自定义行后面，默认 00:00:00，带秒的 time 输入，失焦自动保存
+    assert group_card.index('t("开始时间")') > group_card.index('t("自定义间隔")')
+    assert 'interval_start_time: startTime || "00:00:00"' in group_card
+    # 切回固定时长时清掉自定义分钟数（否则自定义优先，固定时长不生效）
+    assert "custom_interval_minutes: 0" in group_card
+
+
+def test_group_card_domain_single_select_and_multi_group_members():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # “绑定域名（最多 1 个）”改名“域名选择”，改成列表单选：全部域名列成按键，点一个绑到本组
+    assert 't("绑定域名（最多 1 个）")' not in tsx
+    assert 't("域名选择")' in group_card
+    assert "/api/groups/${g.id}/bind-domain" in group_card
+    # “成员实例（参与 DDNS，可多选）”改名“选择成员实例”；同一台可同时选进多个分组
+    assert 't("成员实例（参与 DDNS，可多选）")' not in tsx
+    assert 't("选择成员实例")' in group_card
+    assert "group_ids" in group_card
+    assert "a.group_ids" in group_card
+
+
+def test_add_domain_dialog():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 添加域名改对话框形式：点“+ 添加域名”弹出对话框，填完确认才添加；
+    # 内联的域名输入 + 分组下拉已取消，改成对话框里的受控输入
+    assert 'id="dom-name"' not in tsx
+    assert 'id="dom-group"' not in tsx
+    assert "showAddDom" in tsx
+    assert 'className="modal-overlay"' in tsx
+    assert 'className="modal"' in tsx
+    # 按钮放右下：触发按钮在卡片右下，对话框里的取消/添加也在右下
+    assert ".modal-overlay" in css and ".modal" in css
+    assert 'justifyContent: "flex-end", marginTop: 12' in tsx

@@ -235,7 +235,9 @@ def test_interval_first_check_sets_anchor_without_switching():
                        [dom(1, current=1, ip="203.0.113.1")], cfg, now,
                        last_time_switch_at=None)
     assert not [a for a in p.actions if a.kind == "dns"]
-    assert p.interval_anchor_at == now
+    # 有开始时间（默认 00:00:00）时锚点取上一个切换时刻 12:00，而不是 now，
+    # 下轮从 12:00 起按 2 小时计时（14:00 切）
+    assert p.interval_anchor_at == dt.datetime(2026, 11, 22, 12, 0, tzinfo=TZ)
 
 
 def test_interval_clock_alignment_6h():
@@ -260,6 +262,87 @@ def test_fixed_time_mode_once_per_day():
     p2 = plan_reconcile([acc(1, 50), acc(2, 45)],
                         [dom(1, current=1, ip="203.0.113.1")], cfg, late,
                         fixed_done_dates={"2026-11-22"})
+    assert not [a for a in p2.actions if a.kind == "dns"]
+
+
+def test_interval_start_time_anchors_to_clock():
+    # 开始时间 00:00:00、间隔 2 小时：切换时刻 = 00:00/02:00/04:00…
+    cfg = Config(time_switch_mode="interval", interval_hours=2,
+                 interval_start_time="00:00:00", night_optimize_enabled=False)
+    accts = [acc(1, 50), acc(2, 45)]
+    d = [dom(1, current=1, ip="203.0.113.1")]
+    # 无锚点且正好 02:00（切换时刻）：到点切
+    now = dt.datetime(2026, 11, 22, 2, 0, tzinfo=TZ)
+    p = plan_reconcile(accts, d, cfg, now, last_time_switch_at=None)
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p.actions)
+    # 无锚点且 02:30（不在切换时刻）：不切，锚点取上一个切换时刻 02:00
+    now2 = dt.datetime(2026, 11, 22, 2, 30, tzinfo=TZ)
+    p2 = plan_reconcile(accts, d, cfg, now2, last_time_switch_at=None)
+    assert not [a for a in p2.actions if a.kind == "dns"]
+    assert p2.interval_anchor_at == dt.datetime(2026, 11, 22, 2, 0, tzinfo=TZ)
+    # 有锚点：按上次切换锚点计时，2 小时未到不切、到了切
+    p3 = plan_reconcile(accts, d, cfg, dt.datetime(2026, 11, 22, 3, 30, tzinfo=TZ),
+                        last_time_switch_at=dt.datetime(2026, 11, 22, 2, 0, tzinfo=TZ))
+    assert not [a for a in p3.actions if a.kind == "dns"]
+    p4 = plan_reconcile(accts, d, cfg, dt.datetime(2026, 11, 22, 4, 0, tzinfo=TZ),
+                        last_time_switch_at=dt.datetime(2026, 11, 22, 2, 0, tzinfo=TZ))
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p4.actions)
+
+
+def test_interval_start_time_custom_minutes():
+    # 开始时间 08:00:00、自定义 90 分钟：切换时刻 = 08:00/09:30/11:00…
+    cfg = Config(time_switch_mode="interval", interval_hours=0,
+                 custom_interval_minutes=90, interval_start_time="08:00:00",
+                 night_optimize_enabled=False)
+    accts = [acc(1, 50), acc(2, 45)]
+    d = [dom(1, current=1, ip="203.0.113.1")]
+    now = dt.datetime(2026, 11, 22, 9, 30, tzinfo=TZ)
+    p = plan_reconcile(accts, d, cfg, now, last_time_switch_at=None)
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p.actions)
+    now2 = dt.datetime(2026, 11, 22, 10, 0, tzinfo=TZ)
+    p2 = plan_reconcile(accts, d, cfg, now2, last_time_switch_at=None)
+    assert not [a for a in p2.actions if a.kind == "dns"]
+    assert p2.interval_anchor_at == dt.datetime(2026, 11, 22, 9, 30, tzinfo=TZ)
+
+
+def test_interval_start_time_invalid_falls_back():
+    # 非法开始时间：当作没设，走旧的整点对齐逻辑（6h=00/06/12/18）
+    cfg = Config(time_switch_mode="interval", interval_hours=6,
+                 interval_start_time="99:99", night_optimize_enabled=False)
+    now = dt.datetime(2026, 11, 22, 6, 0, tzinfo=TZ)
+    p = plan_reconcile([acc(1, 50), acc(2, 45)],
+                       [dom(1, current=1, ip="203.0.113.1")], cfg, now,
+                       last_time_switch_at=None)
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p.actions)
+
+
+def test_group_time_defaults_to_interval_mode():
+    # time 模式的分组未显式设置 time_switch_mode 时默认按 interval 走，
+    # 否则默认 auto 下间隔永不触发；显式设置过的 auto 不受影响
+    from app.engine import GroupView, _group_config
+    g = GroupView(id=1, name="G", switch_mode="time", interval_hours=2)
+    assert _group_config(g, Config()).time_switch_mode == "interval"
+    g2 = GroupView(id=2, name="G2", switch_mode="time", interval_hours=2,
+                   time_switch_mode="auto")
+    assert _group_config(g2, Config()).time_switch_mode == "auto"
+    g3 = GroupView(id=3, name="G3", switch_mode="load_balance")
+    assert _group_config(g3, Config()).time_switch_mode == ""
+
+
+def test_group_interval_start_time_override():
+    # 分组开始时间覆盖全局：全局 00:00:00，分组 08:00:00、间隔 2 小时，
+    # 08:00 到点切、07:00 不切（开始时间是锚点相位：切换时刻=08:00+k*2h）
+    from app.engine import GroupView
+    cfg = Config(night_optimize_enabled=False)
+    g = GroupView(id=1, name="G", switch_mode="time", interval_hours=2,
+                  interval_start_time="08:00:00")
+    accts = [acc(1, 50), acc(2, 45)]
+    d = [dom(1, current=1, ip="203.0.113.1")]
+    p = plan_reconcile(accts, d, cfg, dt.datetime(2026, 11, 22, 8, 0, tzinfo=TZ),
+                       groups=[g], last_switch_by_group={1: None})
+    assert any(a.kind == "dns" and a.reason == "interval_switch" for a in p.actions)
+    p2 = plan_reconcile(accts, d, cfg, dt.datetime(2026, 11, 22, 7, 0, tzinfo=TZ),
+                        groups=[g], last_switch_by_group={1: None})
     assert not [a for a in p2.actions if a.kind == "dns"]
 
 
@@ -349,3 +432,29 @@ def test_stopped_target_without_ip_only_starts():
     dns = [a for a in plan.actions if a.kind == "dns"]
     assert dns == []
     assert any(a.kind == "start" and a.account_id == 2 for a in plan.actions)
+
+
+def test_account_in_multiple_groups_scheduled_in_each():
+    # 同一台实例在两个分组的池子里：两个域名各分给它（用量最低时）
+    from app.engine import GroupView
+    g1 = GroupView(id=1, name="A", switch_mode="time", time_switch_mode="interval",
+                   interval_hours=2)
+    g2 = GroupView(id=2, name="B", switch_mode="load_balance")
+    a1 = acc(1, 10)
+    a1.group_ids = [1, 2]
+    a2 = acc(2, 90)
+    a2.group_ids = [1]
+    a3 = acc(3, 80)
+    a3.group_ids = [2]
+    cfg = Config(night_optimize_enabled=False)
+    d1 = dom(1)
+    d1.group_id = 1
+    d2 = dom(2)
+    d2.group_id = 2
+    plan = plan_reconcile(
+        [a1, a2, a3],
+        [d1, d2], cfg, noon(),
+        groups=[g1, g2],
+        last_switch_by_group={1: noon() - dt.timedelta(hours=2)})
+    assert plan.assignments[1] == 1  # 分组 A：a1 用量最低
+    assert plan.assignments[2] == 1  # 分组 B：a1 也在池里，同样最低

@@ -46,7 +46,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "fixed_switch_time": "",              # 可选，如 "03:00"；为空表示不启用固定时刻切换
     # 按时间切换模式："" = 自动（夜间开启时用夜间，固定时刻非空时也用固定）；
     # off = 关闭一切按时间切换；night_only = 仅夜间；interval = 仅间隔；
-    # fixed_time = 仅固定时刻
+    # fixed_time = 仅固定时刻。注意：分组层 time 模式未显式设置时默认按
+    # interval 走（见 engine._group_config），因为分组界面只剩间隔周期这一项
     "time_switch_mode": "",
     # 间隔切换：1/2/3/4/6/12/24 小时；interval_hours=0 表示用自定义分钟数
     "interval_hours": "6",

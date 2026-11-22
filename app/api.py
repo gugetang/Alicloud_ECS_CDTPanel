@@ -133,13 +133,24 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
                     queue_ranks: dict[int, int] | None = None,
                     serving_ids: set[int] | None = None,
                     settings: dict | None = None,
-                    evicted_ids: set[int] | None = None) -> dict:
+                    evicted_ids: set[int] | None = None,
+                    membership: dict[int, list[int]] | None = None) -> dict:
     """公开账户行（去掉 AK Secret，补算使用率/状态点/排队位次）。
     settings / evicted_ids 不传时现场查；列表接口应一次查好传入，
-    并把 serving_map + queue_ranks 一起传入，避免每账户重复推导。"""
+    并把 serving_map + queue_ranks 一起传入，避免每账户重复推导。
+    membership（多对多成员关系）不传时现场查，列表接口应一次查好传入。"""
     out = dict(a)
     out.pop("access_key_secret_enc", None)
     out["has_secret"] = bool(a.get("access_key_secret_enc"))
+    # 多对多成员关系：一个实例可同时属于多个分组；未填时回退主分组
+    if membership is not None:
+        _gids = membership.get(int(a["id"]), [])
+    else:
+        try:
+            _gids = db.get_account_group_ids(int(a["id"]))
+        except Exception:
+            _gids = []
+    out["group_ids"] = _gids or ([a["group_id"]] if a.get("group_id") is not None else [])
     # 流量显示保留 2 位小数（用量条/卡片/列表/日报都直接用它）。
     if out.get("traffic_used_gb") is not None:
         out["traffic_used_gb"] = round(float(out["traffic_used_gb"]), 2)
@@ -672,8 +683,11 @@ def list_accounts(_: bool = Depends(_admin_required)):
     evicted_ids = db.list_evicted_account_ids()
     raw = db.list_accounts()
     serving_map, queue_ranks = _status_context(raw, settings, evicted_ids)
+    membership: dict[int, list[int]] = {}
+    for row in db.list_account_groups():
+        membership.setdefault(int(row["account_id"]), []).append(int(row["group_id"]))
     return [_public_account(a, serving_map, queue_ranks, settings=settings,
-                            evicted_ids=evicted_ids) for a in raw]
+                            evicted_ids=evicted_ids, membership=membership) for a in raw]
 
 
 @router.post("/accounts")
@@ -800,6 +814,18 @@ def create_domain(body: dict, _: bool = Depends(_admin_required)):
 def update_domain(did: int, body: dict, _: bool = Depends(_admin_required)):
     try:
         row = db.update_domain(did, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not row:
+        raise HTTPException(404, "域名不存在")
+    return row
+
+
+@router.post("/groups/{gid}/bind-domain")
+def bind_domain_to_group(gid: int, body: dict, _: bool = Depends(_admin_required)):
+    # body: {"domain_id": id}：把域名绑到该分组（单选；该分组原有域名自动解绑）
+    try:
+        row = db.bind_domain_to_group(int(body.get("domain_id") or 0), gid)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not row:

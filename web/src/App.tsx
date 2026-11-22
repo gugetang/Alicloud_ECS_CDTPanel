@@ -474,18 +474,31 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
 }) {
   const { lang, t } = useI18n();
   const [gName, setGName] = useState(g.name as string);
-  const [interval, setInterval] = useState(String(g.interval_hours ?? settings.interval_hours ?? 6));
+  // 自定义间隔：后端存的一律是分钟；自定义分钟数 >0 时间隔选“自定义”（值 0）
+  const _gcm = Number(g.custom_interval_minutes ?? 0) || 0;
+  const _gcu = _gcm > 0 && _gcm % 1440 === 0 ? "day" : _gcm > 0 && _gcm % 60 === 0 ? "hour" : "minute";
+  const [interval, setInterval] = useState(_gcm > 0 ? "0" : String(g.interval_hours ?? settings.interval_hours ?? 6));
+  const [custUnit, setCustUnit] = useState(_gcu);
+  const [custVal, setCustVal] = useState(String(_gcu === "day" ? _gcm / 1440 : _gcu === "hour" ? _gcm / 60 : _gcm));
+  const [startTime, setStartTime] = useState((g.interval_start_time as string) || "00:00:00");
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(true);
 
-  const members = accounts.filter((a) => (a.group_id || 1) === g.id);
   const dom = domains.find((d) => (d.group_id || 1) === g.id);
 
   // 分组参数自动保存：改动即存，不用点保存
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
+  // 自定义间隔单位换算：后端存的一律是分钟；分钟 1 / 小时 60 / 天 1440
+  const custMult = (u: string) => (u === "day" ? 1440 : u === "hour" ? 60 : 1);
+  const fmtCust = (v: number) => String(Number.isInteger(v) ? v : Math.round(v * 100) / 100);
+  const changeCustUnit = (u: string) => {
+    const mins = (parseFloat(custVal) || 0) * custMult(custUnit);
+    setCustUnit(u);
+    setCustVal(fmtCust(mins / custMult(u)));
+  };
 
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
@@ -522,8 +535,22 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
                 { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
                 { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
                 { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                { value: "24", label: t("24 小时") },
-              ]} onChange={(v) => { setInterval(v); savePatch({ interval_hours: Number(v) || 6 }); }} /></div>
+                { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
+              ]} onChange={(v) => { setInterval(v); savePatch(v === "0" ? { interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) } : { interval_hours: Number(v) || 6, custom_interval_minutes: 0 }); }} /></div>
+          </div>
+          {interval === "0" && (
+            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}><label className="lbl">{t("自定义间隔")}</label>
+              <div className="row" style={{ alignItems: "center" }}>
+                <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: 120 }} />
+                <Seg value={custUnit} options={[
+                  { value: "minute", label: t("分钟") },
+                  { value: "hour", label: t("小时") },
+                  { value: "day", label: t("天") },
+                ]} onChange={changeCustUnit} />
+              </div></div>)}
+          <div style={{ marginTop: 12 }}>
+            <label className="lbl">{t("开始时间")}</label>
+            <input type="time" step="1" value={startTime} onChange={(e) => setStartTime(e.target.value)} onBlur={() => savePatch({ interval_start_time: startTime || "00:00:00" })} />
           </div>
         </div>
       ) : (
@@ -543,25 +570,36 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       )}
       </>)}
-      <h3 style={{ marginTop: 12 }}>{t("成员实例（参与 DDNS，可多选）")}</h3>
+      <h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>
       <div className="seg">
-        {members.map((a) => {
-          const on = a.ddns_enabled == null ? true : Boolean(a.ddns_enabled);
+        {accounts.map((a) => {
+          // 多对多：同一台实例可同时选进多个分组；选中=属于本分组，参与本组 DDNS
+          const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
+          const on = gids.includes(g.id as number);
+          const next = on ? gids.filter((x) => x !== g.id) : [...gids, g.id as number];
           return (
             <button key={a.id as number} className={(on ? "seg-on " : "") + "member-btn"}
               title={`${a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
-              onClick={() => run(() => put(`/api/accounts/${a.id}`, { ddns_enabled: on ? 0 : 1 }), on ? t("已取消 {name} 参与 DDNS", { name: a.name }) : t("{name} 已参与 DDNS", { name: a.name }))}>
+              onClick={() => run(() => put(`/api/accounts/${a.id}`, { group_ids: next, ...(on ? {} : { ddns_enabled: 1 }) }), on ? t("已从分组移除 {name}", { name: a.name }) : t("{name} 已加入分组", { name: a.name }))}>
               <span className="member-top">{dotEl(a.status_dot, a.status_detail || a.status_label || "")}{a.name as string}</span>
               <span className="member-ip">{maskIp(a.public_ip)}</span>
             </button>
           );
         })}
       </div>
-      <h3 style={{ marginTop: 12 }}>{t("绑定域名（最多 1 个）")}</h3>
-      {dom ? (
-        <div className="row"><b>{dom.name as string}</b>
-          <span>{(dom.current_ip as string) || t("未分配")}</span></div>
-      ) : null}
+      <h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>
+      <div className="seg">
+        {domains.map((d) => {
+          const on = dom && (d.id as number) === (dom.id as number);
+          return (
+            <button key={d.id as number} className={on ? "seg-on " : ""}
+              title={(d.current_ip as string) || t("未分配")}
+              onClick={() => run(() => post(`/api/groups/${g.id}/bind-domain`, { domain_id: d.id }), t("已选择域名 {name}", { name: d.name }))}>
+              {d.name as string}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -850,6 +888,10 @@ export default function App() {
   const [editDomId, setEditDomId] = useState<number | null>(null);
   const [editDomName, setEditDomName] = useState("");
   const [editDomGroup, setEditDomGroup] = useState("");
+  // 添加域名对话框（点“+ 添加域名”弹出，填完确认才添加）
+  const [showAddDom, setShowAddDom] = useState(false);
+  const [addDomName, setAddDomName] = useState("");
+  const [addDomGroup, setAddDomGroup] = useState("");
   const [acting, setActing] = useState<Record<number, string>>({});
 
   // 消息提示 5 秒后自动隐藏；新消息进来重新计时。
@@ -1271,7 +1313,7 @@ export default function App() {
             </div>
             <div className="card"><h3>{t("本月流量")}</h3>
               <div className="big">{fmtGb(status?.total_used_gb ?? 0)} GiB / {fmtNum(totalQuota)} GiB{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</div>
-              <div className="muted" style={{ fontSize: 14 }}>{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
+              <div style={{ color: "var(--accent)", fontSize: 14 }}>{t("已取得 {a} / {b} 个账户用量", { a: status?.accounts_known ?? 0, b: status?.accounts_total ?? 0 })}</div>
             </div>
             <div className="card"><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
               <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
@@ -1345,8 +1387,10 @@ export default function App() {
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
-              {a.status_detail ? <div className="muted" style={{ marginTop: 4, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
-              <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><ActionButtons a={a} /></div>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+                {a.status_detail ? <div className="muted" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span />}
+                <ActionButtons a={a} />
+              </div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
           ))}
@@ -1409,23 +1453,40 @@ export default function App() {
                   </div>
                 )}</td></tr>
               ); })}</tbody></table>
-          <div className="row">
-            <input id="dom-name" placeholder={t("域名，如 www.example.xyz")} style={{ flex: 1 }} />
-            <select id="dom-group" defaultValue="">
-              <option value="">{t("请选择分组")}</option>
-              {groups.map((g) => {
-                const bound = domains.some((d) => (d.group_id || 1) === g.id);
-                return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
-              })}
-            </select>
-            <button className="btn" onClick={() => {
-              const name = (document.getElementById("dom-name") as HTMLInputElement).value.trim();
-              if (!name) { setMsg(t("请填写域名")); return; }
-              const gv = (document.getElementById("dom-group") as HTMLSelectElement).value;
-              if (!gv) { setMsg(t("请选择分组")); return; }
-              run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length, group_id: Number(gv) }), t("域名已添加"));
-            }}>{t("+ 添加域名")}</button>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+            <button className="btn" onClick={() => { setAddDomName(""); setAddDomGroup(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
           </div>
+          {showAddDom && (
+            <div className="modal-overlay" onClick={() => setShowAddDom(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <h3>{t("+ 添加域名")}</h3>
+                <div style={{ marginTop: 12 }}>
+                  <label className="lbl">{t("域名")}</label>
+                  <input placeholder={t("域名，如 www.example.xyz")} value={addDomName} onChange={(e) => setAddDomName(e.target.value)} style={{ width: "100%" }} />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <label className="lbl">{t("分组")}</label>
+                  <select value={addDomGroup} onChange={(e) => setAddDomGroup(e.target.value)} style={{ width: "100%" }}>
+                    <option value="">{t("请选择分组")}</option>
+                    {groups.map((g) => {
+                      const bound = domains.some((d) => (d.group_id || 1) === g.id);
+                      return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
+                    })}
+                  </select>
+                </div>
+                <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+                  <button className="btn ghost" onClick={() => setShowAddDom(false)}>{t("取消")}</button>
+                  <button className="btn" onClick={() => {
+                    const name = addDomName.trim();
+                    if (!name) { setMsg(t("请填写域名")); return; }
+                    if (!addDomGroup) { setMsg(t("请选择分组")); return; }
+                    setShowAddDom(false);
+                    run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length, group_id: Number(addDomGroup) }), t("域名已添加"));
+                  }}>{t("添加")}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
@@ -1450,7 +1511,7 @@ export default function App() {
         <>
           <div className="notice" style={{ marginBottom: 12 }}>{t("一个分组只选一种切换模式：定时轮巡或负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。")}</div>
           {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}`}
+            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}`}
               g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
               dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
           ))}

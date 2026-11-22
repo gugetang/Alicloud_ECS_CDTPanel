@@ -71,6 +71,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
                 CHECK (switch_mode IN ('time', 'load_balance')),
               interval_hours INTEGER,
               custom_interval_minutes INTEGER,
+              interval_start_time TEXT,
               fixed_switch_time TEXT,
               night_window_start TEXT,
               night_window_end TEXT,
@@ -81,6 +82,11 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               time_switch_mode TEXT,
               priority INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS account_groups(
+              account_id INTEGER NOT NULL,
+              group_id INTEGER NOT NULL,
+              PRIMARY KEY(account_id, group_id)
             );
             CREATE TABLE IF NOT EXISTS accounts(
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,6 +192,9 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN recovery_action TEXT",
             "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE groups ADD COLUMN interval_start_time TEXT",
+            "CREATE TABLE IF NOT EXISTS account_groups(account_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY(account_id, group_id))",
+            "INSERT OR IGNORE INTO account_groups(account_id, group_id) SELECT id, group_id FROM accounts WHERE group_id IS NOT NULL",
         ):
             try:
                 conn.execute(ddl)
@@ -195,17 +204,26 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_domains_group_id_unique "
             "ON domains(group_id) WHERE group_id IS NOT NULL")
-        # 默认分组（id=1，load_balance）：旧库无分组数据时自动建立
-        conn.execute(
-            "INSERT OR IGNORE INTO groups(id, name, switch_mode, created_at) "
-            "VALUES(1, '默认分组', 'load_balance', ?)", (int(time.time()),))
+        # 默认分组（id=1，load_balance）：只有从未删过它、且库里一个分组都没有
+        # 时才建立；用户删掉默认分组后不再自动重建（flags.default_group_removed
+        # 记住这个选择，见 delete_group）。
+        _removed = conn.execute(
+            "SELECT value FROM flags WHERE key='default_group_removed'").fetchone()
+        _n_groups = conn.execute("SELECT COUNT(*) c FROM groups").fetchone()["c"]
+        if not _removed and _n_groups == 0:
+            conn.execute(
+                "INSERT OR IGNORE INTO groups(id, name, switch_mode, created_at) "
+                "VALUES(1, '默认分组', 'load_balance', ?)", (int(time.time()),))
         # 旧数据迁移：group_id 为 NULL 的域名归默认分组；若多于 1 个，
-        # 第 1 个留默认分组，其余每个自动新建一个分组（保证 1 分组=1 域名）
+        # 第 1 个留默认分组，其余每个自动新建一个分组（保证 1 分组=1 域名）；
+        # 默认分组已被删时，第 1 个也新建一个分组，不指向不存在的 id=1。
         null_doms = conn.execute(
             "SELECT id FROM domains WHERE group_id IS NULL ORDER BY id"
         ).fetchall()
+        _has_default = conn.execute(
+            "SELECT 1 FROM groups WHERE id=1").fetchone() is not None
         for i, row in enumerate(null_doms):
-            if i == 0:
+            if i == 0 and _has_default:
                 conn.execute("UPDATE domains SET group_id=1 WHERE id=?", (row["id"],))
             else:
                 cur = conn.execute(
@@ -400,12 +418,16 @@ def create_group(data: dict) -> dict:
     conn = connect()
     now = int(time.time())
     cols = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
+            "interval_start_time",
             "fixed_switch_time", "night_window_start", "night_window_end",
             "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
             "switch_diff_pct", "time_switch_mode", "priority"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
     vals[1] = _check_switch_mode(data.get("switch_mode"))
+    # 开始时间归一化（非法回退 00:00:00）
+    if "interval_start_time" in cols:
+        vals[cols.index("interval_start_time")] = _norm_start_time(data.get("interval_start_time"))
     # 新分组排最后（旧库已有分组 priority 全 0 时 max+1 也成立）
     _mx = conn.execute("SELECT COALESCE(MAX(priority), -1) FROM groups").fetchone()
     vals[-1] = (_mx[0] if _mx else -1) + 1
@@ -417,15 +439,37 @@ def create_group(data: dict) -> dict:
         return get_group(cur.lastrowid)
 
 
+def _norm_start_time(value) -> str:
+    """开始时间归一化：HH:MM:SS（也接受 HH:MM），非法回退 00:00:00。"""
+    v = (value or "00:00:00").strip() if isinstance(value, str) else "00:00:00"
+    parts = v.split(":")
+    try:
+        if len(parts) == 2:
+            h, m, s = int(parts[0]), int(parts[1]), 0
+        elif len(parts) == 3:
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        else:
+            return "00:00:00"
+    except ValueError:
+        return "00:00:00"
+    if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+        return "00:00:00"
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+
 def update_group(gid: int, data: dict) -> dict | None:
     conn = connect()
     allowed = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
+               "interval_start_time",
                "fixed_switch_time", "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
                "switch_diff_pct", "time_switch_mode", "priority"]
     sets = [(k, data[k]) for k in allowed if k in data]
     if any(k == "switch_mode" for k, _ in sets):
         sets = [(k, _check_switch_mode(v) if k == "switch_mode" else v)
+                for k, v in sets]
+    if any(k == "interval_start_time" for k, _ in sets):
+        sets = [(k, _norm_start_time(v) if k == "interval_start_time" else v)
                 for k, v in sets]
     if not sets:
         return get_group(gid)
@@ -439,19 +483,33 @@ def update_group(gid: int, data: dict) -> dict | None:
 
 
 def delete_group(gid: int) -> None:
-    """删分组：默认分组禁止删；还有账户/域名引用时拒绝（先删/移走成员）。"""
-    if int(gid) == 1:
-        raise ValueError("默认分组不能删除")
+    """删分组：默认分组也可删；还有域名引用时拒绝（先删/移走域名）。
+    成员账户只解除该分组关系（主分组顺延到其余成员分组，没有则置空），
+    账户本身不删。删默认分组后记 flags.default_group_removed，
+    重启不再自动重建它。"""
+    gid = int(gid)
     conn = connect()
-    n_acc = conn.execute(
-        "SELECT COUNT(*) c FROM accounts WHERE group_id=?", (gid,)).fetchone()["c"]
     n_dom = conn.execute(
         "SELECT COUNT(*) c FROM domains WHERE group_id=?", (gid,)).fetchone()["c"]
-    if n_acc or n_dom:
+    if n_dom:
         raise ValueError(
-            f"该分组下还有 {n_acc} 个账户、{n_dom} 个域名，"
-            "请先删除或移走其账户/域名再删除分组")
+            f"该分组下还有 {n_dom} 个域名，"
+            "请先删除或移走其域名再删除分组")
     with _lock:
+        if gid == 1:
+            conn.execute(
+                "INSERT INTO flags(key, value) VALUES('default_group_removed', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value='1'")
+        members = [r["account_id"] for r in conn.execute(
+            "SELECT account_id FROM account_groups WHERE group_id=?",
+            (gid,)).fetchall()]
+        conn.execute("DELETE FROM account_groups WHERE group_id=?", (gid,))
+        for aid in members:
+            rest = [r["group_id"] for r in conn.execute(
+                "SELECT group_id FROM account_groups WHERE account_id=? "
+                "ORDER BY group_id", (aid,)).fetchall()]
+            conn.execute("UPDATE accounts SET group_id=? WHERE id=?",
+                         (rest[0] if rest else None, aid))
         conn.execute("DELETE FROM groups WHERE id=?", (gid,))
         conn.commit()
 
@@ -482,6 +540,38 @@ def list_accounts() -> list[dict]:
 def get_account(aid: int) -> dict | None:
     conn = connect()
     return _row(conn.execute("SELECT * FROM accounts WHERE id=?", (aid,)).fetchone())
+
+
+def get_account_group_ids(aid: int) -> list[int]:
+    """账户所属的分组（多对多）：一个实例可同时属于多个分组。"""
+    conn = connect()
+    return [r["group_id"] for r in conn.execute(
+        "SELECT group_id FROM account_groups WHERE account_id=? ORDER BY group_id",
+        (aid,)).fetchall()]
+
+
+def list_account_groups() -> list[dict]:
+    conn = connect()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM account_groups ORDER BY account_id, group_id").fetchall()]
+
+
+def set_account_groups(aid: int, gids: list[int]) -> None:
+    """替换账户的分组关系（空列表=不属于任何分组）；主分组顺延为列表第一个，
+    无成员时主分组置空。accounts.group_id 仍保留作主分组/回退。"""
+    gids = [int(x) for x in dict.fromkeys(gids or [])]
+    for gid in gids:
+        _check_group_exists(gid)
+    conn = connect()
+    with _lock:
+        conn.execute("DELETE FROM account_groups WHERE account_id=?", (aid,))
+        for gid in gids:
+            conn.execute(
+                "INSERT INTO account_groups(account_id, group_id) VALUES(?, ?)",
+                (aid, gid))
+        conn.execute("UPDATE accounts SET group_id=? WHERE id=?",
+                     (gids[0] if gids else None, aid))
+        conn.commit()
 
 
 def _check_account_name(name, group_id, exclude_id: int | None = None) -> str:
@@ -582,6 +672,13 @@ def create_account(data: dict) -> dict:
             f"INSERT INTO accounts({','.join(cols)}, created_at) "
             f"VALUES({','.join('?' * len(cols))}, ?)", (*vals, now))
         conn.commit()
+        # 新建账户归属其主分组（多对多关系的初始成员）
+        _gid = data.get("group_id")
+        if _gid is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO account_groups(account_id, group_id) "
+                "VALUES(?, ?)", (cur.lastrowid, int(_gid)))
+            conn.commit()
         return get_account(cur.lastrowid)
 
 
@@ -608,14 +705,24 @@ def update_account(aid: int, data: dict) -> dict | None:
                "billing_updated_at",
                "last_seen_at", "ddns_enabled"]
     sets = [(k, data[k]) for k in allowed if k in data]
-    if not sets:
+    if not sets and "group_ids" not in data:
         return get_account(aid)
     with _lock:
-        conn.execute(
-            "UPDATE accounts SET " + ", ".join(f"{k}=?" for k, _ in sets) + " WHERE id=?",
-            (*[v for _, v in sets], aid),
-        )
-        conn.commit()
+        if sets:
+            conn.execute(
+                "UPDATE accounts SET " + ", ".join(f"{k}=?" for k, _ in sets) + " WHERE id=?",
+                (*[v for _, v in sets], aid),
+            )
+            conn.commit()
+        # 单改主分组时也把它加进成员关系（不踢掉已有的其他分组）
+        if "group_id" in data and data.get("group_id") is not None:
+            conn.execute(
+                "INSERT OR IGNORE INTO account_groups(account_id, group_id) "
+                "VALUES(?, ?)", (aid, int(data["group_id"])))
+            conn.commit()
+    # group_ids：替换整个成员关系（多对多），主分组顺延为列表第一个
+    if "group_ids" in data:
+        set_account_groups(aid, [int(x) for x in (data.get("group_ids") or [])])
     return get_account(aid)
 
 
@@ -680,6 +787,20 @@ def update_domain(did: int, data: dict) -> dict | None:
             conn.commit()
         except sqlite3.IntegrityError:
             raise ValueError("该分组已配置域名，一个分组只能配置一个域名")
+    return get_domain(did)
+
+
+def bind_domain_to_group(did: int, gid: int) -> dict | None:
+    """把域名绑到分组（1 分组=1 域名）：一个事务里先把该分组现有的域名解绑，
+    再把目标域名绑过来；目标域名原来在别的分组也一并移过来。"""
+    _check_group_exists(gid)
+    conn = connect()
+    with _lock:
+        conn.execute(
+            "UPDATE domains SET group_id=NULL WHERE group_id=? AND id<>?",
+            (gid, did))
+        conn.execute("UPDATE domains SET group_id=? WHERE id=?", (gid, did))
+        conn.commit()
     return get_domain(did)
 
 

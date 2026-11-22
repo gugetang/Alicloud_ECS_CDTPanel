@@ -59,6 +59,7 @@ class GroupView:
     # 以下全部可空 = 继承全局设置
     interval_hours: int | None = None
     custom_interval_minutes: int | None = None
+    interval_start_time: str | None = None  # "HH:MM:SS"，空=继承全局（默认 00:00:00）
     fixed_switch_time: str | None = None
     night_window_start: str | None = None
     night_window_end: str | None = None
@@ -88,6 +89,8 @@ class AccountView:
     status: str = ""                       # Running / Stopped / "" 未知
     public_ip: str = ""
     group_id: int | None = None            # None=默认分组
+    # 多对多成员关系：一个实例可同时属于多个分组；空列表时回退 group_id
+    group_ids: list[int] = field(default_factory=list)
     # 每日定时开关机（未启用=始终在窗口内；启用时仅 [开机, 关机) 内可分配）
     daily_schedule_enabled: bool = False
     daily_on_time: str = "08:00"
@@ -139,6 +142,7 @@ class Config:
     time_switch_mode: str = ""
     interval_hours: int = 6               # 1/2/3/4/6/12/24；0=用自定义分钟数
     custom_interval_minutes: int = 0
+    interval_start_time: str = "00:00:00"  # 间隔切换的开始时间（锚点）：切换时刻=开始时间+k*间隔
     fallback_address: str = "fallback.example.xyz"
 
     @classmethod
@@ -170,6 +174,7 @@ class Config:
             time_switch_mode=(s.get("time_switch_mode") or "").strip(),
             interval_hours=int(f("interval_hours", 6)),
             custom_interval_minutes=int(f("custom_interval_minutes", 0)),
+            interval_start_time=(s.get("interval_start_time") or "00:00:00").strip() or "00:00:00",
             fallback_address=(s.get("fallback_address") or "fallback.example.xyz").strip(),
         )
 
@@ -252,7 +257,10 @@ def _eff_diff_gb(a: AccountView, cfg: Config) -> float:
 def _group_config(group: GroupView | None, cfg: Config) -> Config:
     """分组的有效配置：分组字段非空时覆盖全局，否则继承全局。
     分组 switch_mode 只取 time/load_balance；group 为 None 时沿用全局
-    switch_mode（legacy 路径，both 仍合法）。"""
+    switch_mode（legacy 路径，both 仍合法）。time 模式的分组未显式设置
+    time_switch_mode 时默认按 interval 走——分组界面只剩间隔周期这一项，
+    间隔就是分组定时轮巡的机制；否则默认 auto 下间隔永不触发，间隔周期
+    形同虚设。显式设置过的（auto/night_only/fixed_time/off）不受影响。"""
     if group is None:
         return cfg
     import dataclasses
@@ -261,6 +269,8 @@ def _group_config(group: GroupView | None, cfg: Config) -> Config:
         g.interval_hours = group.interval_hours
     if group.custom_interval_minutes is not None:
         g.custom_interval_minutes = group.custom_interval_minutes
+    if group.interval_start_time is not None:
+        g.interval_start_time = group.interval_start_time
     if group.fixed_switch_time is not None:
         g.fixed_switch_time = group.fixed_switch_time
     if group.night_window_start is not None:
@@ -277,6 +287,8 @@ def _group_config(group: GroupView | None, cfg: Config) -> Config:
         g.switch_diff_pct = group.switch_diff_pct
     if group.time_switch_mode is not None:
         g.time_switch_mode = group.time_switch_mode
+    elif group.switch_mode == "time":
+        g.time_switch_mode = "interval"
     return g
 
 
@@ -289,12 +301,59 @@ def effective_interval_minutes(cfg: Config) -> int:
     return 360  # 兜底 6 小时
 
 
+def _parse_hhmmss(value: str | None) -> tuple[int, int, int] | None:
+    """解析开始时间 HH:MM:SS（也接受 HH:MM），非法返回 None。"""
+    if not value:
+        return None
+    parts = str(value).strip().split(":")
+    try:
+        if len(parts) == 2:
+            h, m, s = int(parts[0]), int(parts[1]), 0
+        elif len(parts) == 3:
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+        else:
+            return None
+    except ValueError:
+        return None
+    if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+        return None
+    return h, m, s
+
+
+def _latest_scheduled_moment(now: dt.datetime, start: tuple[int, int, int],
+                             minutes: int) -> dt.datetime:
+    """开始时间 + k*间隔，<= now 的最近一个切换时刻。"""
+    h, m, s = start
+    base = now.replace(hour=h, minute=m, second=s, microsecond=0)
+    if base > now:
+        base -= dt.timedelta(days=1)
+    step = dt.timedelta(minutes=minutes)
+    while base + step <= now:
+        base += step
+    return base
+
+
+def interval_anchor_for(now: dt.datetime, cfg: Config) -> dt.datetime | None:
+    """首次间隔检查时应建立的锚点：有开始时间时取上一个切换时刻，
+    否则 None（调用方用 now 作锚点）。"""
+    start = _parse_hhmmss(cfg.interval_start_time)
+    if start is None:
+        return None
+    return _latest_scheduled_moment(now, start, effective_interval_minutes(cfg))
+
+
 def interval_due(now: dt.datetime, anchor: dt.datetime | None, cfg: Config) -> bool:
-    """间隔是否到点。锚点不存在时：若处于整点对齐边界则到点（1h=每小时整点，
-    6h=00/06/12/18，24h=每天 00:00），否则不到点、由调用方把 now 存为锚点。
-    锚点存在时：now - anchor >= 间隔即到点。"""
+    """间隔是否到点。锚点存在时：now - anchor >= 间隔即到点（按上次切换锚点计时）。
+    锚点不存在时：有开始时间则看是否落在开始时间+k*间隔的切换时刻附近
+    （1 分钟内），否则不到点、由调用方把上一个切换时刻存为锚点；无开始时间
+    时沿用旧逻辑——自定义分钟无整点对齐概念，固定小时看整点对齐
+    （1h=每小时整点，6h=00/06/12/18，24h=每天 00:00）。"""
     minutes = effective_interval_minutes(cfg)
     if anchor is None:
+        start = _parse_hhmmss(cfg.interval_start_time)
+        if start is not None:
+            s = _latest_scheduled_moment(now, start, minutes)
+            return (now - s) < dt.timedelta(minutes=1)
         if cfg.custom_interval_minutes and cfg.custom_interval_minutes > 0:
             return False  # 自定义分钟无整点对齐概念，等锚点建立后再算
         hours = cfg.interval_hours or 6
@@ -407,6 +466,15 @@ def _maybe_stop_evicted(plan: Plan, current: AccountView, cfg: Config,
              f"{current.name} 已执行{'节省停机' if excl == 'stop_charging' else '停机'}"))
 
 
+def _account_in_group(a: AccountView, gid: int) -> bool:
+    """账户是否属于该分组：多对多关系 group_ids 为准；未填时回退主分组
+    group_id（None=默认分组 1）。"""
+    ids = getattr(a, "group_ids", None)
+    if ids:
+        return gid in ids
+    return (a.group_id or 1) == gid
+
+
 def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                  cfg: Config, now: dt.datetime,
                  night_done_dates: set[str] | None = None,
@@ -462,7 +530,9 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
         if interval_due(now, last_time_switch_at, cfg):
             interval_due_flag = True
         elif last_time_switch_at is None:
-            plan.interval_anchor_at = now  # 首次检查：建锚点，本轮不切
+            # 首次检查：建锚点，本轮不切；有开始时间时锚点=上一个切换时刻，
+            # 下轮从这里开始按开始时间+k*间隔计时，不漂移
+            plan.interval_anchor_at = interval_anchor_for(now, cfg) or now
 
     if grouped:
         # 1 分组=1 域名：只取优先级最高的 1 个启用域名，分给池内最低 IP。
@@ -686,7 +756,7 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
     for gid in ordered_gids:
         group = by_gid[gid]
         gcfg = _group_config(group, cfg)
-        gaccs = [a for a in accounts if (a.group_id or 1) == gid]
+        gaccs = [a for a in accounts if _account_in_group(a, gid)]
         gdoms = [d for d in domains if (d.group_id or 1) == gid]
         if not gaccs and not gdoms:
             continue

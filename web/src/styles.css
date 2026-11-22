@@ -162,6 +162,10 @@ label.lbl { font-weight:700; color:var(--text); }
 html[data-theme="light"] .notice { background:rgba(219,234,254,0.7); border-color:rgba(37,99,235,0.3); color:#1e40af; }
 /* 自动保存后的提示框：右下角悬浮 toast，字体用主题色；5 秒后自动隐藏（App.tsx 的定时器）。 */
 .toast { position:fixed; right:16px; bottom:16px; z-index:100; max-width:min(420px, calc(100vw - 32px)); background:var(--card); border:1px solid var(--accent); border-radius:10px; padding:12px 16px; color:var(--accent-text); font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,0.15); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+/* 对话框：全屏遮罩 + 居中磨砂卡片，点遮罩关闭 */
+.modal-overlay { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+.modal { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; width:min(420px, 100%); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); box-shadow:0 8px 32px rgba(0,0,0,0.25); }
+.modal h3 { margin:0; }
 pre { background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:12px; overflow:auto; font-size:12px; max-height:320px; }
 .check { display:flex; gap:8px; align-items:center; margin:8px 0; }
 .check input { width:auto; }

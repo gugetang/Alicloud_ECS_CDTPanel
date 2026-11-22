@@ -56,6 +56,13 @@ def _month_key(now: dt.datetime) -> str:
 
 
 def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
+    # 多对多成员关系一次取齐（group_ids 为准；未填时引擎回退主分组 group_id）
+    try:
+        _membership: dict[int, list[int]] = {}
+        for row in db.list_account_groups():
+            _membership.setdefault(int(row["account_id"]), []).append(int(row["group_id"]))
+    except Exception:
+        _membership = {}
     views = []
     for a in accounts:
         quota = a.get("quota_gb") if a.get("quota_gb") is not None else float(settings.get("quota_gb", 200))
@@ -71,6 +78,7 @@ def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
             status=a.get("instance_status") or "",
             public_ip=a.get("public_ip") or "",
             group_id=a.get("group_id"),
+            group_ids=_membership.get(int(a["id"]), []),
             daily_schedule_enabled=bool(a.get("daily_schedule_enabled")),
             daily_on_time=a.get("daily_on_time") or "08:00",
             daily_off_time=a.get("daily_off_time") or "20:00",
@@ -96,6 +104,7 @@ def _to_group_views(groups: list[dict]) -> list[engine.GroupView]:
         id=g["id"], name=g["name"], switch_mode=g.get("switch_mode") or "load_balance",
         interval_hours=g.get("interval_hours"),
         custom_interval_minutes=g.get("custom_interval_minutes"),
+        interval_start_time=g.get("interval_start_time"),
         fixed_switch_time=g.get("fixed_switch_time"),
         night_window_start=g.get("night_window_start"),
         night_window_end=g.get("night_window_end"),
