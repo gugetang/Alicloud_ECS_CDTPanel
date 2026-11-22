@@ -10,9 +10,11 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 import time
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger("cdt.aliyun")
 
@@ -110,13 +112,20 @@ class AliyunClient:
         return AcsClient(self.account["access_key_id"], self.secret,
                          region or self.region)
 
-    def _common(self, domain: str, version: str, action: str, region: str):
+    def _common(self, domain: str, version: str, action: str, region: str,
+                params: dict | None = None):
+        """CommonRequest 调用（POST + JSON）。params 有值时逐个加为查询参数。
+        注意：部分接口有必填参数，不传直接 400（DescribeInstanceBill 不传
+        BillingCycle 就报 MissingBillingCycle，费用永远读不到），
+        调用方必须传齐。"""
         req = CommonRequest()
         req.set_domain(domain)
         req.set_version(version)
         req.set_action_name(action)
         req.set_method("POST")
         req.set_accept_format("json")
+        for k, v in (params or {}).items():
+            req.add_query_param(k, v)
         return self._client(region).do_action_with_exception(req)
 
     def describe_instance(self) -> dict:
@@ -246,12 +255,17 @@ class AliyunClient:
         余额单独调 QueryAccountBalance，查不到时 balance=None（财报显示 —，不造假）。"""
         import json
         try:
+            # DescribeInstanceBill 要求必填 BillingCycle（YYYY-MM，不传
+            # 直接 400 MissingBillingCycle，费用永远读不到——旧 bug，
+            # 2026-11-22 线上日志证实）。按面板时区（Asia/Shanghai）取当月。
+            cycle = dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
             raw = self._common(BSS_DOMAIN, BSS_VERSION,
-                               "DescribeInstanceBill", CDT_REGION)
+                               "DescribeInstanceBill", CDT_REGION,
+                               {"BillingCycle": cycle})
             data = json.loads(raw)
             items = (data.get("Data") or {}).get("Items", {}).get("Item") or []
             cost = sum(float(i.get("PretaxAmount", 0) or 0) for i in items)
-            cycle = (data.get("Data") or {}).get("BillingCycle", "")
+            cycle = (data.get("Data") or {}).get("BillingCycle", "") or cycle
             currency = "CNY" if (self.account.get("site") == "cn") else "USD"
             result: dict = {"cost": round(cost, 6), "currency": currency,
                             "cycle": cycle, "balance": None,

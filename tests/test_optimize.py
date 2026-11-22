@@ -118,6 +118,35 @@ def test_refresh_cloud_status_parallel(tmpdb, monkeypatch):
     assert len(out) == 3
 
 
+def test_get_billing_sends_billing_cycle(monkeypatch):
+    """DescribeInstanceBill 必须带 BillingCycle（YYYY-MM），否则 400
+    MissingBillingCycle，费用永远读不到（2026-11-22 线上日志证实）。"""
+    import json
+    from app.aliyun import AliyunClient
+    c = object.__new__(AliyunClient)
+    c.account = {"access_key_id": "LTAI5t-demo-0001", "region": "cn-hongkong",
+                 "site": "global", "instance_id": "i-demo000000000000001"}
+    c.secret = "fake-secret"
+    c.region = "cn-hongkong"
+    seen = {}
+
+    def fake_common(domain, version, action, region, params=None):
+        seen.update({"domain": domain, "action": action, "params": params})
+        if action == "DescribeInstanceBill":
+            return json.dumps({"Data": {"BillingCycle": "2026-11", "Items": {"Item": [
+                {"PretaxAmount": 1.5}, {"PretaxAmount": 2.25}]}}})
+        return json.dumps({"Data": {"AvailableAmount": 10.0, "Currency": "USD"}})
+
+    monkeypatch.setattr(c, "_common", fake_common)
+    out = c.get_billing()
+    assert seen["action"] == "DescribeInstanceBill"
+    assert seen["params"] and seen["params"].get("BillingCycle")
+    assert len(seen["params"]["BillingCycle"]) == 7  # YYYY-MM
+    assert out["cost"] == 3.75
+    assert out["currency"] == "USD"
+    assert out["balance"] == 10.0
+
+
 def test_regions_post_not_get(tmpdb):
     from fastapi.testclient import TestClient
     from app.main import create_app
