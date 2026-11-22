@@ -123,10 +123,13 @@ def test_frontend_site_and_refresh_and_footer():
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i18n = (root / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    # 实例表单：API 刷新时间（跟随全局 / 固定 / 自定义），保存进 api_refresh_minutes
+    # 实例表单：API 刷新时间（跟随全局 / 固定 / 自定义），保存进 api_refresh_minutes；
+    # 位置在阈值恢复下面（表单最底部），不在月度流量额度旁边
     assert 't("API 刷新时间")' in tsx
     assert '{ value: "follow", label: t("跟随全局") }' in tsx
     assert "api_refresh_minutes: refresh ===" in tsx
+    assert tsx.index('t("阈值恢复")') < tsx.index('t("API 刷新时间")')
+    assert tsx.index('t("API 刷新时间")') < tsx.index('{formMsg &&')
     # 其它设置：站点信息卡片（logo 上传/删除 + 简介）
     assert "<SiteInfoCard" in tsx
     assert 't("站点信息")' in tsx

@@ -336,19 +336,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
           </div></div>
         <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
-        <div onBlur={saveAuto}><label>{t("API 刷新时间")}</label>
-          <Seg value={refresh} options={[
-            { value: "follow", label: t("跟随全局") },
-            { value: "5", label: "5" },
-            { value: "10", label: "10" },
-            { value: "15", label: "15" },
-            { value: "30", label: "30" },
-            { value: "60", label: "60" },
-            { value: "custom", label: t("自定义") },
-          ]} onChange={setRefresh} />
-          {refresh === "custom" && (
-            <input type="number" min={1} placeholder={t("自定义分钟数")} value={refreshCustom} onChange={(e) => setRefreshCustom(e.target.value)} onBlur={saveAuto} style={{ marginTop: 6 }} />)}
-        </div>
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="check" onBlur={saveAuto}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
@@ -383,6 +370,20 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "start", label: t("恢复时拉起") },
           { value: "keep_stopped", label: t("恢复入池但保持停机") },
         ]} onChange={setRecovery} />
+      </div>
+      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
+        <label className="lbl">{t("API 刷新时间")}</label>
+        <Seg value={refresh} options={[
+          { value: "follow", label: t("跟随全局") },
+          { value: "5", label: "5" },
+          { value: "10", label: "10" },
+          { value: "15", label: "15" },
+          { value: "30", label: "30" },
+          { value: "60", label: "60" },
+          { value: "custom", label: t("自定义") },
+        ]} onChange={setRefresh} />
+        {refresh === "custom" && (
+          <input type="number" min={1} placeholder={t("自定义分钟数")} value={refreshCustom} onChange={(e) => setRefreshCustom(e.target.value)} onBlur={saveAuto} style={{ marginTop: 6 }} />)}
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
