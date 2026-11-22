@@ -33,6 +33,9 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | UNINSTALL=1 bash
 ```
 
+> 注意：如需换仓库，可用 `REPO_URL=... bash` 指定仓库地址。
+> 本机无 Docker，本仓库只做了静态检查（`bash -n`、Dockerfile/compose 人工核对），
+> 未在本机实测 Docker 部署。
 
 ### Docker Compose 部署
 
@@ -48,7 +51,7 @@ docker compose down
 # 改端口：编辑 docker-compose.yml 的 ports 一行，如 - "8888:1999"
 ```
 
-完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版）：
+完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
 
 ```yaml
 services:
@@ -80,6 +83,23 @@ push 到 main 自动构建并推送到 GHCR）。端口固定 `1999:1999`，
 > 不是 `ghcr.io/gugetang/Alicloud_ECS_CDTPanel.git`。
 > 首次使用前镜像必须已发布（push 到 main 后 Actions 自动发布）；本地构建方式已移除。
 
+### 常见问题
+
+**容器启动报 `sqlite3.OperationalError: unable to open database file`**
+
+容器里的服务以 UID 10001 运行，但宿主机上的数据卷目录 `/opt/docker/cdt-alicloud_ecs_cdtpanel`
+是 Docker 自动创建的，属主是 root，容器写不进去。
+
+新版镜像已自动修复：容器入口脚本（`entrypoint.sh`）启动时先以 root 把 `/data`
+改属主为 10001，再切到 10001 用户运行服务，`docker compose pull && docker compose up -d`
+直接拉取启动，不用手动处理。一键部署脚本也会在 `up` 之前提前改好属主（双保险）。
+
+只有旧版镜像（没有入口脚本的版本）才需要手动修：
+
+```bash
+sudo chown -R 10001:10001 /opt/docker/cdt-alicloud_ecs_cdtpanel
+docker compose restart   # 或 docker restart Alicloud_ECS_CDTPanel
+```
 
 ### DDNS 设置与时区
 
@@ -148,6 +168,13 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 最低的可分配 IP”，不再循环分配；多域名循环分配只保留在无分组 legacy
 调用里（直接调 `plan_reconcile()` 不传 `groups` 时）。
 
+**分组管理页布局：** 不设默认分组（新建分组时切换模式必选，无默认选中）；
+“+ 新建分组”按钮在页面右上角，点开是内联表单（分组名 + 模式按键 +
+创建），不用 `prompt()`；每个分组卡片里模式用按键切换，时间/差值参数
+用内联表单改（间隔按键、差值输入、固定时刻、夜间窗口），保存后生效。
+默认分组（id=1）禁止删除是数据库迁移层的保护，界面上不再给任何分组
+打“默认”标记。
+
 **不受切换模式影响（各分组、各模式都生效）：** 阈值踢出、保活（停机拉起）、
 首次分配、备用地址（无可分配 VPS 时切备用地址）。
 
@@ -204,12 +231,66 @@ API 刷新时间 5 分钟、夜间优化开启（00:00–04:00）、时间切换
 
 ## 服务器名称可修改
 
-Ali 账户页每台实例一个卡片，点“编辑”进入实例配置表单，改“备注”
+Ali 账户页每台实例一个卡片，点右上角 ⚙ 打开卡片设置，改“备注”
 （服务器显示名）后点右下角“保存更改”。名称必填、1–64 字符、同一分组内
 不重名（重名返回 400，前端提示具体错误）。改名只改显示名称，不影响
 实例 ID、AccessKey、分组归属、历史流量与事件；改名事件会记一条日志
 “旧名 → 新名”。运行概览、域名管理、分组管理、最近活动里显示的名称都
 读同一 `name` 字段，随改名同步更新。
+
+## 主题与登录方式
+
+**主题：** 页眉右上角切换 白 / 黑 / 跟随系统（默认跟随系统）。
+底色是磨砂玻璃：亮色 70% 透明蓝色、夜间磨砂灰 50% 透明蓝色；
+选中态是蓝框、未选态是灰框（见下“按键式选择”）。**尺寸一律不变**：
+字号、间距、状态点直径（4px）都与旧版一致，只换颜色与质感。
+
+**按键式选择（全站统一）：** 所有选择（主题、切换模式、阈值动作、
+恢复方式、站点、日报参与、差值模式、时间切换模式、间隔、API 刷新、
+通知渠道启用）都用按键，不用下拉框或单选圆点：选中蓝框（2px 蓝边 +
+蓝字 + 淡蓝底）、未选灰框灰字；选中态内边距少 1px，抵掉边框多出的
+1px，外形尺寸与未选态一致。
+
+**登录：** 首次打开面板先填写管理员信息（管理员名称 + 密码，至少
+6 位），之后可用以下任一方式登录：
+
+| 方式 | 说明 |
+|---|---|
+| 密码 | 管理员密码登录；失败 5 次锁定 15 分钟 |
+| 指纹 | WebAuthn（平台指纹 / 安全密钥）。登录后在全局设置“登录与安全”里点“注册指纹”，下次登录页可用指纹登录。需 HTTPS 或 localhost 访问 |
+| Google | 需在全局设置“登录方式”里填 Google OAuth 应用的 Client ID / Secret |
+| GitHub | 同上，填 GitHub OAuth 应用的 Client ID / Secret |
+
+**OAuth 配置：** 在 Google Cloud Console（创建 OAuth 客户端，类型“Web
+应用”）或 GitHub Settings → Developer settings → OAuth Apps 里创建应用，
+回调地址填 `{面板地址}/api/auth/oauth/google/callback`（GitHub 把
+`google` 换成 `github`，如 `http://服务器:1999/api/auth/oauth/github/callback`），
+再把 Client ID / Secret 填到全局设置“登录方式”里（Secret 加密存储，
+读出不回显；未配置时登录页对应按钮置灰）。首次用第三方账号登录会绑定
+为管理员身份，之后只允许同一账号登录；密码登录与第三方登录共用同一
+管理员身份。会话有效期 14 天，登出后失效；未设置管理员时接口不设防
+（首次向导状态），设置后全部接口要求登录（Cookie `cdt_session` 或
+`Authorization: Bearer <token>`）。
+
+## 服务器卡片与单台操作
+
+运行概览的“服务器”区可切 **卡片 / 列表** 两种视图（右上角按键切换，
+默认卡片）：
+
+- **卡片：** 名称前是状态点（绿/黄/灰/红/闪烁，见“状态点”），下面依次
+  是 **刷新 / 启动 / 重启 / 停机** 四个按钮；卡片右上角有 ⚙ 设置按钮。
+- **列表：** 每行后面依次是同样的 **刷新 / 启动 / 重启 / 停机** 四个按钮。
+
+单台操作接口（见“API”）：`刷新`重新查该台的 ECS 状态 + CDT 流量 +
+BSS 费用并写回；`启动`调 StartInstance；`重启`调 RebootInstance；
+`停机`调 StopInstance（普通停机，KeepCharging）。操作会记一条事件
+（手动启动/重启/停机）。注意：若被停的实例仍在被域名指向，保活可能
+在下次调度把它重新拉起；停机前会二次确认。
+
+**卡片设置（⚙）：** 点卡片右上角 ⚙ 打开卡片设置面板，里面是实例
+配置表单（与“实例配置”同款）与“复制配置摘要”；**删除实例放在卡片
+设置最下面**（红色按钮，二次确认，删除后域名重新分配）。Ali 账户页
+的卡片同样是右上角 ⚙ 打开设置、删除在最下面。
 
 ## 消息推送（每日财报）
 
@@ -229,9 +310,9 @@ Telegram / 邮件 / Webhook 渠道。设置项（settings 表，可在通知设�
 （上次检查时刻 ＜ 当日推送时刻 ≤ 本次检查时刻）且当天未推过时才推；
 改时间后若新时刻已过（上次检查已在新时刻之后），当天不补推，等明天；
 全新数据库第一次检查不补推；调度暂停或财报开关关闭时不推，但仍更新
-上次检查时刻，避免恢复后立刻补推。通知设置页有“发送测试财报”按钮
-（`POST /api/notify/test-daily`，跳过开关与时间、仍只走已启用渠道）
-与推送预览（`GET /api/notify/daily-preview`，不发送）。
+上次检查时刻，避免恢复后立刻补推。通知设置页各渠道框体右下角有
+“发送测试财报”按钮（`POST /api/notify/test-daily`，跳过开关与时间、
+仍只走已启用渠道）。
 
 **手动推送（不占用定时一次）：** 通知设置页的“立即推送日报”按钮调
 `POST /api/notify/send-daily`，随时可推、按已启用渠道真发、记事件
@@ -252,8 +333,18 @@ Telegram / 邮件 / Webhook 渠道。设置项（settings 表，可在通知设�
 （流量、费用）加粗、不要整条全加粗、不要用超大 emoji 堆叠；每账户之间
 空一行 + 分隔线（`──────`）隔开；总长度控制在 Telegram 4096 字符以内，
 账户多时分条发送（每条最多 5 个账户，多条时标题后标注“（第 x/y 部分）”）。
-前端推送预览卡片与邮件 HTML 模板同样字号：标题 16px、正文 14px、
-日期/辅助 12px，行高 1.6，卡片宽度自适应、手机端不溢出。
+邮件 HTML 模板字号：标题 16px、正文 14px、日期/辅助 12px，行高 1.6，
+卡片宽度自适应、手机端不溢出。通知设置页已取消推送预览（`GET
+/api/notify/daily-preview` 接口保留，仅供调试）。
+
+**通知设置布局：** E-Mail 与 Telegram 各一个框体，框体左上角依次列
+排列启用/停用按键（选中蓝、未选灰）；每日财报开关与推送时间、通知
+测试、测试财报、立即推送日报都放在各自框体内；**发送测试按键在框体
+右下角**，且只发该渠道（`POST /api/notify/test`、
+`/api/notify/test-daily`、`/api/notify/send-daily` 均支持 `channel`
+参数：`email` / `telegram` / `webhook`）。通知事件（流量保护、DNS
+指向变化、备用地址、排除操作、查询异常、故障恢复）开关在下方单独
+一个卡片里，应用于所有已启用渠道。
 
 示例推送文本（虚构数据）：
 
@@ -291,6 +382,11 @@ IP：203.0.113.11
 | 阈值动作 | `exclusion_action` | `none`（踢出DDNS） | 三选一（见下），默认不停机 |
 | 阈值恢复 | `threshold_recovery_action` | `start`（恢复时拉起） | 见“阈值恢复默认拉起” |
 
+DDNS 设置（Cloudflare Token + 时区）在**域名管理**页，不在全局设置；
+网页访问框体已移除（监听地址/端口由启动参数决定，默认 `0.0.0.0:1999`）。
+登录与安全（改密码、注册指纹、Google/GitHub OAuth 配置）在全局设置页
+最下面的“登录与安全”卡片里，见“主题与登录方式”。
+
 **API 刷新时间合并说明：** 旧的 `check_interval_minutes`（检查间隔）
 与新的 `api_refresh_minutes` 是同一项，已合并，不留两个互相打架的间隔
 设置。保存任一字段时另一字段同步更新；旧库只存了 `check_interval_minutes`
@@ -299,29 +395,30 @@ IP：203.0.113.11
 
 ## 实例配置
 
-Ali 账户页每台实例一个卡片（标题是服务器名，右上角复制/删除图标），
-点卡片的“编辑”或顶部「+ 添加实例」进入配置表单（不再用 `prompt()`
-弹窗问答）。表单字段（按此顺序）：
+Ali 账户页每台实例一个卡片（标题是服务器名，名称前是状态点，右上角
+⚙ 设置按钮），点 ⚙ 打开卡片设置，里面是配置表单；删除实例在卡片
+设置最下面。顶部「+ 添加实例」同样打开配置表单（不再用 `prompt()`
+弹窗问答）。表单字段（按此顺序；必填项标签加粗）：
 
 | 字段 | 说明 |
 |---|---|
+| 备注（服务器名）* | 文本框，排在最上面；就是服务器显示名/别名，与行内改名共用同一 `name` 字段，1–64 字符、同组不重名 |
 | AccessKey ID * | 必填，文本框 |
 | AccessKey Secret | 密码框；已配置时显示“已配置”，留空保持不变——只在填写了新值时才更新加密存储，留空绝不清空 |
 | 实例 ID * | 必填，文本框 |
-| 站点类型 * | 下拉：国际站 global（USD）/ 国内站 cn（CNY）；放在地域之前，因为站点决定调用哪套阿里云端点和币种；选站点后自动重新拉取该站点的地域列表 |
+| 站点类型 * | 按键二选一：国际站 global（USD）/ 国内站 cn（CNY）；放在地域之前，因为站点决定调用哪套阿里云端点和币种；选站点后自动重新拉取该站点的地域列表 |
 | 地域 * | 下拉（见“区域与站点”），默认中国香港 `cn-hongkong`，允许自定义输入 |
-| 流量额度 *（GB） | 数字框，默认 200，必须 > 0 |
-| 备注（服务器名）* | 文本框，就是服务器显示名/别名，与行内改名共用同一 `name` 字段，1–64 字符、同组不重名 |
-| 分组 | 下拉，所属分组（决定切换模式与域名绑定） |
+| 月度流量额度 *（GiB） | 数字框，默认 200，必须 > 0 |
 | 每日定时开关机 | 开关 toggle，默认关；开启后出现每日开机时间 / 每日关机时间（默认 08:00 / 20:00，HH:MM，开机≠关机）。调度器在对应时间开机/关机；错过时间窗口（进程重启/延迟）时在 1 小时内补偿一次，不每天重复执行。**阈值踢出优先于定时开机**：被踢出的实例定时时间到了也不拉起；关机窗口内恢复拉起也不执行（定时关机优先于恢复拉起） |
-| 参与日报推送 | 三段选择：跟随全局 / 单独开启 / 单独关闭，默认跟随全局。跟随全局时按全局每日财报开关走；单独开启时即使全局关了也推这台；单独关闭时即使全局开了也不推这台 |
-| 阈值动作（三选一） | 跟随全局 / 踢出DDNS / 节省停机 / 停机（见下表），账户级覆盖全局 |
-| 阈值恢复 | 跟随全局 / 恢复时拉起 / 恢复入池但保持停机（见“阈值恢复默认拉起”） |
+| 参与日报推送 | 按键三选：跟随全局 / 单独开启 / 单独关闭，默认跟随全局。跟随全局时按全局每日财报开关走；单独开启时即使全局关了也推这台；单独关闭时即使全局开了也不推这台 |
+| 阈值动作（三选一） | 按键四选：跟随全局 / 踢出DDNS / 节省停机 / 停机（见下表），账户级覆盖全局 |
+| 阈值恢复 | 按键三选：跟随全局 / 恢复时拉起 / 恢复入池但保持停机（见“阈值恢复默认拉起”） |
 
+添加账户框体里**不出现分组**：新建默认进默认分组，编辑保持原分组。
 表单底部右下角是“保存更改”按钮：新建调 `POST /api/accounts`，编辑调
 `PUT /api/accounts/{id}`；保存成功有反馈，失败显示具体错误（不只弹通用
-错误）。卡片右上角的复制按钮复制该实例的配置摘要（名称、实例 ID、地域、
-IP）到剪贴板；删除按钮二次确认后删实例。
+错误）。卡片设置里的复制按钮复制该实例的配置摘要（名称、实例 ID、地域、
+IP）到剪贴板；删除按钮在卡片设置最下面，二次确认后删实例。
 
 后端字段（`accounts` 表）：`daily_schedule_enabled`（0/1，默认 0）、
 `daily_on_time`（默认 `"08:00"`）、`daily_off_time`（默认 `"20:00"`）、
@@ -455,14 +552,16 @@ IP）到剪贴板；删除按钮二次确认后删实例。
 
 ## 配置流程
 
-1. **Ali 账户** → 点「+ 添加实例」，在实例配置表单里填 AccessKey ID/Secret、
-   实例 ID、站点、地域、流量额度、备注；可再配每日定时开关机、日报推送、
-   阈值动作与恢复方式（见“实例配置”一节）。需 RAM 权限：
+1. **Ali 账户** → 点「+ 添加实例」，在实例配置表单里填备注（服务器名，
+   排最上面）、AccessKey ID/Secret、实例 ID、站点、地域、月度流量额度；
+   可再配每日定时开关机、日报推送、阈值动作与恢复方式（见“实例配置”
+   一节；添加框体里没有分组）。需 RAM 权限：
    `AliyunECSFullAccess`、`AliyunCDTReadOnlyAccess`、
    `AliyunBSSReadOnlyAccess`（缺 BSS 只影响费用显示）。
-2. **域名管理** → 添加域名（Zone/记录 ID 自动发现），按箭头调优先级。
-3. **全局设置** → 调度参数、夜间窗口、备用地址。
-4. **通知设置** → Telegram / E-Mail / Webhook，通知专用代理默认 `http://127.0.0.1:7070`。
+2. **域名管理** → 添加域名（Zone/记录 ID 自动发现），按箭头调优先级；
+   DDNS 设置（Cloudflare Token + 时区）也在本页。
+3. **全局设置** → 调度参数、夜间窗口、备用地址、登录与安全。
+4. **通知设置** → E-Mail / Telegram 各一个框体，通知专用代理默认 `http://127.0.0.1:7070`。
 5. 回「运行概览」点「调度试算」（dry-run，不调任何 VPS/DNS），确认无误后点「立即调度」。
 
 ## API（节选）
@@ -470,8 +569,16 @@ IP）到剪贴板；删除按钮二次确认后删实例。
 | 接口 | 说明 |
 |---|---|
 | `GET /api/health` | 健康检查 |
+| `GET /api/auth/status` | 登录状态：管理员是否已设置、各登录方式是否可用 |
+| `POST /api/auth/setup` | 首次设置管理员（名称 + 密码） |
+| `POST /api/auth/login`，`POST /api/auth/logout` | 密码登录 / 登出 |
+| `POST /api/auth/change-password` | 修改管理员密码 |
+| `GET /api/auth/oauth/{google,github}/login`，`GET /api/auth/oauth/{google,github}/callback` | Google / GitHub 第三方登录 |
+| `POST /api/auth/webauthn/register/begin|finish`，`POST /api/auth/webauthn/authenticate/begin|finish`，`GET /api/auth/webauthn/list`，`DELETE /api/auth/webauthn/{id}` | 指纹登录（WebAuthn）注册 / 登录 / 管理 |
 | `GET /api/status` | 概览：流量合计、费用合计、账户、域名、最近活动 |
 | `GET/POST/PUT/DELETE /api/accounts` | 账户管理 |
+| `POST /api/accounts/{id}/refresh` | 刷新单台云状态（ECS 状态 + CDT 流量 + BSS） |
+| `POST /api/accounts/{id}/start`，`POST /api/accounts/{id}/restart`，`POST /api/accounts/{id}/stop` | 单台启动 / 重启 / 停机 |
 | `GET/POST/PUT/DELETE /api/domains`，`POST /api/domains/reorder` | 域名管理与排序 |
 | `GET/PUT /api/settings` | 全局设置 |
 | `POST /api/schedule/dry-run` | 调度试算（零外部调用） |
@@ -483,11 +590,15 @@ IP）到剪贴板；删除按钮二次确认后删实例。
 | `POST /api/aliyun/find-instance-region` | 按实例 ID 自动发现其真实所在地域 |
 | `GET /api/notify/daily-preview`，`POST /api/notify/test-daily` | 每日财报预览 / 发送测试财报 |
 | `POST /api/notify/send-daily` | 手动推送日报（随时可推，不占用当天定时一次，记事件“手动推送日报”） |
+| `POST /api/notify/test` | 发送测试通知（`channel` 参数可只发一个渠道） |
 | `GET /api/logs`，`GET /api/jobs/{id}` | 日志 / 任务结果 |
 
 ## 安全
 
-- 管理员密码 PBKDF2-HMAC-SHA256（260k 轮），登录失败 5 次锁定 15 分钟。
+- 管理员密码 PBKDF2-HMAC-SHA256（260k 轮），登录失败 5 次锁定 15 分钟；
+  会话 token 32 字节随机、14 天有效期，登出即失效。
+- 第三方登录首次绑定管理员身份，之后只允许同一账号；指纹凭证
+  （WebAuthn）存公钥与 sign_count，私钥永不离开用户设备。
 - AccessKey Secret 用 AES-GCM 加密，主密钥在 `data/master.key`。
 - 公网部署请在前面套 HTTPS 反向代理，只开放 443；不要把 `data/`、Token 提交到 Git。
 - DDNS 只在 IP 真的变化时 PUT；同名多条记录时报告冲突，不自动删改。
@@ -504,9 +615,9 @@ cd web && npm ci && npm run build   # 产物输出到 app/static，后端直接�
 ## 目录
 
 ```
-app/        后端：main/api/db/aliyun/engine/scheduler/ddns/notify/security/settings
+app/        后端：main/api/db/aliyun/engine/scheduler/ddns/notify/security/settings/oauth
 web/        前端：React 18 + TS + Vite（运行概览/账户/域名/设置/通知）
 scripts/    seed_demo.py（虚构演示数据）
-tests/      引擎/DDNS/安全/API 测试
+tests/      引擎/DDNS/安全/API/登录/单台操作测试
 Dockerfile  python:3.13-slim 多阶段构建（前端 Node 22 + 后端 slim）
 ```

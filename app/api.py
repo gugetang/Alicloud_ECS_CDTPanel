@@ -1,12 +1,18 @@
 """REST API。"""
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import os
+import secrets
+import time
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
-from . import db, engine, scheduler
+from . import db, engine, oauth, scheduler
 from .notify import Notifier
 from .security import (check_session, clear_login_fails, hash_password,
                        login_locked, new_session, record_login_fail,
@@ -188,9 +194,9 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
 
 
 def _admin_required(request: Request) -> bool:
-    """已设置管理员密码时要求登录；未设置时放行（首次向导）。"""
+    """已设置管理员密码或绑定第三方登录时要求登录；未设置时放行（首次向导）。"""
     settings = db.get_settings()
-    stored = db.get_flag("admin_password_hash")
+    stored = db.get_flag("admin_password_hash") or db.get_flag("admin_oauth_identity")
     if not stored:
         return True
     token = request.cookies.get("cdt_session") or \
@@ -205,6 +211,50 @@ def health():
     return {"status": "ok", "version": "0.1.0"}
 
 
+def _b64url_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _b64url_encode(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+
+def _rp_id(request: Request) -> str:
+    return (request.headers.get("host") or "localhost").split(":")[0]
+
+
+def _origin(request: Request) -> str:
+    origin = request.headers.get("origin")
+    if origin:
+        return origin.rstrip("/")
+    host = request.headers.get("host") or "localhost:1999"
+    scheme = request.headers.get("x-forwarded-proto", "http")
+    return f"{scheme}://{host}"
+
+
+def _oauth_configured(settings: dict, provider: str) -> bool:
+    cid = (settings.get(f"{provider}_oauth_client_id") or "").strip()
+    sec = decrypt_secret(settings.get(f"{provider}_oauth_client_secret") or "")
+    return bool(cid and sec)
+
+
+def _oauth_redirect_uri(request: Request, provider: str) -> str:
+    return f"{_origin(request)}/api/auth/oauth/{provider}/callback"
+
+
+@router.get("/auth/status")
+def auth_status():
+    """登录页用：管理员是否已设置、各登录方式是否可用。"""
+    settings = db.get_settings()
+    return {
+        "admin_configured": bool(db.get_flag("admin_password_hash")
+                                 or db.get_flag("admin_oauth_identity")),
+        "admin_name": db.get_flag("admin_name") or "",
+        "oauth": {p: _oauth_configured(settings, p) for p in oauth.PROVIDERS},
+        "webauthn": bool(db.list_webauthn_credentials()),
+    }
+
+
 @router.post("/auth/setup")
 def auth_setup(body: dict):
     if db.get_flag("admin_password_hash"):
@@ -212,6 +262,9 @@ def auth_setup(body: dict):
     password = (body.get("password") or "").strip()
     if len(password) < 6:
         raise HTTPException(400, "密码至少 6 位")
+    name = (body.get("admin_name") or "").strip()
+    if name:
+        db.set_flag("admin_name", name[:64])
     db.set_flag("admin_password_hash", hash_password(password))
     token = new_session()
     return {"token": token}
@@ -232,9 +285,232 @@ def auth_login(body: dict, request: Request):
     return {"token": new_session()}
 
 
+@router.post("/auth/change-password")
+def auth_change_password(body: dict, _: bool = Depends(_admin_required)):
+    """修改管理员密码（登录与安全卡片用）。首次设置（无旧密码）时不校验当前密码。"""
+    stored = db.get_flag("admin_password_hash")
+    new = (body.get("new_password") or "").strip()
+    if len(new) < 6:
+        raise HTTPException(400, "新密码至少 6 位")
+    if stored:
+        cur = (body.get("current_password") or "").strip()
+        if not verify_password(cur, stored):
+            raise HTTPException(400, "当前密码不正确")
+    db.set_flag("admin_password_hash", hash_password(new))
+    return {"ok": True}
+
+
 @router.post("/auth/logout")
 def auth_logout(request: Request):
     revoke_session(request.cookies.get("cdt_session"))
+    return {"ok": True}
+
+
+# ---------------- Google / GitHub OAuth ----------------
+
+@router.get("/auth/oauth/{provider}/login")
+def oauth_login(provider: str, request: Request):
+    if provider not in oauth.PROVIDERS:
+        raise HTTPException(404, "不支持的登录方式")
+    settings = db.get_settings()
+    if not _oauth_configured(settings, provider):
+        raise HTTPException(400, "未配置该登录方式的 Client ID / Secret，请先在全局设置“登录方式”里填写")
+    client_id = (settings.get(f"{provider}_oauth_client_id") or "").strip()
+    url = oauth.authorize_url(
+        provider, client_id, _oauth_redirect_uri(request, provider))
+    return RedirectResponse(url, status_code=302)
+
+
+@router.get("/auth/oauth/{provider}/callback")
+def oauth_callback(provider: str, request: Request):
+    if provider not in oauth.PROVIDERS:
+        raise HTTPException(404, "不支持的登录方式")
+    code = request.query_params.get("code") or ""
+    state = request.query_params.get("state") or ""
+    err = request.query_params.get("error") or ""
+    origin = _origin(request)
+    if err:
+        return RedirectResponse(
+            f"{origin}/?oauth_error={err}", status_code=302)
+    if not code or not oauth.take_state(state, provider):
+        return RedirectResponse(
+            f"{origin}/?oauth_error=invalid_state", status_code=302)
+    settings = db.get_settings()
+    client_id = (settings.get(f"{provider}_oauth_client_id") or "").strip()
+    client_secret = decrypt_secret(
+        settings.get(f"{provider}_oauth_client_secret") or "")
+    try:
+        tok = oauth.exchange_code(
+            provider, code, client_id, client_secret,
+            _oauth_redirect_uri(request, provider))
+        info = oauth.fetch_userinfo(provider, tok["access_token"])
+    except Exception as e:
+        return RedirectResponse(
+            f"{origin}/?oauth_error={type(e).__name__}", status_code=302)
+    identity = f"{provider}:{info['sub']}"
+    bound = db.get_flag("admin_oauth_identity")
+    if bound and bound != identity:
+        return RedirectResponse(
+            f"{origin}/?oauth_error=identity_mismatch", status_code=302)
+    if not bound:
+        # 首次用第三方登录：绑定为管理员身份，并记下名字
+        db.set_flag("admin_oauth_identity", identity)
+        if info.get("name") and not db.get_flag("admin_name"):
+            db.set_flag("admin_name", info["name"][:64])
+    token = new_session()
+    return RedirectResponse(f"{origin}/?token={token}", status_code=302)
+
+
+# ---------------- WebAuthn 指纹 / 安全密钥 ----------------
+
+# challenge -> {"kind": "register"|"authenticate", "created": float}，5 分钟有效
+_webauthn_challenges: dict[str, dict] = {}
+
+
+def _store_challenge(challenge: bytes, kind: str) -> str:
+    key = _b64url_encode(challenge)
+    _webauthn_challenges[key] = {"kind": kind, "created": time.time()}
+    return key
+
+
+def _take_challenge(challenge: bytes, kind: str) -> bool:
+    rec = _webauthn_challenges.pop(_b64url_encode(challenge), None)
+    if not rec or rec.get("kind") != kind:
+        return False
+    return time.time() - rec.get("created", 0) <= 300
+
+
+def _challenge_from_credential(credential: dict) -> bytes:
+    """从凭证的 clientDataJSON 里取出 challenge（base64url 编码的 JSON）。"""
+    import json as _json
+    raw = (credential.get("response") or {}).get("clientDataJSON") or ""
+    payload = _json.loads(base64.urlsafe_b64decode(
+        raw + "=" * (-len(raw) % 4)).decode())
+    return base64.urlsafe_b64decode(
+        payload.get("challenge", "") + "=" * (-len(payload.get("challenge", "")) % 4))
+
+
+@router.post("/auth/webauthn/register/begin")
+def webauthn_register_begin(_: bool = Depends(_admin_required),
+                            request: Request = None):
+    from webauthn import generate_registration_options
+    from webauthn.helpers import options_to_json
+    from webauthn.helpers.structs import (
+        AuthenticatorAttachment, AuthenticatorSelectionCriteria,
+        PublicKeyCredentialDescriptor, ResidentKeyRequirement,
+        UserVerificationRequirement)
+
+    rp_id = _rp_id(request)
+    user_id = secrets.token_bytes(16)
+    existing = [PublicKeyCredentialDescriptor(id=_b64url_decode(c["credential_id"]))
+                for c in db.list_webauthn_credentials()]
+    options = generate_registration_options(
+        rp_id=rp_id, rp_name="Alicloud ECS CDTPanel",
+        user_id=user_id,
+        user_name=db.get_flag("admin_name") or "admin",
+        user_display_name=db.get_flag("admin_name") or "管理员",
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            resident_key=ResidentKeyRequirement.DISCOURAGED,
+            user_verification=UserVerificationRequirement.PREFERRED),
+        exclude_credentials=existing)
+    _store_challenge(options.challenge, "register")
+    import json as _json
+    return _json.loads(options_to_json(options))
+
+
+@router.post("/auth/webauthn/register/finish")
+def webauthn_register_finish(body: dict, _: bool = Depends(_admin_required),
+                             request: Request = None):
+    from webauthn import verify_registration_response
+    from webauthn.helpers import base64url_to_bytes
+
+    credential = body.get("credential") or {}
+    try:
+        challenge = _challenge_from_credential(credential)
+    except Exception:
+        raise HTTPException(400, "凭证格式错误")
+    if not _take_challenge(challenge, "register"):
+        raise HTTPException(400, "验证已过期，请重新开始注册")
+    try:
+        verified = verify_registration_response(
+            credential=credential, expected_challenge=challenge,
+            expected_origin=_origin(request), expected_rp_id=_rp_id(request),
+            require_user_verification=False)
+    except Exception as e:
+        raise HTTPException(400, f"指纹验证失败：{e}")
+    transports = ",".join(
+        (credential.get("response") or {}).get("transports") or [])
+    db.add_webauthn_credential(
+        credential_id=_b64url_encode(verified.credential_id),
+        public_key=_b64url_encode(verified.credential_public_key),
+        sign_count=verified.sign_count, transports=transports,
+        label=(body.get("label") or "指纹").strip()[:32] or "指纹")
+    return {"ok": True}
+
+
+@router.post("/auth/webauthn/authenticate/begin")
+def webauthn_authenticate_begin(request: Request):
+    from webauthn import generate_authentication_options
+    from webauthn.helpers import options_to_json
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+
+    creds = db.list_webauthn_credentials()
+    if not creds:
+        raise HTTPException(400, "尚未注册指纹，请先用密码登录后注册")
+    allow = []
+    for c in creds:
+        transports = [t for t in (c.get("transports") or "").split(",") if t]
+        allow.append(PublicKeyCredentialDescriptor(
+            id=_b64url_decode(c["credential_id"]),
+            transports=transports or None))
+    options = generate_authentication_options(
+        rp_id=_rp_id(request), allow_credentials=allow)
+    _store_challenge(options.challenge, "authenticate")
+    import json as _json
+    return _json.loads(options_to_json(options))
+
+
+@router.post("/auth/webauthn/authenticate/finish")
+def webauthn_authenticate_finish(body: dict, request: Request):
+    from webauthn import verify_authentication_response
+    from webauthn.helpers import base64url_to_bytes
+
+    credential = body.get("credential") or {}
+    try:
+        challenge = _challenge_from_credential(credential)
+    except Exception:
+        raise HTTPException(400, "凭证格式错误")
+    if not _take_challenge(challenge, "authenticate"):
+        raise HTTPException(400, "验证已过期，请重新开始")
+    cred_id = (credential.get("id") or "")
+    stored = next((c for c in db.list_webauthn_credentials()
+                   if c["credential_id"] == cred_id), None)
+    if not stored:
+        raise HTTPException(400, "未知的指纹凭证")
+    try:
+        verified = verify_authentication_response(
+            credential=credential, expected_challenge=challenge,
+            expected_origin=_origin(request), expected_rp_id=_rp_id(request),
+            credential_public_key=_b64url_decode(stored["public_key"]),
+            credential_current_sign_count=int(stored.get("sign_count") or 0),
+            require_user_verification=False)
+    except Exception as e:
+        raise HTTPException(400, f"指纹验证失败：{e}")
+    db.update_webauthn_sign_count(cred_id, verified.new_sign_count)
+    return {"token": new_session()}
+
+
+@router.get("/auth/webauthn/list")
+def webauthn_list(_: bool = Depends(_admin_required)):
+    return [{"credential_id": c["credential_id"], "label": c.get("label") or "",
+             "created_at": c.get("created_at") or 0}
+            for c in db.list_webauthn_credentials()]
+
+
+@router.delete("/auth/webauthn/{credential_id}")
+def webauthn_delete(credential_id: str, _: bool = Depends(_admin_required)):
+    db.delete_webauthn_credential(credential_id)
     return {"ok": True}
 
 
@@ -375,6 +651,68 @@ def delete_account(aid: int, _: bool = Depends(_admin_required)):
     return {"ok": True}
 
 
+def _account_client(aid: int):
+    """取账户行 + 阿里云客户端（概览卡片/列表的操作按钮用）。"""
+    from .aliyun import AliyunClient, AliyunError
+
+    a = db.get_account(aid)
+    if not a:
+        raise HTTPException(404, "账户不存在")
+    secret = decrypt_secret(a.get("access_key_secret_enc") or "")
+    if not a.get("access_key_id") or not secret or not a.get("instance_id"):
+        raise HTTPException(400, "该账户未配齐 AccessKey / 实例 ID")
+    return a, AliyunClient(a, secret), AliyunError
+
+
+def _public_row(row: dict) -> dict:
+    out = dict(row)
+    out.pop("access_key_secret_enc", None)
+    return out
+
+
+@router.post("/accounts/{aid}/refresh")
+def refresh_account(aid: int, _: bool = Depends(_admin_required)):
+    """刷新单个账户的云状态（DescribeInstances + CDT 流量 + BSS）。"""
+    try:
+        row = scheduler.refresh_one_account(aid)
+    except ValueError:
+        raise HTTPException(404, "账户不存在")
+    return _public_row(row)
+
+
+@router.post("/accounts/{aid}/start")
+def start_account(aid: int, _: bool = Depends(_admin_required)):
+    a, client, AliyunError = _account_client(aid)
+    try:
+        client.start_instance()
+    except AliyunError as exc:
+        raise HTTPException(400, f"启动失败：{exc}")
+    db.add_event("info", "手动启动", f"{a['name']} 已发送启动指令", account_id=aid)
+    return _public_row(scheduler.refresh_one_account(aid))
+
+
+@router.post("/accounts/{aid}/restart")
+def restart_account(aid: int, _: bool = Depends(_admin_required)):
+    a, client, AliyunError = _account_client(aid)
+    try:
+        client.reboot_instance()
+    except AliyunError as exc:
+        raise HTTPException(400, f"重启失败：{exc}")
+    db.add_event("info", "手动重启", f"{a['name']} 已发送重启指令", account_id=aid)
+    return _public_row(scheduler.refresh_one_account(aid))
+
+
+@router.post("/accounts/{aid}/stop")
+def stop_account(aid: int, _: bool = Depends(_admin_required)):
+    a, client, AliyunError = _account_client(aid)
+    try:
+        client.stop_instance(stop_charging=False)
+    except AliyunError as exc:
+        raise HTTPException(400, f"停机失败：{exc}")
+    db.add_event("info", "手动停机", f"{a['name']} 已发送停机指令", account_id=aid)
+    return _public_row(scheduler.refresh_one_account(aid))
+
+
 @router.get("/domains")
 def list_domains(_: bool = Depends(_admin_required)):
     return db.list_domains()
@@ -424,8 +762,12 @@ def list_timezones(_: bool = Depends(_admin_required)):
 def get_settings(_: bool = Depends(_admin_required)):
     s = db.get_settings()
     s["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    s["google_oauth_configured"] = _oauth_configured(s, "google")
+    s["github_oauth_configured"] = _oauth_configured(s, "github")
     s.pop("cloudflare_token", None)
     s.pop("telegram_token", None)
+    s.pop("google_oauth_client_secret", None)
+    s.pop("github_oauth_client_secret", None)
     return s
 
 
@@ -472,9 +814,13 @@ def _validate_settings(data: dict) -> None:
 def _mask(s: dict) -> dict:
     out = dict(s)
     out["cloudflare_configured"] = bool(s.get("cloudflare_token"))
+    out["google_oauth_configured"] = _oauth_configured(s, "google")
+    out["github_oauth_configured"] = _oauth_configured(s, "github")
     out.pop("cloudflare_token", None)
     out.pop("telegram_token", None)
     out.pop("email_password", None)
+    out.pop("google_oauth_client_secret", None)
+    out.pop("github_oauth_client_secret", None)
     return out
 
 
@@ -497,7 +843,8 @@ def get_notify(_: bool = Depends(_admin_required)):
 def test_notify(body: dict, _: bool = Depends(_admin_required)):
     n = Notifier(db.get_settings())
     sent = n.send(body.get("event") or "error", "测试通知",
-                  "alicloud_ECS_CDT 测试通知：配置已保存，调度暂停时也可发送。")
+                  "alicloud_ECS_CDT 测试通知：配置已保存，调度暂停时也可发送。",
+                  channel=body.get("channel") or None)
     return {"sent": sent}
 
 
@@ -544,24 +891,26 @@ def daily_preview(_: bool = Depends(_admin_required)):
 
 
 @router.post("/notify/test-daily")
-def test_daily(_: bool = Depends(_admin_required)):
+def test_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     """发送测试财报：用当前账户（无账户时用演示数据）立即发一条，
     跳过每日开关与推送时间，但仍只走已启用的渠道；
-    实例 daily_report=off 的不推（follow/on 正常推）。"""
+    实例 daily_report=off 的不推（follow/on 正常推）。
+    body.channel 指定时只发该渠道。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
     accounts = filter_daily_report_accounts(
         _daily_report_accounts(), db.get_settings(), force=True)
     chunks = build_daily_report(accounts, today)
     n = Notifier(db.get_settings())
-    sent = n.send_daily_report(accounts, today, force=True)
+    sent = n.send_daily_report(accounts, today, force=True,
+                               channel=(body or {}).get("channel") or None)
     return {"sent": sent, "messages": len(chunks),
             "preview": chunks[0] if chunks else None,
             "accounts": len(accounts)}
 
 
 @router.post("/notify/send-daily")
-def send_daily(_: bool = Depends(_admin_required)):
+def send_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     """手动推送日报：正式手动推送，随时可推，按已启用渠道真发。
 
     与定时推送的区别：不读也不写 daily_report_done:<日期> 标志——
@@ -575,7 +924,8 @@ def send_daily(_: bool = Depends(_admin_required)):
         _daily_report_accounts(), settings)
     chunks = build_daily_report(accounts, today)
     n = Notifier(settings)
-    sent = n.send_daily_report(accounts, today, skip_global_switch=True)
+    sent = n.send_daily_report(accounts, today, skip_global_switch=True,
+                               channel=(body or {}).get("channel") or None)
     db.add_event("daily_report", "手动推送日报",
                  f"{today} 手动推送，共 {len(accounts)} 个账户，"
                  f"渠道：{','.join(sent) if sent else '未启用任何通知渠道'}")

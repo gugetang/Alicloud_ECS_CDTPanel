@@ -156,6 +156,15 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             CREATE TABLE IF NOT EXISTS flags(
               key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT ''
             );
+            CREATE TABLE IF NOT EXISTS webauthn_credentials(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              credential_id TEXT NOT NULL UNIQUE,
+              public_key TEXT NOT NULL,
+              sign_count INTEGER NOT NULL DEFAULT 0,
+              transports TEXT NOT NULL DEFAULT '',
+              label TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL
+            );
             """
         )
         # 轻量迁移：已建库追加新列（列已存在时报错可忽略）
@@ -677,3 +686,45 @@ def get_job(job_id: int) -> dict | None:
     except Exception:
         d["result"] = {}
     return d
+
+
+def list_webauthn_credentials() -> list[dict]:
+    conn = connect()
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM webauthn_credentials ORDER BY id ASC").fetchall()]
+
+
+def add_webauthn_credential(credential_id: str, public_key: str,
+                            sign_count: int = 0, transports: str = "",
+                            label: str = "") -> dict:
+    conn = connect()
+    with _lock:
+        cur = conn.execute(
+            "INSERT INTO webauthn_credentials"
+            "(credential_id, public_key, sign_count, transports, label, created_at)"
+            " VALUES(?,?,?,?,?,?)",
+            (credential_id, public_key, sign_count, transports, label,
+             int(time.time())))
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM webauthn_credentials WHERE id=?",
+            (cur.lastrowid,)).fetchone()
+        return dict(row)
+
+
+def update_webauthn_sign_count(credential_id: str, sign_count: int) -> None:
+    conn = connect()
+    with _lock:
+        conn.execute(
+            "UPDATE webauthn_credentials SET sign_count=? WHERE credential_id=?",
+            (sign_count, credential_id))
+        conn.commit()
+
+
+def delete_webauthn_credential(credential_id: str) -> None:
+    conn = connect()
+    with _lock:
+        conn.execute(
+            "DELETE FROM webauthn_credentials WHERE credential_id=?",
+            (credential_id,))
+        conn.commit()

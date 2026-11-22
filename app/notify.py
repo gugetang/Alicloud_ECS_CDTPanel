@@ -225,26 +225,30 @@ class Notifier:
             return {}
         return {"http": proxy, "https": proxy}
 
-    def send(self, event: str, title: str, body: str) -> list[str]:
-        """按已启用的渠道发送，返回实际发送的渠道名。开关关闭时返回 []。"""
+    def send(self, event: str, title: str, body: str,
+             channel: str | None = None) -> list[str]:
+        """按已启用的渠道发送，返回实际发送的渠道名。开关关闭时返回 []。
+        channel 指定时只发该渠道（telegram/email/webhook），用于通知设置里
+        各渠道框体右下角的“发送测试”。"""
         if not self.enabled(event):
             return []
         sent: list[str] = []
         text = f"{title}\n{body}".strip()
-        if self.s.get("telegram_enabled") == "1":
+        if (channel is None or channel == "telegram") and self.s.get("telegram_enabled") == "1":
             if self._telegram(text):
                 sent.append("telegram")
-        if self.s.get("email_enabled") == "1":
+        if (channel is None or channel == "email") and self.s.get("email_enabled") == "1":
             if self._email(title, text):
                 sent.append("email")
-        if self.s.get("webhook_enabled") == "1":
+        if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
             if self._webhook(title, text):
                 sent.append("webhook")
         return sent
 
     def send_daily_report(self, accounts: list[dict], date_str: str,
                           *, force: bool = False,
-                          skip_global_switch: bool = False) -> list[str]:
+                          skip_global_switch: bool = False,
+                          channel: str | None = None) -> list[str]:
         """发送每日财报。返回实际发送的渠道名。
 
         渠道复用现有的 Telegram/邮件/Webhook 开关（只推已启用的渠道）。
@@ -263,13 +267,13 @@ class Notifier:
         chunks = build_daily_report(accounts, date_str)
         sent: set[str] = set()
         for ch in chunks:
-            if self.s.get("telegram_enabled") == "1":
+            if (channel is None or channel == "telegram") and self.s.get("telegram_enabled") == "1":
                 if self._telegram_html(ch["html"]):
                     sent.add("telegram")
-            if self.s.get("email_enabled") == "1":
+            if (channel is None or channel == "email") and self.s.get("email_enabled") == "1":
                 if self._email_html(DAILY_TITLE, ch["text"], ch["email_html"]):
                     sent.add("email")
-            if self.s.get("webhook_enabled") == "1":
+            if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
                 if self._webhook(DAILY_TITLE, ch["text"]):
                     sent.add("webhook")
         return sorted(sent)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { get, post, put, del } from "./api";
+import { get, post, put, del, getToken, setToken } from "./api";
 
 type Tab = "dash" | "accounts" | "domains" | "groups" | "settings" | "notify";
 type Any = Record<string, any>;
@@ -21,7 +21,7 @@ const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
   { region_id: "cn-hangzhou", local_name: "杭州" },
 ];
 
-// 阈值动作三选一（radio）：全局设置页与实例配置表单共用同一组选项与文案。
+// 阈值动作三选一：全局设置页与实例配置表单共用同一组选项与文案。
 // 内部值沿用 exclusion_action：none=踢出DDNS（默认，不停机）/
 // stop_charging=节省停机 / stop=停机。
 const EXCL_OPTIONS = [
@@ -52,10 +52,60 @@ const TZ_FALLBACK = [
   { value: "Australia/Sydney", label: "悉尼 Australia/Sydney" },
 ];
 
-// 实例配置表单（按截图结构，深色主题）：站点在地域之前（站点决定端点与币种），
-// 地域来自阿里云 DescribeRegions + 已有实例发现，失败回退内置列表。
-function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
-  account: Any | null; groups: Any[]; settings: Any; count: number;
+// 按键式选择（全站统一）：选中蓝框、未选灰框，见 styles.css 的 .seg。
+// value 为 "" 时表示“未选/跟随全局”，所有按钮都是灰框（分组新建时无默认选中）。
+function Seg({ value, options, onChange }: {
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="seg">
+      {options.map((o) => (
+        <button key={o.value} type="button" className={value === o.value ? "seg-on" : ""} onClick={() => onChange(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// WebAuthn（指纹登录）用的 base64url / ArrayBuffer 互转。
+const b64urlToBuf = (s: string): ArrayBuffer => {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+};
+const bufToB64url = (buf: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+const credentialToJSON = (cred: any) => {
+  const resp: Any = {
+    clientDataJSON: bufToB64url(cred.response.clientDataJSON),
+  };
+  if (cred.response.attestationObject) resp.attestationObject = bufToB64url(cred.response.attestationObject);
+  if (cred.response.authenticatorData) resp.authenticatorData = bufToB64url(cred.response.authenticatorData);
+  if (cred.response.signature) resp.signature = bufToB64url(cred.response.signature);
+  if (cred.response.userHandle) resp.userHandle = bufToB64url(cred.response.userHandle);
+  if (cred.response.getTransports) resp.transports = cred.response.getTransports();
+  return {
+    id: cred.id,
+    rawId: bufToB64url(cred.rawId),
+    type: cred.type,
+    response: resp,
+    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+  };
+};
+
+// 实例配置表单：备注（服务器名）排在最上面；分组不出现（新建默认进默认分组，
+// 编辑保持原分组）；必填项标签加粗（label.req）。站点/阈值动作/恢复方式/
+// 日报参与都用按键式选择。
+function InstanceForm({ account, settings, count, onDone, onCancel }: {
+  account: Any | null; settings: Any; count: number;
   onDone: () => void; onCancel: () => void;
 }) {
   const isNew = !account;
@@ -68,7 +118,6 @@ function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
   const [regionCustom, setRegionCustom] = useState(false);
   const [regionCustomVal, setRegionCustomVal] = useState("");
   const [quota, setQuota] = useState(String(account?.quota_gb ?? 200));
-  const [groupId, setGroupId] = useState(String(account?.group_id ?? 1));
   const [schedEnabled, setSchedEnabled] = useState(Boolean(account?.daily_schedule_enabled));
   const [onTime, setOnTime] = useState((account?.daily_on_time as string) || "08:00");
   const [offTime, setOffTime] = useState((account?.daily_off_time as string) || "20:00");
@@ -145,7 +194,8 @@ function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
     setFormBusy(true); setFormMsg("");
     const payload: Any = {
       name: vName, access_key_id: akId.trim(), instance_id: instanceId.trim(),
-      site, region: finalRegion, quota_gb: q, group_id: Number(groupId) || 1,
+      site, region: finalRegion, quota_gb: q,
+      group_id: account?.group_id ?? 1,
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime, daily_report: report,
       exclusion_action: excl || "", recovery_action: recovery || "",
@@ -166,13 +216,17 @@ function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
   return (
     <div className="instance-form">
       <div className="form2">
-        <div><label>AccessKey ID *</label><input value={akId} onChange={(e) => setAkId(e.target.value)} placeholder="LTAI..." /></div>
-        <div><label>AccessKey Secret *</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} placeholder={account?.has_secret ? "已配置（留空保持不变）" : "未配置，请填写"} /></div>
-        <div><label>实例 ID *</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
-        <div><label>站点类型 *</label><select value={site} onChange={(e) => setSite(e.target.value)}>
-          <option value="global">国际站（USD）</option><option value="cn">国内站（CNY）</option></select>
+        <div><label className="req">备注（服务器名）*</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="如 AliCloud-HK-1" /></div>
+        <div><label className="req">AccessKey ID *</label><input value={akId} onChange={(e) => setAkId(e.target.value)} placeholder="LTAI..." /></div>
+        <div><label className="req">AccessKey Secret *</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} placeholder={account?.has_secret ? "已配置（留空保持不变）" : "未配置，请填写"} /></div>
+        <div><label className="req">实例 ID *</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
+        <div><label className="req">站点类型 *</label>
+          <Seg value={site} options={[
+            { value: "global", label: "国际站（USD）" },
+            { value: "cn", label: "国内站（CNY）" },
+          ]} onChange={setSite} />
           <p className="muted">站点决定调用哪套阿里云端点与币种；选站点后自动重新拉取该站点的地域列表。</p></div>
-        <div><label>地域 *</label>
+        <div><label className="req">地域 *</label>
           <select value={regionCustom ? "__custom" : region} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
             else { setRegionCustom(false); setRegion(e.target.value); }
@@ -195,11 +249,7 @@ function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>重新拉取地域列表</button>
           </div>
           <p className="muted">“自动发现”按实例 ID 查出该实例真实所在地域并填入；查不到会报错，不会静默填错。</p></div>
-        <div><label>流量额度 *（GB）</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} /></div>
-        <div><label>备注（服务器名）*</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder="如 AliCloud-HK-1" /></div>
-        <div><label>分组</label><select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-          {groups.map((g: Any) => <option key={g.id} value={String(g.id)}>{g.name}（{g.switch_mode === "time" ? "按时间切换" : "按负载均衡"}）</option>)}
-        </select></div>
+        <div><label className="req">月度流量额度 *（GiB）</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} /></div>
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="check"><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} /> 每日定时开关机</label>
@@ -213,37 +263,406 @@ function InstanceForm({ account, groups, settings, count, onDone, onCancel }: {
       </div>
       <div style={{ marginTop: 12 }}>
         <label>参与日报推送</label>
-        <div className="seg">
-          {(["follow", "on", "off"] as const).map((v) => (
-            <button key={v} type="button" className={report === v ? "seg-on" : ""} onClick={() => setReport(v)}>
-              {v === "follow" ? "跟随全局" : v === "on" ? "单独开启" : "单独关闭"}
-            </button>
-          ))}
-        </div>
+        <Seg value={report} options={[
+          { value: "follow", label: "跟随全局" },
+          { value: "on", label: "单独开启" },
+          { value: "off", label: "单独关闭" },
+        ]} onChange={setReport} />
         <p className="muted">跟随全局：按全局每日财报开关；单独开启：即使全局关了也推这台；单独关闭：即使全局开了也不推这台。</p>
       </div>
       <div style={{ marginTop: 12 }}>
         <label>阈值动作（三选一）</label>
-        <div className="radio-group">
-          <label className="radio"><input type="radio" name={`excl-${account?.id || "new"}`} checked={excl === ""} onChange={() => setExcl("")} /><span><b>跟随全局</b><small>按全局设置（当前：{exclLabel(settings.exclusion_action)}）</small></span></label>
-          {EXCL_OPTIONS.map((o) => (
-            <label key={o.value} className="radio"><input type="radio" name={`excl-${account?.id || "new"}`} checked={excl === o.value} onChange={() => setExcl(o.value)} /><span><b>{o.title}</b><small>{o.sub}</small></span></label>
-          ))}
-        </div>
+        <Seg value={excl} options={[
+          { value: "", label: "跟随全局" },
+          { value: "none", label: "踢出DDNS" },
+          { value: "stop_charging", label: "节省停机" },
+          { value: "stop", label: "停机" },
+        ]} onChange={setExcl} />
+        <p className="muted">跟随全局：按全局设置（当前：{exclLabel(settings.exclusion_action)}）。踢出DDNS 默认不停机，只跳出 DDNS 继续跑；停机/节省停机都在切完 DNS 之后。</p>
       </div>
       <div style={{ marginTop: 12 }}>
         <label>阈值恢复（用量回落后）</label>
-        <div className="radio-group">
-          <label className="radio"><input type="radio" name={`rec-${account?.id || "new"}`} checked={recovery === ""} onChange={() => setRecovery("")} /><span><b>跟随全局</b><small>按全局设置（当前：{settings.threshold_recovery_action === "keep_stopped" ? "恢复入池但保持停机" : "恢复时拉起"}）</small></span></label>
-          <label className="radio"><input type="radio" name={`rec-${account?.id || "new"}`} checked={recovery === "start"} onChange={() => setRecovery("start")} /><span><b>恢复时拉起</b><small>用量回落到恢复线以下时自动开机再入池</small></span></label>
-          <label className="radio"><input type="radio" name={`rec-${account?.id || "new"}`} checked={recovery === "keep_stopped"} onChange={() => setRecovery("keep_stopped")} /><span><b>恢复入池但保持停机</b><small>只入池，等保活/手动再拉起</small></span></label>
-        </div>
+        <Seg value={recovery} options={[
+          { value: "", label: "跟随全局" },
+          { value: "start", label: "恢复时拉起" },
+          { value: "keep_stopped", label: "恢复入池但保持停机" },
+        ]} onChange={setRecovery} />
+        <p className="muted">跟随全局：按全局设置（当前：{settings.threshold_recovery_action === "keep_stopped" ? "恢复入池但保持停机" : "恢复时拉起"}）。</p>
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={onCancel}>取消</button>
         <button className="btn" onClick={save} disabled={formBusy}>保存更改</button>
       </div>
+    </div>
+  );
+}
+
+// ---------------- 首次登录：填写管理员信息 ----------------
+function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => void }) {
+  const [name, setName] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [msg, setMsg] = useState("");
+  const submit = async () => {
+    if (pw.length < 6) { setMsg("密码至少 6 位"); return; }
+    if (pw !== pw2) { setMsg("两次密码不一致"); return; }
+    try {
+      const r = await post("/api/auth/setup", { admin_name: name.trim(), password: pw }) as Any;
+      setToken(r.token as string);
+      onDone();
+    } catch (e) { setMsg(String((e as Error).message)); }
+  };
+  return (
+    <div className="auth-wrap">
+      <div className="card">
+        <div className="auth-title">欢迎使用 CDT 面板</div>
+        <p className="muted">首次登录，请填写管理员信息。之后可用密码、指纹、Google 或 GitHub 登录。</p>
+        <label className="req">管理员名称 *</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="如 管理员" />
+        <label className="req">登录密码 *</label>
+        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="至少 6 位" />
+        <label className="req">确认密码 *</label>
+        <input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="再输一次" />
+        {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
+        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={submit}>创建管理员并进入</button>
+        <button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSkip}>稍后设置，直接进入</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 登录页：密码 / 指纹 / Google / GitHub ----------------
+function LoginScreen({ info, oauthMsg, onDone }: { info: Any; oauthMsg: string; onDone: () => void }) {
+  const [pw, setPw] = useState("");
+  const [msg, setMsg] = useState(oauthMsg || "");
+  const [busy, setBusy] = useState(false);
+  const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+  const loginPw = async () => {
+    if (!pw) { setMsg("请输入密码"); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await post("/api/auth/login", { password: pw }) as Any;
+      setToken(r.token as string);
+      onDone();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const loginWebauthn = async () => {
+    if (!webauthnSupported) { setMsg("当前浏览器不支持指纹登录"); return; }
+    setBusy(true); setMsg("");
+    try {
+      const opts = await post("/api/auth/webauthn/authenticate/begin", {}) as Any;
+      const pk: Any = {
+        ...opts,
+        challenge: b64urlToBuf(opts.challenge),
+        allowCredentials: (opts.allowCredentials || []).map((c: Any) => ({ ...c, id: b64urlToBuf(c.id) })),
+      };
+      const cred = await navigator.credentials.get({ publicKey: pk as PublicKeyCredentialRequestOptions }) as any;
+      if (!cred) throw new Error("未完成指纹验证");
+      const r = await post("/api/auth/webauthn/authenticate/finish", { credential: credentialToJSON(cred) }) as Any;
+      setToken(r.token as string);
+      onDone();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="auth-wrap">
+      <div className="card">
+        <div className="auth-title">登录 CDT 面板</div>
+        <p className="muted">{info.admin_name ? `管理员：${info.admin_name}` : "请输入管理员密码登录。"}</p>
+        <label className="req">登录密码 *</label>
+        <input type="password" value={pw} onChange={(e) => setPw(e.target.value)}
+          placeholder="管理员密码" onKeyDown={(e) => { if (e.key === "Enter") loginPw(); }} />
+        {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
+        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy}>登录</button>
+        {info.webauthn && (
+          <button className="oauth-btn" onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
+            指纹登录{webauthnSupported ? "" : "（当前浏览器不支持）"}
+          </button>
+        )}
+        <button className="oauth-btn" disabled={!info.oauth?.google}
+          onClick={() => { window.location.href = "/api/auth/oauth/google/login"; }}>
+          使用 Google 登录{info.oauth?.google ? "" : "（未配置）"}
+        </button>
+        <button className="oauth-btn" disabled={!info.oauth?.github}
+          onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
+          使用 GitHub 登录{info.oauth?.github ? "" : "（未配置）"}
+        </button>
+        <p className="muted" style={{ marginTop: 12 }}>
+          Google / GitHub 登录需先在全局设置“登录方式”里填入对应 OAuth 应用的 Client ID / Secret。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 分组卡片：模式按键 + 参数表单（无 prompt） ----------------
+function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
+  g: Any; settings: Any; accounts: Any[]; domains: Any[];
+  dotEl: (dot: string | undefined, title?: string) => JSX.Element;
+  run: (fn: () => Promise<unknown>, ok: string) => Promise<void>;
+}) {
+  const [interval, setInterval] = useState(String(g.interval_hours ?? settings.interval_hours ?? 6));
+  const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
+  const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
+  const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
+  const [fixed, setFixed] = useState((g.fixed_switch_time ?? settings.fixed_switch_time ?? "") as string);
+  const [nStart, setNStart] = useState((g.night_window_start ?? settings.night_window_start ?? "00:00") as string);
+  const [nEnd, setNEnd] = useState((g.night_window_end ?? settings.night_window_end ?? "04:00") as string);
+
+  const members = accounts.filter((a) => (a.group_id || 1) === g.id);
+  const dom = domains.find((d) => (d.group_id || 1) === g.id);
+  const cur = dom ? accounts.find((a) => a.id === dom.current_account_id) : null;
+
+  const saveParams = () => run(() => put(`/api/groups/${g.id}`, {
+    interval_hours: Number(interval) || 6,
+    switch_diff_mode: diffMode,
+    switch_diff_pct: Number(diffPct) || 10,
+    switch_diff_gb: Number(diffGb) || 10,
+    fixed_switch_time: fixed || "",
+    night_window_start: nStart || "00:00",
+    night_window_end: nEnd || "04:00",
+  }), "分组参数已保存");
+
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="row"><b>{g.name as string}</b>
+        <span className="pill">{g.switch_mode === "time" ? "按时间切换" : "按负载均衡"}</span>
+        <span className="spacer" />
+        <button className="btn ghost" onClick={() => { if (confirm(`删除分组 ${g.name}？须先移走其账户/域名。`)) run(() => del(`/api/groups/${g.id}`), "已删除"); }}>删除</button>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <label>切换模式（单选）</label>
+        <Seg value={g.switch_mode as string} options={[
+          { value: "time", label: "按时间切换" },
+          { value: "load_balance", label: "按负载均衡" },
+        ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), "已切换模式")} />
+      </div>
+      {g.switch_mode === "time" ? (
+        <div style={{ marginTop: 12 }}>
+          <div className="form2">
+            <div><label>间隔切换周期</label>
+              <Seg value={interval} options={[
+                { value: "1", label: "1 小时" }, { value: "2", label: "2 小时" },
+                { value: "3", label: "3 小时" }, { value: "4", label: "4 小时" },
+                { value: "6", label: "6 小时" }, { value: "12", label: "12 小时" },
+                { value: "24", label: "24 小时" },
+              ]} onChange={setInterval} /></div>
+            <div><label>固定每日切换时刻（留空不启用）</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} /></div>
+            <div><label>夜间窗口开始</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} /></div>
+            <div><label>夜间窗口结束</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} /></div>
+          </div>
+          <p className="muted">未填的项继承全局设置。夜间窗口内每晚切换一次至使用率更低的候选；间隔按上次切换锚点每 N 小时切一次。</p>
+        </div>
+      ) : (
+        <div style={{ marginTop: 12 }}>
+          <label>切换差值模式</label>
+          <Seg value={diffMode} options={[
+            { value: "percent", label: "按使用率差值（%）" },
+            { value: "gb", label: "按已用流量差值（GB）" },
+          ]} onChange={setDiffMode} />
+          <div className="form2">
+            <div><label>切换差值阈值（%）</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} /></div>
+            <div><label>切换差值（GB）</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} /></div>
+          </div>
+          <p className="muted">负载均衡：% 模式差值 ≥ 阈值切，GB 模式差值 ≥ 阈值 GB 切。未填的项继承全局设置。</p>
+        </div>
+      )}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
+        <button className="btn" onClick={saveParams}>保存分组参数</button>
+      </div>
+      <h3 style={{ marginTop: 12 }}>成员 IP（{members.length}）</h3>
+      {members.length === 0 && <p className="muted">暂无成员，去「Ali 账户」添加并选本分组。</p>}
+      {members.map((a) => (
+        <div key={a.id as number} className="row" style={{ padding: "4px 0" }}>
+          {dotEl(a.status_dot, a.status_detail || a.status_label || "")}
+          <b>{a.name as string}</b><span className="muted">{a.status_label || a.instance_status || "未知"}</span>
+          <span>{a.public_ip as string || "—"}</span>
+          <span className="muted">{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</span>
+          {a.evicted ? <span className="pill gray">已跳出</span> : null}
+        </div>
+      ))}
+      <h3 style={{ marginTop: 12 }}>绑定域名（最多 1 个）</h3>
+      {dom ? (
+        <div className="row"><b>{dom.name as string}</b><span className="muted">当前指向</span>
+          <span>{(dom.current_ip as string) || "未分配"}</span>
+          <span className="muted">{cur ? cur.name as string : (dom.fallback_active ? "备用地址生效中" : "")}</span></div>
+      ) : <p className="muted">未绑定域名，去「域名管理」添加并选本分组。</p>}
+    </div>
+  );
+}
+
+// ---------------- 通知渠道卡片：Email / Telegram 各一个框体 ----------------
+// 左上角依次列排列启用按键（选中蓝、未选灰）；每日财报设置与测试都放在框体内；
+// 发送测试按键在框体右下角。
+function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTime, saveSettings, run }: {
+  kind: "email" | "telegram";
+  settings: Any; drEnabled: boolean; drTime: string;
+  setDrEnabled: (v: boolean) => void; setDrTime: (v: string) => void;
+  saveSettings: (patch: Any) => Promise<void>;
+  run: (fn: () => Promise<unknown>, ok: string) => Promise<void>;
+}) {
+  const isEmail = kind === "email";
+  const enabled = (isEmail ? settings.email_enabled : settings.telegram_enabled) === "1";
+  const title = isEmail ? "E-Mail" : "Telegram";
+  const saveConfig = () => {
+    if (isEmail) {
+      saveSettings({
+        email_smtp_host: (document.getElementById("em-host") as HTMLInputElement)?.value ?? "",
+        email_smtp_port: (document.getElementById("em-port") as HTMLInputElement)?.value ?? "465",
+        email_user: (document.getElementById("em-user") as HTMLInputElement)?.value ?? "",
+        email_to: (document.getElementById("em-to") as HTMLInputElement)?.value ?? "",
+        ...(((document.getElementById("em-pass") as HTMLInputElement)?.value || "") ? { email_password: (document.getElementById("em-pass") as HTMLInputElement).value } : {}),
+      });
+    } else {
+      saveSettings({
+        telegram_chat_id: (document.getElementById("tg-chat") as HTMLInputElement)?.value ?? "",
+        ...(((document.getElementById("tg-token") as HTMLInputElement)?.value || "") ? { telegram_token: (document.getElementById("tg-token") as HTMLInputElement).value } : {}),
+      });
+    }
+  };
+  return (
+    <div className="card">
+      <div className="row"><h3 style={{ margin: 0 }}>{title}</h3><span className="spacer" /></div>
+      <div style={{ marginTop: 8 }}>
+        <Seg value={enabled ? "1" : "0"} options={[
+          { value: "1", label: "启用" },
+          { value: "0", label: "停用" },
+        ]} onChange={(v) => saveSettings(isEmail ? { email_enabled: v } : { telegram_enabled: v })} />
+      </div>
+      {isEmail ? (
+        <div style={{ marginTop: 12 }}>
+          <label>SMTP 服务器</label><input id="em-host" defaultValue={String(settings.email_smtp_host ?? "")} placeholder="smtp.example.com" />
+          <label>SMTP 端口</label><input id="em-port" defaultValue={String(settings.email_smtp_port ?? 465)} />
+          <label>发件邮箱</label><input id="em-user" defaultValue={String(settings.email_user ?? "")} placeholder="sender@example.com" />
+          <label>SMTP 密码</label><input type="password" id="em-pass" placeholder="留空保持不变" />
+          <label>收件邮箱</label><input id="em-to" defaultValue={String(settings.email_to ?? "")} placeholder="receiver@example.com" />
+        </div>
+      ) : (
+        <div style={{ marginTop: 12 }}>
+          <label>Bot Token</label><input type="password" id="tg-token" placeholder="留空保持不变" />
+          <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder="如 123456789" />
+          <p className="muted">Token 留空保存时保持不变，只有填了新值才更新。</p>
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <label>每日财报推送</label>
+        <label className="check"><input type="checkbox" checked={drEnabled} onChange={(e) => setDrEnabled(e.target.checked)} /> 启用每日财报推送</label>
+        <label>推送时间</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} />
+        <p className="muted">每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。</p>
+      </div>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="btn ghost" onClick={saveConfig}>保存{title}设置</button>
+        <button className="btn ghost" onClick={() => saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" })}>保存财报设置</button>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+        <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), `测试通知已发送到${title}`)}>发送测试通知</button>
+        <button className="btn ghost" onClick={() => run(() => post("/api/notify/test-daily", { channel: kind }), `测试财报已发送到${title}`)}>发送测试财报</button>
+        <button className="btn" onClick={() => run(() => post("/api/notify/send-daily", { channel: kind }), `日报已手动推送到${title}`)}>立即推送日报</button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- 登录与安全卡片（全局设置页）：改密码 / 注册指纹 / OAuth 配置 ----------------
+function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
+  adminName: string; settings: Any;
+  saveSettings: (patch: Any) => Promise<void>;
+  setMsg: (s: string) => void;
+}) {
+  const [curPw, setCurPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [creds, setCreds] = useState<Any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [secMsg, setSecMsg] = useState("");
+  const loadCreds = async () => {
+    try { setCreds(await get("/api/auth/webauthn/list") as Any[]); } catch { setCreds([]); }
+  };
+  useEffect(() => { loadCreds(); }, []);
+
+  const changePw = async () => {
+    if (newPw.length < 6) { setSecMsg("新密码至少 6 位"); return; }
+    setBusy(true); setSecMsg("");
+    try {
+      await post("/api/auth/change-password", { current_password: curPw, new_password: newPw });
+      setCurPw(""); setNewPw(""); setSecMsg("密码已修改");
+    } catch (e) { setSecMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const registerFingerprint = async () => {
+    if (!window.PublicKeyCredential) { setSecMsg("当前浏览器不支持指纹登录"); return; }
+    setBusy(true); setSecMsg("");
+    try {
+      const opts = await post("/api/auth/webauthn/register/begin", {}) as Any;
+      const pk: Any = {
+        ...opts,
+        challenge: b64urlToBuf(opts.challenge),
+        user: { ...opts.user, id: b64urlToBuf(opts.user.id) },
+        excludeCredentials: (opts.excludeCredentials || []).map((c: Any) => ({ ...c, id: b64urlToBuf(c.id) })),
+      };
+      const cred = await navigator.credentials.create({ publicKey: pk as PublicKeyCredentialCreationOptions }) as any;
+      if (!cred) throw new Error("未完成指纹注册");
+      await post("/api/auth/webauthn/register/finish", { credential: credentialToJSON(cred), label: "指纹" });
+      await loadCreds();
+      setSecMsg("指纹已注册，下次登录可用指纹登录");
+    } catch (e) { setSecMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const saveOAuth = () => {
+    const patch: Any = {
+      google_oauth_client_id: (document.getElementById("oauth-google-id") as HTMLInputElement)?.value ?? "",
+      github_oauth_client_id: (document.getElementById("oauth-github-id") as HTMLInputElement)?.value ?? "",
+    };
+    const gsec = (document.getElementById("oauth-google-secret") as HTMLInputElement)?.value || "";
+    const hsec = (document.getElementById("oauth-github-secret") as HTMLInputElement)?.value || "";
+    if (gsec) patch.google_oauth_client_secret = gsec;
+    if (hsec) patch.github_oauth_client_secret = hsec;
+    saveSettings(patch);
+    setMsg("登录方式已保存");
+  };
+
+  return (
+    <div className="card"><h2>登录与安全</h2>
+      <p className="muted">管理员：{adminName || "管理员"}。登录方式：密码、指纹、Google、GitHub。</p>
+      <h3 style={{ marginTop: 12 }}>修改密码</h3>
+      <div className="form2">
+        <div><label>当前密码</label><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder="首次设置留空" /></div>
+        <div><label>新密码</label><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="至少 6 位" /></div>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn" onClick={changePw} disabled={busy}>修改密码</button>
+      </div>
+      <h3 style={{ marginTop: 20 }}>指纹登录</h3>
+      <p className="muted">在本设备注册指纹（或安全密钥），下次登录页可直接用指纹登录。需 HTTPS 或 localhost 访问。</p>
+      <div className="row">
+        <button className="btn" onClick={registerFingerprint} disabled={busy}>注册指纹</button>
+      </div>
+      {creds.map((c) => (
+        <div key={c.credential_id as string} className="row" style={{ marginTop: 8 }}>
+          <span>{c.label as string || "指纹"}</span>
+          <span className="muted">{new Date((c.created_at as number) * 1000).toLocaleDateString()}</span>
+          <span className="spacer" />
+          <button className="btn ghost" onClick={async () => { await del(`/api/auth/webauthn/${c.credential_id}`); await loadCreds(); }}>删除</button>
+        </div>
+      ))}
+      <h3 style={{ marginTop: 20 }}>Google / GitHub 登录</h3>
+      <p className="muted">在 Google Cloud Console / GitHub Settings 里创建 OAuth 应用，回调地址填 {window.location.origin}/api/auth/oauth/google/callback（GitHub 同理，把 google 换成 github）。Secret 留空保持不变。</p>
+      <div className="form2">
+        <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder="未配置" /></div>
+        <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" placeholder={settings.google_oauth_configured ? "已配置，留空保持不变" : "未配置"} /></div>
+        <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder="未配置" /></div>
+        <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" placeholder={settings.github_oauth_configured ? "已配置，留空保持不变" : "未配置"} /></div>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn" onClick={saveOAuth}>保存登录方式</button>
+      </div>
+      {secMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{secMsg}</p>}
     </div>
   );
 }
@@ -260,7 +679,64 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [dry, setDry] = useState<Any | null>(null);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
-  const [preview, setPreview] = useState<Any | null>(null);
+  // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
+  const [cardSettingsId, setCardSettingsId] = useState<number | null>(null);
+  // 概览视图：卡片 / 列表
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [acting, setActing] = useState<Record<number, string>>({});
+
+  // ---------- 主题：白 / 黑 / 跟随系统（磨砂玻璃，尺寸不变） ----------
+  const [theme, setTheme] = useState<string>(() => {
+    try { return localStorage.getItem("cdt-theme") || "system"; } catch { return "system"; }
+  });
+  useEffect(() => {
+    const apply = () => {
+      const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+    };
+    apply();
+    try { localStorage.setItem("cdt-theme", theme); } catch { /* 忽略 */ }
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const h = () => { if (theme === "system") apply(); };
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, [theme]);
+
+  // ---------- 登录门：首次设置 / 登录 / 已登录 ----------
+  const [authState, setAuthState] = useState<"loading" | "setup" | "login" | "authed">("loading");
+  const [authInfo, setAuthInfo] = useState<Any>({});
+  const [oauthMsg, setOauthMsg] = useState("");
+
+  const checkAuth = async () => {
+    try {
+      const s = await get("/api/auth/status") as Any;
+      setAuthInfo(s);
+      if (!s.admin_configured) { setAuthState("setup"); return; }
+      if (getToken()) {
+        try { await get("/api/status"); setAuthState("authed"); return; }
+        catch { setAuthState("login"); return; }
+      }
+      setAuthState("login");
+    } catch { setAuthState("login"); }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    const oerr = params.get("oauth_error");
+    if (token) { setToken(token); window.history.replaceState({}, "", window.location.pathname); }
+    if (oerr) {
+      setOauthMsg(oerr === "identity_mismatch" ? "该 Google / GitHub 账号与已绑定的管理员身份不一致"
+        : oerr === "invalid_state" ? "登录验证已过期，请重试"
+        : `第三方登录失败（${oerr}）`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    checkAuth();
+    const onUnauth = () => { setToken(null); setAuthState("login"); };
+    window.addEventListener("cdt-unauthorized", onUnauth);
+    return () => window.removeEventListener("cdt-unauthorized", onUnauth);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 状态点（新映射）：green 在线 / yellow 排队中 / gray 已跳出或未知 /
   // red 停机或离线 / green_pulse 启动中（高亮闪烁绿）/ red_pulse 停止中（闪烁红）
@@ -297,12 +773,7 @@ export default function App() {
     try { setSettings(await get("/api/settings") as Any); } catch { /* ignore */ }
     try { setTimezones((((await get("/api/timezones") as Any).timezones as Any[]) || [])); } catch { /* 失败时下拉用内置列表 */ }
   };
-  useEffect(() => { load(); }, []);
-  useEffect(() => {
-    if (tab === "notify") {
-      get("/api/notify/daily-preview").then((r) => setPreview(r as Any)).catch(() => setPreview(null));
-    }
-  }, [tab]);
+  useEffect(() => { if (authState === "authed") load(); }, [authState]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true); setMsg("");
@@ -328,15 +799,115 @@ export default function App() {
   // 时间/差值两组控件都显示，不再按全局模式变灰。
   // 阈值踢出/保活/备用地址不受切换模式影响。
   const groupName = (gid: number | null | undefined) =>
-    (groups.find((g) => g.id === (gid || 1))?.name as string) || "默认分组";
+    (groups.find((g) => g.id === (gid || 1))?.name as string) || "未分组";
   const groupMode = (gid: number | null | undefined) =>
     (groups.find((g) => g.id === (gid || 1))?.switch_mode as string) || "load_balance";
+
+  // ---------- 单台操作：刷新 / 启动 / 重启 / 停机 ----------
+  const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop") => {
+    const label = action === "refresh" ? "刷新" : action === "start" ? "启动" : action === "restart" ? "重启" : "停机";
+    if (action === "stop" && !confirm(`停机 ${a.name}？若它仍在被域名指向，保活可能在下次调度把它重新拉起。`)) return;
+    setActing((m) => ({ ...m, [a.id]: action }));
+    try {
+      await post(`/api/accounts/${a.id}/${action}`, {});
+      setMsg(`已执行${label}：${a.name}`);
+      await load();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally {
+      setActing((m) => { const n = { ...m }; delete n[a.id]; return n; });
+    }
+  };
+  const ActionButtons = ({ a }: { a: Any }) => (
+    <div className="row">
+      <button className="btn ghost" disabled={!!acting[a.id]} onClick={() => accountAction(a, "refresh")}>{acting[a.id] === "refresh" ? "刷新中…" : "刷新"}</button>
+      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status === "Running"} onClick={() => accountAction(a, "start")}>{acting[a.id] === "start" ? "启动中…" : "启动"}</button>
+      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status !== "Running"} onClick={() => accountAction(a, "restart")}>{acting[a.id] === "restart" ? "重启中…" : "重启"}</button>
+      <button className="btn ghost" disabled={!!acting[a.id] || a.instance_status !== "Running"} onClick={() => accountAction(a, "stop")}>{acting[a.id] === "stop" ? "停机中…" : "停机"}</button>
+    </div>
+  );
+
+  // ---------- 卡片设置面板：右上角 ⚙ 打开；配置表单 + 复制 + 删除实例（最下面） ----------
+  const CardSettings = ({ a }: { a: Any }) => (
+    <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+      <InstanceForm account={a} settings={settings} count={accounts.length}
+        onDone={() => { setCardSettingsId(null); load(); setMsg("已保存"); }}
+        onCancel={() => setCardSettingsId(null)} />
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="btn ghost" title="复制配置摘要" onClick={async () => {
+          const text = `${a.name}\n实例 ID：${a.instance_id}\n地域：${a.region}\nIP：${a.public_ip || "—"}`;
+          try { await navigator.clipboard.writeText(text); setMsg("配置摘要已复制"); }
+          catch { setMsg(text); }
+        }}>⧉ 复制配置摘要</button>
+      </div>
+      <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+        <button className="btn" style={{ background: "#EA4335" }}
+          onClick={() => { if (confirm(`删除实例 ${a.name}？删除后域名将重新分配。`)) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), "已删除"); } }}>
+          删除实例
+        </button>
+      </div>
+    </div>
+  );
+
+  // ---------- 全局设置页的按键式选择：与 settings 同步 ----------
+  const [sExcl, setSExcl] = useState("none");
+  const [sRecovery, setSRecovery] = useState("start");
+  const [sDiffMode, setSDiffMode] = useState("percent");
+  const [sTsMode, setSTsMode] = useState("");
+  const [sInterval, setSInterval] = useState("6");
+  const [sRefresh, setSRefresh] = useState("5");
+  useEffect(() => {
+    setSExcl(settings.exclusion_action ?? "none");
+    setSRecovery(settings.threshold_recovery_action ?? "start");
+    setSDiffMode(settings.switch_diff_mode ?? "percent");
+    setSTsMode(settings.time_switch_mode ?? "");
+    setSInterval(String(settings.interval_hours ?? 6));
+    const r = String(settings.api_refresh_minutes ?? 5);
+    setSRefresh(["5", "10", "15", "30", "60", "120"].includes(r) ? r : "custom");
+  }, [settings]);
+
+  // ---------- 每日财报（通知设置两个渠道框体共用同一组开关） ----------
+  const [drEnabled, setDrEnabled] = useState(true);
+  const [drTime, setDrTime] = useState("00:00");
+  useEffect(() => {
+    setDrEnabled(settings.daily_report_enabled !== "0");
+    setDrTime(String(settings.daily_report_time ?? "00:00"));
+  }, [settings]);
+
+  // ---------- 分组新建表单 ----------
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupMode, setNewGroupMode] = useState("");
+
+  if (authState === "loading") {
+    return <div className="app"><p className="muted">加载中…</p></div>;
+  }
+  if (authState === "setup") {
+    return (
+      <div className="app">
+        <SetupScreen onDone={() => { setAuthState("authed"); }} onSkip={() => { setAuthState("authed"); }} />
+      </div>
+    );
+  }
+  if (authState === "login") {
+    return (
+      <div className="app">
+        <LoginScreen info={authInfo} oauthMsg={oauthMsg} onDone={() => { setAuthState("authed"); }} />
+      </div>
+    );
+  }
 
   return (
     <div className="app">
       <header>
-        <h1>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "domains" ? "域名管理" : tab === "groups" ? "分组管理" : tab === "settings" ? "全局设置" : "通知设置"}</h1>
-        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : tab === "settings" ? "设置调度规则、网页访问和通知渠道。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "domains" ? "域名管理" : tab === "groups" ? "分组管理" : tab === "settings" ? "全局设置" : "通知设置"}</h1>
+          <Seg value={theme} options={[
+            { value: "light", label: "白" },
+            { value: "dark", label: "黑" },
+            { value: "system", label: "跟随系统" },
+          ]} onChange={setTheme} />
+        </div>
+        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : tab === "settings" ? "设置调度规则和登录方式。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>
@@ -369,17 +940,55 @@ export default function App() {
               <div className="muted">已查询 {status?.accounts_known ?? 0} / {status?.accounts_total ?? 0} 个账户账单，按币种汇总</div>
             </div>
           </div>
-          <div className="card"><h2>账户流量与状态</h2>
-            <table><thead><tr><th>Ali 账户</th><th>账户站点</th><th>VPS 地域</th><th>已用 / 月度流量额度</th><th>流量使用率</th><th>VPS 状态</th></tr></thead>
-              <tbody>{accounts.map((a) => (
-                <tr key={a.id as number}><td><b>{a.name as string}</b></td><td>{a.site === "cn" ? "中国站" : "国际站"}</td><td>{a.region as string}</td>
-                  <td><b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB</td>
-                  <td>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}<div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div></td>
-                  <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</td></tr>
-              ))}</tbody></table>
+          <div className="card">
+            <div className="row" style={{ justifyContent: "space-between" }}>
+              <h2 style={{ margin: 0 }}>服务器</h2>
+              <Seg value={viewMode} options={[
+                { value: "card", label: "卡片" },
+                { value: "list", label: "列表" },
+              ]} onChange={(v) => setViewMode(v as "card" | "list")} />
+            </div>
             <Legend />
-            <p className="muted">已跳出：达保护阈值被踢出池子，不再参与 DDNS，用量回落后自动恢复；排队中：在线待命，按使用率排队等接替。</p>
             {accounts.length === 0 && <p className="muted">暂无账户，先去「Ali 账户」添加。</p>}
+            {viewMode === "card" ? (
+              <div className="grid3" style={{ marginTop: 12 }}>
+                {accounts.map((a) => (
+                  <div className="card" key={a.id as number} style={{ marginBottom: 0 }}>
+                    <div className="row" style={{ justifyContent: "space-between" }}>
+                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></div>
+                      <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <span className="pill">{a.status_label || a.instance_status || "未知"}</span>
+                      {a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}
+                    </div>
+                    <div className="muted" style={{ marginTop: 8 }}>
+                      {a.site === "cn" ? "中国站" : "国际站"} · {a.region as string} · IP {a.public_ip as string || "—"}
+                    </div>
+                    <div style={{ marginTop: 8 }}>流量 <b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB{a.usage_rate != null ? `（${a.usage_rate}%）` : ""}</div>
+                    <div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div>
+                    {a.status_detail ? <div className="muted" style={{ marginTop: 6 }}>{a.status_detail as string}</div> : null}
+                    <div style={{ marginTop: 12 }}><ActionButtons a={a} /></div>
+                    {cardSettingsId === a.id && <CardSettings a={a} />}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <table style={{ marginTop: 12 }}><thead><tr><th>服务器</th><th>站点</th><th>地域</th><th>IP</th><th>已用 / 月度流量额度</th><th>使用率</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>{accounts.map((a) => (
+                  <tr key={a.id as number}>
+                    <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
+                    <td>{a.site === "cn" ? "中国站" : "国际站"}</td>
+                    <td>{a.region as string}</td>
+                    <td>{a.public_ip as string || "—"}</td>
+                    <td><b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB</td>
+                    <td>{a.usage_rate != null ? `${a.usage_rate}%` : "—"}<div className="bar"><i style={{ width: `${a.usage_rate ?? 0}%` }} /></div></td>
+                    <td><span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}</td>
+                    <td><ActionButtons a={a} /></td>
+                  </tr>
+                ))}</tbody></table>
+            )}
+            <p className="muted">已跳出：达保护阈值被踢出池子，不再参与 DDNS，用量回落后自动恢复；排队中：在线待命，按使用率排队等接替。卡片右上角 ⚙ 打开卡片设置（配置 / 复制 / 删除实例）。</p>
           </div>
           <div className="card"><h2>当前 DNS 指向</h2>
             {domains.map((d) => (
@@ -402,31 +1011,23 @@ export default function App() {
 
       {tab === "accounts" && (
         <div className="card"><h2>Ali 账户 {accounts.length}</h2>
-          <p className="muted">每台实例一个卡片，点“编辑”进入配置表单。账户默认继承全局参数，可单独覆盖阈值动作、恢复方式、每日定时开关机与日报推送。地域来自阿里云 DescribeRegions，站点决定端点与币种。</p>
+          <p className="muted">每台实例一个卡片，点右上角 ⚙ 打开卡片设置（配置 / 复制 / 删除实例）。账户默认继承全局参数，可单独覆盖阈值动作、恢复方式、每日定时开关机与日报推送。地域来自阿里云 DescribeRegions，站点决定端点与币种。</p>
           <Legend />
           <div className="row" style={{ marginBottom: 12 }}>
             <button className="btn" onClick={() => setEditingId("new")}>+ 添加实例</button>
             <button className="btn ghost" onClick={() => run(() => post("/api/cloud/status"), "云端状态已查询")}>查询云端状态</button>
           </div>
           {editingId === "new" && (
-            <InstanceForm account={null} groups={groups} settings={settings} count={accounts.length}
+            <InstanceForm account={null} settings={settings} count={accounts.length}
               onDone={() => { setEditingId(null); load(); setMsg("账户已添加"); }}
               onCancel={() => setEditingId(null)} />
           )}
           {accounts.map((a) => (
             <div className="card" key={a.id as number} style={{ marginTop: 12 }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <div><b>{a.name as string}</b> {dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}<br />
+                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label || a.instance_status || "未知"}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>已跳出</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? "中国站 cn" : "国际站 global"} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? "按时间切换" : "按负载均衡"}）</span></div>
-                <div className="row">
-                  <button className="btn ghost" title="复制配置摘要" onClick={async () => {
-                    const text = `${a.name}\n实例 ID：${a.instance_id}\n地域：${a.region}\nIP：${a.public_ip || "—"}`;
-                    try { await navigator.clipboard.writeText(text); setMsg("配置摘要已复制"); }
-                    catch { setMsg(text); }
-                  }}>⧉ 复制</button>
-                  <button className="btn ghost" onClick={() => setEditingId(a.id as number)}>编辑</button>
-                  <button className="btn ghost" onClick={() => { if (confirm(`删除账户 ${a.name}？删除后域名将重新分配。`)) run(() => del(`/api/accounts/${a.id}`), "已删除"); }}>删除</button>
-                </div>
+                <button className="btn ghost" title="卡片设置" onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
               </div>
               <div className="muted" style={{ marginTop: 8 }}>
                 实例 {a.instance_id as string} · IP {a.public_ip as string || "—"} · 流量 <b>{a.traffic_used_gb ?? "—"}</b> / {a.quota_gb ?? 200} GiB{a.usage_rate != null ? `（${a.usage_rate}%）` : ""} · 本月费用 <b>{a.billing_month_cost ?? "—"}</b> {a.billing_currency || ""}
@@ -436,17 +1037,15 @@ export default function App() {
                 阈值动作 {exclLabel(a.exclusion_action_effective || a.exclusion_action)} · 阈值 {a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}% · 恢复 {a.recovery_action_effective === "keep_stopped" ? "入池但保持停机" : "恢复时拉起"} · 每日定时 {a.daily_schedule_enabled ? `${a.daily_on_time}–${a.daily_off_time}` : "关"} · 日报 {a.daily_report === "on" ? "单独开启" : a.daily_report === "off" ? "单独关闭" : "跟随全局"}{a.has_secret ? "" : " · 未配置凭据"}
               </div>
               {a.status_detail ? <div className="muted" style={{ marginTop: 4 }}>{a.status_detail as string}</div> : null}
-              {editingId === a.id && (
-                <InstanceForm account={a} groups={groups} settings={settings} count={accounts.length}
-                  onDone={() => { setEditingId(null); load(); setMsg("已保存"); }}
-                  onCancel={() => setEditingId(null)} />
-              )}
+              <div style={{ marginTop: 12 }}><ActionButtons a={a} /></div>
+              {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
           ))}
         </div>
       )}
 
       {tab === "domains" && (
+        <>
         <div className="card"><h2>受管理域名 {domains.length}</h2>
           <div className="notice">1 个分组最多绑定 1 个域名。排在前面的域名优先使用流量使用率较低的账户。Zone ID 与记录 ID 自动发现。</div>
           <table><thead><tr><th>优先顺序</th><th>域名</th><th>分组</th><th>Zone</th><th>当前记录快照</th><th>记录设置</th><th>操作</th></tr></thead>
@@ -467,7 +1066,7 @@ export default function App() {
           <div className="row">
             <input id="dom-name" placeholder="域名，如 www.example.xyz" style={{ flex: 1 }} />
             <select id="dom-group" defaultValue="">
-              <option value="">默认分组</option>
+              <option value="">请选择分组</option>
               {groups.map((g) => {
                 const bound = domains.some((d) => (d.group_id || 1) === g.id);
                 return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? "（已绑定域名，不可选）" : ""}</option>;
@@ -477,91 +1076,61 @@ export default function App() {
               const name = (document.getElementById("dom-name") as HTMLInputElement).value.trim();
               if (!name) { setMsg("请填写域名"); return; }
               const gv = (document.getElementById("dom-group") as HTMLSelectElement).value;
-              run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length, group_id: gv ? Number(gv) : 1 }), "域名已添加");
+              if (!gv) { setMsg("请选择分组"); return; }
+              run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length, group_id: Number(gv) }), "域名已添加");
             }}>+ 添加域名</button>
           </div>
         </div>
+        <div className="card"><h2>DDNS 设置</h2>
+          <p className="muted">Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。</p>
+          <div className="form2">
+            <div><label>Cloudflare API Token</label>
+              <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? "已配置，留空保持不变" : "未配置，填写 Cloudflare API Token"} />
+              <p className="muted">{settings.cloudflare_configured ? "已配置。留空保存时保持不变，只有填了新值才更新。" : "未配置。填写后才能执行 DDNS 更新。"}</p></div>
+            <div><label className="req">时区 *</label>
+              <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone">
+                {(timezones.length ? timezones : TZ_FALLBACK).map((tz) => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
+              </select>
+              <p className="muted">当前：{String(settings.timezone ?? "Asia/Shanghai")}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。</p></div>
+          </div>
+          <button className="btn" onClick={() => saveSettings(ddnsPatch())}>保存 DDNS 设置</button>
+        </div>
+        </>
       )}
 
       {tab === "groups" && (
-        <div className="card"><h2>分组 {groups.length}</h2>
-          <div className="notice">一个分组只选一种切换模式（单选）：按时间切换或按负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。</div>
-          {groups.map((g) => {
-            const members = accounts.filter((a) => (a.group_id || 1) === g.id);
-            const dom = domains.find((d) => (d.group_id || 1) === g.id);
-            const cur = dom ? accounts.find((a) => a.id === dom.current_account_id) : null;
-            return (
-              <div key={g.id as number} className="card" style={{ marginBottom: 12 }}>
-                <div className="row"><b>{g.name as string}</b>
-                  {g.id === 1 && <span className="pill blue">默认分组</span>}
-                  <span className="pill">{g.switch_mode === "time" ? "按时间切换" : "按负载均衡"}</span>
-                  <span className="spacer" />
-                  <button className="btn ghost" onClick={() => { if (confirm(`删除分组 ${g.name}？须先移走其账户/域名。`)) run(() => del(`/api/groups/${g.id}`), "已删除"); }}>删除</button>
-                </div>
-                <div className="row" style={{ marginTop: 8 }}>
-                  <label>切换模式（单选）：</label>
-                  {(["time", "load_balance"] as const).map((m) => (
-                    <label key={m} className="check" style={{ marginRight: 12 }}>
-                      <input type="radio" name={`gm-${g.id}`} checked={g.switch_mode === m}
-                        onChange={() => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), "已切换模式")} />
-                      {m === "time" ? "按时间切换" : "按负载均衡"}
-                    </label>
-                  ))}
-                </div>
-                {g.switch_mode === "time" ? (
-                  <p className="muted">时间参数：间隔 {g.interval_hours ?? settings.interval_hours ?? 6} 小时
-                    {g.custom_interval_minutes ? `（自定义 ${g.custom_interval_minutes} 分钟）` : ""}
-                    {g.fixed_switch_time ? `，固定时刻 ${g.fixed_switch_time}` : ""}，
-                    夜间 {g.night_window_start ?? settings.night_window_start ?? "00:00"}–{g.night_window_end ?? settings.night_window_end ?? "04:00"}。
-                    未填的继承全局设置。点下方“参数”可改：间隔/固定时刻/夜间窗口。</p>
-                ) : (
-                  <p className="muted">负载参数：差值模式 {g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent"}，
-                    {g.switch_diff_mode === "gb" || settings.switch_diff_mode === "gb"
-                      ? `${g.switch_diff_gb ?? settings.switch_diff_gb ?? 10} GB`
-                      : `${g.switch_diff_pct ?? settings.switch_diff_pct ?? 10}%`}。
-                    未填的继承全局设置。</p>
-                )}
-                <div className="row">
-                  <button className="btn ghost" onClick={() => {
-                    const v = prompt("间隔小时（1/2/3/4/6/12/24，留空不改）", String(g.interval_hours ?? settings.interval_hours ?? 6));
-                    if (v) run(() => put(`/api/groups/${g.id}`, { interval_hours: Number(v) }), "已更新");
-                  }}>改间隔</button>
-                  <button className="btn ghost" onClick={() => {
-                    const v = prompt("切换差值 GB（GB 模式，留空不改）", String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
-                    if (v) run(() => put(`/api/groups/${g.id}`, { switch_diff_mode: "gb", switch_diff_gb: Number(v) }), "已更新");
-                  }}>改差值 GB</button>
-                  <button className="btn ghost" onClick={() => {
-                    const v = prompt("切换差值 %（% 模式，留空不改）", String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
-                    if (v) run(() => put(`/api/groups/${g.id}`, { switch_diff_mode: "percent", switch_diff_pct: Number(v) }), "已更新");
-                  }}>改差值 %</button>
-                </div>
-                <h3 style={{ marginTop: 12 }}>成员 IP（{members.length}）</h3>
-                {members.length === 0 && <p className="muted">暂无成员，去「Ali 账户」添加并选本分组。</p>}
-                {members.map((a) => (
-                  <div key={a.id as number} className="row" style={{ padding: "4px 0" }}>
-                    {dotEl(a.status_dot, a.status_detail || a.status_label || "")}
-                    <b>{a.name as string}</b><span className="muted">{a.status_label || a.instance_status || "未知"}</span>
-                    <span>{a.public_ip as string || "—"}</span>
-                    <span className="muted">{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</span>
-                    {a.evicted ? <span className="pill gray">已跳出</span> : null}
-                  </div>
-                ))}
-                <h3 style={{ marginTop: 12 }}>绑定域名（最多 1 个）</h3>
-                {dom ? (
-                  <div className="row"><b>{dom.name as string}</b><span className="muted">当前指向</span>
-                    <span>{(dom.current_ip as string) || "未分配"}</span>
-                    <span className="muted">{cur ? cur.name as string : (dom.fallback_active ? "备用地址生效中" : "")}</span></div>
-                ) : <p className="muted">未绑定域名，去「域名管理」添加并选本分组。</p>}
-              </div>
-            );
-          })}
-          <div className="row">
-            <button className="btn" onClick={() => {
-              const name = prompt("分组名，如 分组C"); if (!name) return;
-              const mode = prompt("切换模式：time 按时间切换 / load_balance 按负载均衡", "load_balance") || "load_balance";
-              run(() => post("/api/groups", { name, switch_mode: mode }), "分组已创建");
-            }}>+ 新建分组</button>
+        <div className="card">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <h2 style={{ margin: 0 }}>分组 {groups.length}</h2>
+            <button className="btn" onClick={() => setShowNewGroup(!showNewGroup)}>+ 新建分组</button>
           </div>
+          <div className="notice">一个分组只选一种切换模式（单选）：按时间切换或按负载均衡，不同分组可以选不同模式。1 个分组最多绑定 1 个域名。阈值踢出、保活、备用地址不受切换模式影响。</div>
+          {showNewGroup && (
+            <div className="instance-form" style={{ marginBottom: 12 }}>
+              <label className="req">分组名 *</label>
+              <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="如 分组C" />
+              <label style={{ marginTop: 12 }}>切换模式（单选）</label>
+              <Seg value={newGroupMode} options={[
+                { value: "time", label: "按时间切换" },
+                { value: "load_balance", label: "按负载均衡" },
+              ]} onChange={setNewGroupMode} />
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+                <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); }}>取消</button>
+                <button className="btn" onClick={() => {
+                  if (!newGroupName.trim()) { setMsg("请填写分组名"); return; }
+                  if (!newGroupMode) { setMsg("请选择切换模式"); return; }
+                  run(() => post("/api/groups", { name: newGroupName.trim(), switch_mode: newGroupMode }), "分组已创建");
+                  setShowNewGroup(false); setNewGroupName(""); setNewGroupMode("");
+                }}>创建分组</button>
+              </div>
+            </div>
+          )}
+          {groups.map((g) => (
+            <GroupCard key={`${g.id}-${g.interval_hours}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.fixed_switch_time}-${g.night_window_start}-${g.night_window_end}`}
+              g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} />
+          ))}
         </div>
       )}
 
@@ -575,83 +1144,90 @@ export default function App() {
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>去分组管理</button>
             </div>
             <div className="form2">
-              <div><label>月度流量额度 *（GiB）</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" /></div>
-              <div><label>流量保护阈值 *（%）</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" /></div>
+              <div><label className="req">月度流量额度 *（GiB）</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" /></div>
+              <div><label className="req">流量保护阈值 *（%）</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" /></div>
             </div>
             <div className="form2">
-              <div><label>切换差值模式 *</label><select defaultValue={String(settings.switch_diff_mode ?? "percent")} id="s-diffmode">
-                <option value="percent">按使用率差值（%）</option><option value="gb">按已用流量差值（GB）</option></select></div>
-              <div><label>切换差值阈值 *（%）</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" /></div>
+              <div><label className="req">切换差值模式 *</label>
+                <Seg value={sDiffMode} options={[
+                  { value: "percent", label: "按使用率差值（%）" },
+                  { value: "gb", label: "按已用流量差值（GB）" },
+                ]} onChange={setSDiffMode} /></div>
+              <div><label className="req">切换差值阈值 *（%）</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" /></div>
               <div><label>切换差值（GB，仅 GB 模式）</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" /></div>
               <div><p className="muted" style={{ marginTop: 28 }}>负载均衡：% 模式差值 ≥ 10% 切，GB 模式差值 ≥ 10 GB 切。</p></div>
-              <div><label>API 刷新时间 *（分钟）</label>
-                <select defaultValue={["5", "10", "15", "30", "60", "120"].includes(String(settings.api_refresh_minutes ?? 5)) ? String(settings.api_refresh_minutes ?? 5) : "custom"} id="s-refresh">
-                  <option value="5">5 分钟</option><option value="10">10 分钟</option>
-                  <option value="15">15 分钟</option><option value="30">30 分钟</option>
-                  <option value="60">60 分钟</option><option value="120">120 分钟</option>
-                  <option value="custom">自定义</option></select>
+              <div><label className="req">API 刷新时间 *（分钟）</label>
+                <Seg value={sRefresh} options={[
+                  { value: "5", label: "5 分钟" }, { value: "10", label: "10 分钟" },
+                  { value: "15", label: "15 分钟" }, { value: "30", label: "30 分钟" },
+                  { value: "60", label: "60 分钟" }, { value: "120", label: "120 分钟" },
+                  { value: "custom", label: "自定义" },
+                ]} onChange={setSRefresh} />
                 <input placeholder="自定义分钟数" defaultValue={["5", "10", "15", "30", "60", "120"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} />
                 <p className="muted">多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。</p></div>
-              <div><label>备用地址 *</label><input defaultValue={String(settings.fallback_address ?? "")} id="s-fallback" /></div>
+              <div><label className="req">备用地址 *</label><input defaultValue={String(settings.fallback_address ?? "")} id="s-fallback" /></div>
             </div>
             <h3 style={{ marginTop: 20 }}>阈值</h3>
             <p className="muted">到达阈值默认不停机，只是跳出 DDNS：实例踢出池子、不再参与 DDNS 解析，域名切到下一台用量最低的。恢复线 = 阈值 − 2%（如阈值 95%，回落到 93% 以下才恢复）；被踢出超 24 小时且用量低于阈值时兜底恢复；流量一更新就重新评估，恢复后同一轮重新参与分配。</p>
             <div>
               <label>阈值动作（三选一）</label>
-              <div className="radio-group">
-                {EXCL_OPTIONS.map((o) => (
-                  <label key={o.value} className="radio"><input type="radio" name="s-excl" value={o.value} defaultChecked={(settings.exclusion_action ?? "none") === o.value} /><span><b>{o.title}</b><small>{o.sub}</small></span></label>
-                ))}
-              </div>
+              <Seg value={sExcl} options={[
+                { value: "none", label: "踢出DDNS" },
+                { value: "stop_charging", label: "节省停机" },
+                { value: "stop", label: "停机" },
+              ]} onChange={setSExcl} />
               <p className="muted">默认不停机，只跳出 DDNS；如需省流量费再选停机/节省停机。停机永远在切完 DNS 之后，同一台只停一次。</p>
             </div>
             <div style={{ marginTop: 12 }}>
               <label>阈值恢复</label>
-              <div className="radio-group">
-                <label className="radio"><input type="radio" name="s-recovery" value="start" defaultChecked={(settings.threshold_recovery_action ?? "start") === "start"} /><span><b>恢复时拉起（默认）</b><small>用量回落后自动开机，再重新参与 DDNS 分配</small></span></label>
-                <label className="radio"><input type="radio" name="s-recovery" value="keep_stopped" defaultChecked={settings.threshold_recovery_action === "keep_stopped"} /><span><b>恢复入池但保持停机</b><small>只入池，等保活/手动再拉起</small></span></label>
-              </div>
+              <Seg value={sRecovery} options={[
+                { value: "start", label: "恢复时拉起（默认）" },
+                { value: "keep_stopped", label: "恢复入池但保持停机" },
+              ]} onChange={setSRecovery} />
               <p className="muted">每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。</p>
             </div>
             <h3 style={{ marginTop: 20 }}>按时间切换</h3>
             <div>
             <div className="form2">
-              <div><label>时间切换模式 *</label><select defaultValue={String(settings.time_switch_mode ?? "")} id="s-tsmode">
-                <option value="">自动（夜间 + 固定时刻都可用）</option>
-                <option value="off">关闭（不按时间切换）</option>
-                <option value="night_only">仅夜间窗口</option>
-                <option value="interval">仅间隔切换</option>
-                <option value="fixed_time">仅固定时刻</option></select></div>
-              <div><label>间隔切换周期（仅间隔模式）</label><select defaultValue={String(settings.interval_hours ?? 6)} id="s-ival">
-                <option value="1">每 1 小时</option><option value="2">每 2 小时</option>
-                <option value="3">每 3 小时</option><option value="4">每 4 小时</option>
-                <option value="6">每 6 小时</option><option value="12">每 12 小时</option>
-                <option value="24">每 24 小时</option><option value="0">自定义分钟数</option></select></div>
-              <div><label>自定义间隔（分钟，周期选“自定义”时生效）</label><input defaultValue={String(settings.custom_interval_minutes ?? 0)} id="s-custmin" /></div>
+              <div><label className="req">时间切换模式 *</label>
+                <Seg value={sTsMode} options={[
+                  { value: "", label: "自动" },
+                  { value: "off", label: "关闭" },
+                  { value: "night_only", label: "仅夜间窗口" },
+                  { value: "interval", label: "仅间隔切换" },
+                  { value: "fixed_time", label: "仅固定时刻" },
+                ]} onChange={setSTsMode} /></div>
+              <div><label>间隔切换周期（仅间隔模式）</label>
+                <Seg value={sInterval} options={[
+                  { value: "1", label: "1 小时" }, { value: "2", label: "2 小时" },
+                  { value: "3", label: "3 小时" }, { value: "4", label: "4 小时" },
+                  { value: "6", label: "6 小时" }, { value: "12", label: "12 小时" },
+                  { value: "24", label: "24 小时" }, { value: "0", label: "自定义分钟" },
+                ]} onChange={setSInterval} /></div>
+              <div><label>自定义间隔（分钟，周期选“自定义分钟”时生效）</label><input defaultValue={String(settings.custom_interval_minutes ?? 0)} id="s-custmin" /></div>
               <div><label>固定每日切换时刻（自动/固定时刻模式，留空不启用）</label><input type="time" defaultValue={String(settings.fixed_switch_time ?? "")} id="s-fixed" /></div>
             </div>
             <label className="check"><input type="checkbox" defaultChecked={settings.night_optimize_enabled === "1"} id="s-night" /> 启用夜间主动优化</label>
             <div className="form2">
-              <div><label>夜间窗口开始 *</label><input type="time" defaultValue={String(settings.night_window_start ?? "00:00")} id="s-nstart" /></div>
-              <div><label>夜间窗口结束 *</label><input type="time" defaultValue={String(settings.night_window_end ?? "04:00")} id="s-nend" /></div>
+              <div><label className="req">夜间窗口开始 *</label><input type="time" defaultValue={String(settings.night_window_start ?? "00:00")} id="s-nstart" /></div>
+              <div><label className="req">夜间窗口结束 *</label><input type="time" defaultValue={String(settings.night_window_end ?? "04:00")} id="s-nend" /></div>
             </div>
             <p className="muted">按时间切换仅在“按时间切换 / 两者都启用”时评估。夜间窗口内第一轮有效检查可切换至使用率更低的候选，每晚仅一次。间隔切换按上次切换锚点每 N 小时切一次（1 小时=每小时整点，6 小时=00/06/12/18），重启后按锚点继续，不重复切。固定时刻每天仅一次。按程序本地时间执行，支持跨午夜。</p>
             </div>
             <button className="btn" onClick={() => saveSettings({
               quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
               protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
-              switch_diff_mode: (document.getElementById("s-diffmode") as HTMLSelectElement).value,
+              switch_diff_mode: sDiffMode,
               switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement).value,
               switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement).value,
-              time_switch_mode: (document.getElementById("s-tsmode") as HTMLSelectElement).value,
-              interval_hours: (document.getElementById("s-ival") as HTMLSelectElement).value,
+              time_switch_mode: sTsMode,
+              interval_hours: sInterval,
               custom_interval_minutes: (document.getElementById("s-custmin") as HTMLInputElement).value,
-              exclusion_action: (document.querySelector('input[name="s-excl"]:checked') as HTMLInputElement)?.value || "none",
-              threshold_recovery_action: (document.querySelector('input[name="s-recovery"]:checked') as HTMLInputElement)?.value || "start",
+              exclusion_action: sExcl,
+              threshold_recovery_action: sRecovery,
               api_refresh_minutes: (() => {
-                const sel = (document.getElementById("s-refresh") as HTMLSelectElement).value;
-                if (sel === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement).value || "5";
-                return sel;
+                if (sRefresh === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement).value || "5";
+                return sRefresh;
               })(),
               fallback_address: (document.getElementById("s-fallback") as HTMLInputElement).value,
               night_optimize_enabled: (document.getElementById("s-night") as HTMLInputElement).checked ? "1" : "0",
@@ -661,97 +1237,32 @@ export default function App() {
               ...ddnsPatch(),
             })}>保存调度参数</button>
           </div>
-          <div className="card"><h2>DDNS 设置</h2>
-            <p className="muted">Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。</p>
-            <div className="form2">
-              <div><label>Cloudflare API Token</label>
-                <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? "已配置，留空保持不变" : "未配置，填写 Cloudflare API Token"} />
-                <p className="muted">{settings.cloudflare_configured ? "已配置。留空保存时保持不变，只有填了新值才更新。" : "未配置。填写后才能执行 DDNS 更新。"}</p></div>
-              <div><label>时区 *</label>
-                <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone">
-                  {(timezones.length ? timezones : TZ_FALLBACK).map((tz) => (
-                    <option key={tz.value} value={tz.value}>{tz.label}</option>
-                  ))}
-                </select>
-                <p className="muted">当前：{String(settings.timezone ?? "Asia/Shanghai")}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。</p></div>
-            </div>
-            <button className="btn" onClick={() => saveSettings(ddnsPatch())}>保存 DDNS 设置</button>
-          </div>
-          <div className="card"><h2>网页访问</h2><p className="muted">保存后在下次启动时生效。启动参数 --listen 优先用于本次启动。</p>
-            <div className="form2">
-              <div><label>监听地址 *</label><input defaultValue="0.0.0.0" disabled /></div>
-              <div><label>监听端口 *</label><input defaultValue="1999" disabled /></div>
-            </div>
-            <p className="muted">监听地址/端口由启动参数决定（默认 0.0.0.0:1999），不在此页修改。</p>
-          </div>
-          <div className="card"><h2>管理员密码</h2><p className="muted">已启用登录验证。保存时需验证当前密码。新密码和确认留空保存时免登录。</p>
-            <button className="btn" onClick={() => {
-              const cur = prompt("当前密码（首次设置留空）") || "";
-              const next = prompt("新密码（留空表示不改）") || "";
-              if (!next) { setMsg("未修改密码"); return; }
-              run(async () => { const r = await post("/api/auth/setup", { password: next }); return r; }, "管理员密码已设置");
-            }}>设置 / 修改管理员密码</button>
-          </div>
+          <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
         </>
       )}
 
       {tab === "notify" && (
-        <div className="card"><h2>通知设置</h2>
-          <p className="muted">通知专用代理</p><p><b>{String(settings.notify_proxy || "http://127.0.0.1:7070")}</b></p>
-          <div className="row"><span>E-Mail</span><span className="pill gray">{settings.email_enabled === "1" ? "已启用" : "未启用"}</span><span className="spacer" />
-            <button className="btn ghost" onClick={() => saveSettings({ email_enabled: settings.email_enabled === "1" ? "0" : "1" })}>{settings.email_enabled === "1" ? "停用" : "启用"} E-Mail</button>
-            <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error" }), "测试通知已发送")}>发送测试通知</button></div>
-          <div className="row" style={{ marginTop: 12 }}><span>Telegram</span><span className="pill">{settings.telegram_enabled === "1" ? "已启用" : "未启用"}</span><span className="spacer" />
-            <button className="btn ghost" onClick={() => saveSettings({ telegram_enabled: settings.telegram_enabled === "1" ? "0" : "1" })}>{settings.telegram_enabled === "1" ? "停用" : "启用"} Telegram</button>
-            <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error" }), "测试通知已发送")}>发送测试通知</button></div>
-          <h3 style={{ marginTop: 20 }}>通知事件</h3>
-          <p className="muted">应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。</p>
-          {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery"] as const).map((k) => (
-            <label className="check" key={k}><input type="checkbox" checked={settings[`notify_${k}`] === "1"}
-              onChange={(e) => saveSettings({ [`notify_${k}`]: e.target.checked ? "1" : "0" })} />
-              {({ traffic_protection: "流量保护", dns_change: "DNS 指向变化", fallback: "备用地址启用及恢复", exclusion: "排除操作完成", error: "查询及操作异常", recovery: "故障恢复" } as Any)[k]}</label>
-          ))}
-          <p className="muted">持续故障仅在首次发生和恢复时通知。测试使用已保存的配置，调度暂停时也可发送。</p>
-        </div>
-      )}
-      {tab === "notify" && (
-        <div className="card"><h2>每日财报推送</h2>
-          <p className="muted">每天在推送时间推送一次：标题、日期、逐账户状态 / 流量 / 费用 / 余额 / 评论。只推已启用的 Telegram / 邮件 / Webhook 渠道。“立即推送日报”随时可手动推一次，不占用当天的定时一次（手动推完，定时时间到了照常再推；定时已推过，当天仍可手动再推）。</p>
-          <label className="check"><input type="checkbox" defaultChecked={settings.daily_report_enabled !== "0"} id="dr-enabled" /> 启用每日财报推送</label>
+        <>
+          <div className="card"><h2>通知设置</h2>
+            <p className="muted">通知专用代理：<b>{String(settings.notify_proxy || "http://127.0.0.1:7070")}</b></p>
+            <p className="muted">E-Mail 与 Telegram 各一个框体，左上角按键启用/停用；每日财报设置与测试都在框体内；发送测试按键在框体右下角。</p>
+          </div>
           <div className="form2">
-            <div><label>推送时间 *</label><input type="time" defaultValue={String(settings.daily_report_time ?? "00:00")} id="dr-time" />
-              <p className="muted">每天这个时间推送一次。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。</p></div>
-            <div><label>推送渠道</label><p className="muted" style={{ marginTop: 8 }}>复用上方 Telegram / 邮件开关与 Webhook 设置，只推已启用的渠道。</p></div>
+            <ChannelCard kind="email" settings={settings} drEnabled={drEnabled} drTime={drTime}
+              setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} run={run} />
+            <ChannelCard kind="telegram" settings={settings} drEnabled={drEnabled} drTime={drTime}
+              setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} run={run} />
           </div>
-          <div className="row">
-            <button className="btn" onClick={() => saveSettings({
-              daily_report_enabled: (document.getElementById("dr-enabled") as HTMLInputElement).checked ? "1" : "0",
-              daily_report_time: (document.getElementById("dr-time") as HTMLInputElement).value || "00:00",
-            })}>保存财报设置</button>
-            <button className="btn ghost" onClick={() => run(async () => {
-              const r = await post("/api/notify/test-daily", {}) as Any;
-              setPreview(r?.preview || null);
-              return r;
-            }, "测试财报已发送")}>发送测试财报</button>
-            <button className="btn" onClick={() => run(async () => {
-              const r = await post("/api/notify/send-daily", {}) as Any;
-              setPreview(r?.preview || null);
-              return r;
-            }, "日报已手动推送")}>立即推送日报</button>
-            <button className="btn ghost" onClick={() => { get("/api/notify/daily-preview").then((r) => setPreview(r as Any)).catch(() => {}); }}>刷新预览</button>
+          <div className="card"><h2>通知事件</h2>
+            <p className="muted">应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。</p>
+            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery"] as const).map((k) => (
+              <label className="check" key={k}><input type="checkbox" checked={settings[`notify_${k}`] === "1"}
+                onChange={(e) => saveSettings({ [`notify_${k}`]: e.target.checked ? "1" : "0" })} />
+                {({ traffic_protection: "流量保护", dns_change: "DNS 指向变化", fallback: "备用地址启用及恢复", exclusion: "排除操作完成", error: "查询及操作异常", recovery: "故障恢复" } as Any)[k]}</label>
+            ))}
+            <p className="muted">持续故障仅在首次发生和恢复时通知。测试使用已保存的配置，调度暂停时也可发送。</p>
           </div>
-          {preview && (
-            <div style={{ marginTop: 16 }}>
-              <h3>推送预览（按实际推送排版：标题 16px / 正文 14px / 日期 12px，手机端不溢出）</h3>
-              <div className="report-card">
-                <div className="report-title">{String(preview.text || "").split("\n")[0]}</div>
-                <div className="report-date">{String(preview.text || "").split("\n")[1] || ""}</div>
-                <div className="report-body">{String(preview.text || "").split("\n").slice(2).join("\n")}</div>
-              </div>
-              <p className="muted">预览为第一条消息；账户多于 5 个时会自动分条发送。</p>
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );

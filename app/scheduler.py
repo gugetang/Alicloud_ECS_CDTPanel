@@ -115,47 +115,66 @@ def _flag_dt(key: str) -> dt.datetime | None:
         return None
 
 
+def _refresh_one(a: dict, settings: dict) -> None:
+    """刷新单个账户的云快照并写回 DB（DescribeInstances + CDT 流量 + BSS）。"""
+    secret = decrypt_secret(a.get("access_key_secret_enc") or "")
+    if not a.get("access_key_id") or not secret or not a.get("instance_id"):
+        return
+    try:
+        client = AliyunClient(a, secret)
+        inst = client.describe_instance()
+        used = client.get_traffic_gb()
+        updates: dict = {"instance_status": inst["status"],
+                         "public_ip": inst["public_ip"],
+                         "traffic_used_gb": used,
+                         "last_seen_at": int(time.time())}
+        if inst.get("instance_type"):
+            # 只存 API 返回的原始规格；友好的 2C0.5G 式显示规格
+            # 由用户在 instance_spec 里填，程序不凭空编造
+            updates["instance_type"] = inst["instance_type"]
+        if settings.get("billing_enabled", "1") == "1":
+            bill = client.get_billing()
+            if bill:
+                updates["billing_month_cost"] = bill["cost"]
+                updates["billing_currency"] = bill["currency"]
+                if bill.get("balance") is not None:
+                    updates["billing_balance"] = bill["balance"]
+                    updates["billing_balance_currency"] = (
+                        bill.get("balance_currency") or bill["currency"])
+                updates["billing_updated_at"] = int(time.time())
+        db.update_account(a["id"], updates)
+        db.add_traffic_sample(a["id"], used, _month_key(_now()))
+    except AliyunError as exc:
+        # 保守：查不到就把流量记未知（None），引擎不会据此停机/切换
+        db.update_account(a["id"], {"traffic_used_gb": None,
+                                    "last_seen_at": int(time.time())})
+        db.add_event("error", "查询异常",
+                     f"{a['name']}：{brief_error(exc)}（已保守维持，不做切换）",
+                     account_id=a["id"])
+        log.warning("刷新 %s 失败: %s", a["name"], brief_error(exc))
+    except Exception as exc:  # noqa: BLE001
+        db.update_account(a["id"], {"traffic_used_gb": None,
+                                    "last_seen_at": int(time.time())})
+        db.add_event("error", "查询异常",
+                     f"{a['name']}：{exc}（已保守维持，不做切换）",
+                     account_id=a["id"])
+        log.warning("刷新 %s 失败: %s", a["name"], exc)
+
+
+def refresh_one_account(account_id: int) -> dict:
+    """刷新单个账户（概览卡片/列表的“刷新”按钮用），返回更新后的账户行。"""
+    a = db.get_account(account_id)
+    if not a:
+        raise ValueError("账户不存在")
+    _refresh_one(a, db.get_settings())
+    return db.get_account(account_id)
+
+
 def refresh_cloud_status(settings: dict) -> list[dict]:
     """刷新全部账户快照并写回 DB。返回更新后的账户行。"""
     accounts = db.list_accounts()
     for a in accounts:
-        secret = decrypt_secret(a.get("access_key_secret_enc") or "")
-        if not a.get("access_key_id") or not secret or not a.get("instance_id"):
-            continue
-        try:
-            client = AliyunClient(a, secret)
-            inst = client.describe_instance()
-            used = client.get_traffic_gb()
-            updates: dict = {"instance_status": inst["status"],
-                             "public_ip": inst["public_ip"],
-                             "traffic_used_gb": used,
-                             "last_seen_at": int(time.time())}
-            if inst.get("instance_type"):
-                # 只存 API 返回的原始规格；友好的 2C0.5G 式显示规格
-                # 由用户在 instance_spec 里填，程序不凭空编造
-                updates["instance_type"] = inst["instance_type"]
-            if settings.get("billing_enabled", "1") == "1":
-                bill = client.get_billing()
-                if bill:
-                    updates["billing_month_cost"] = bill["cost"]
-                    updates["billing_currency"] = bill["currency"]
-                    if bill.get("balance") is not None:
-                        updates["billing_balance"] = bill["balance"]
-                        updates["billing_balance_currency"] = (
-                            bill.get("balance_currency") or bill["currency"])
-                    updates["billing_updated_at"] = int(time.time())
-            db.update_account(a["id"], updates)
-            db.add_traffic_sample(a["id"], used, _month_key(_now()))
-        except AliyunError as exc:
-            # 保守：查不到就把流量记未知（None），引擎不会据此停机/切换
-            db.update_account(a["id"], {"traffic_used_gb": None,
-                                        "last_seen_at": int(time.time())})
-            db.add_event("error", "查询异常",
-                         f"{a['name']}：{brief_error(exc)}（已保守维持，不做切换）",
-                         account_id=a["id"])
-            log.warning("刷新 %s 失败: %s", a["name"], brief_error(exc))
-        except Exception as exc:  # noqa: BLE001
-            db.add_event("error", "查询异常", f"{a['name']}：{exc}", account_id=a["id"])
+        _refresh_one(a, settings)
     return db.list_accounts()
 
 

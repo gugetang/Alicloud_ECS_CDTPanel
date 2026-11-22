@@ -28,6 +28,8 @@ try:
         StartInstanceRequest)
     from aliyunsdkecs.request.v20140526.StopInstanceRequest import (
         StopInstanceRequest)
+    from aliyunsdkecs.request.v20140526.RebootInstanceRequest import (
+        RebootInstanceRequest)
     _SDK_READY = True
 except Exception:  # pragma: no cover
     _SDK_READY = False
@@ -144,6 +146,12 @@ class AliyunClient:
         req.set_InstanceId(self.account["instance_id"])
         # 节省停机：StoppedMode=StopCharging；普通停机：KeepCharging
         req.set_StoppedMode("StopCharging" if stop_charging else "KeepCharging")
+        req.set_Force(True)
+        self._client().do_action_with_exception(req)
+
+    def reboot_instance(self) -> None:
+        req = RebootInstanceRequest()
+        req.set_InstanceId(self.account["instance_id"])
         req.set_Force(True)
         self._client().do_action_with_exception(req)
 

@@ -67,6 +67,12 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "email_user": "",
     "email_password": "",
     "email_to": "",
+    # 第三方登录 OAuth（Google / GitHub）：Client Secret 存加密值，读出时不回显。
+    # 未配置时登录页对应按钮置灰；配置方法见 README“登录方式”。
+    "google_oauth_client_id": "",
+    "google_oauth_client_secret": "",
+    "github_oauth_client_id": "",
+    "github_oauth_client_secret": "",
     "webhook_enabled": "0",
     "webhook_url": "",
     # 通知事件开关（截图 6 项）
