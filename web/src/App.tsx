@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 
-type Tab = "dash" | "accounts" | "domains" | "groups" | "settings" | "notify";
+type Tab = "dash" | "accounts" | "groups" | "config";
+type SubTab = "settings" | "domains" | "notify";
 type Any = Record<string, any>;
 
 const TABS: [Tab, string][] = [
-  ["dash", "运行概览"], ["accounts", "Ali 账户"], ["domains", "域名管理"],
-  ["groups", "分组管理"], ["settings", "全局设置"], ["notify", "通知设置"],
+  ["dash", "运行概览"], ["accounts", "Ali 账户"],
+  ["groups", "分组管理"], ["config", "设置"],
+];
+
+// 设置页内的子标签（从左到右）：全局设置、域名管理、通知设置
+const SUB_TABS: [SubTab, string][] = [
+  ["settings", "全局设置"], ["domains", "域名管理"], ["notify", "通知设置"],
 ];
 
 const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
@@ -733,6 +739,7 @@ function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () =>
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("dash");
+  const [subTab, setSubTab] = useState<SubTab>("settings");
   const [status, setStatus] = useState<Any | null>(null);
   const [accounts, setAccounts] = useState<Any[]>([]);
   const [domains, setDomains] = useState<Any[]>([]);
@@ -964,7 +971,7 @@ export default function App() {
     <div className="app">
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "domains" ? "域名管理" : tab === "groups" ? "分组管理" : tab === "settings" ? "全局设置" : "通知设置"}</h1>
+          <h1 style={{ margin: 0 }}>{tab === "dash" ? "运行概览" : tab === "accounts" ? "Ali 账户" : tab === "groups" ? "分组管理" : subTab === "settings" ? "全局设置" : subTab === "domains" ? "域名管理" : "通知设置"}</h1>
           <select value={theme} onChange={(e) => setTheme(e.target.value)}
             aria-label="主题" style={{ width: "auto" }}>
             <option value="light">白</option>
@@ -972,11 +979,16 @@ export default function App() {
             <option value="system">跟随系统</option>
           </select>
         </div>
-        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : tab === "settings" ? "设置调度规则和登录方式。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
+        <p>{tab === "dash" ? "掌握账户流量、VPS 状态和域名分配。" : tab === "accounts" ? "管理中国站与国际站账户，按需覆盖全局调度参数。" : tab === "groups" ? "一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。" : subTab === "settings" ? "设置调度规则和登录方式。" : subTab === "domains" ? "管理 Cloudflare 域名，保留现有分配并按需切换账户。" : "仅事件通知。可同时启用 E-Mail 和 Telegram。"}</p>
       </header>
       <nav>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{label}</button>
       ))}</nav>
+      {tab === "config" && (
+        <div className="subtabs">{SUB_TABS.map(([k, label]) => (
+          <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{label}</button>
+        ))}</div>
+      )}
       {msg && <div className="notice">{msg}</div>}
 
       {tab === "dash" && (
@@ -1109,7 +1121,7 @@ export default function App() {
         </div>
       )}
 
-      {tab === "domains" && (
+      {tab === "config" && subTab === "domains" && (
         <>
         <div className="card"><h2>受管理域名 {domains.length}</h2>
           <div className="notice">1 个分组最多绑定 1 个域名。排在前面的域名优先使用流量使用率较低的账户。Zone ID 与记录 ID 自动发现。</div>
@@ -1199,7 +1211,7 @@ export default function App() {
         </div>
       )}
 
-      {tab === "settings" && (
+      {tab === "config" && subTab === "settings" && (
         <>
           <div className="card"><h2>调度参数</h2><p className="muted">账户未配置覆盖值时，使用以下全局设置。</p>
             <div className="notice" style={{ marginBottom: 0 }}><b>切换模式按分组设置，请到「分组管理」选择。</b>
@@ -1307,12 +1319,8 @@ export default function App() {
         </>
       )}
 
-      {tab === "notify" && (
+      {tab === "config" && subTab === "notify" && (
         <>
-          <div className="card"><h2>通知设置</h2>
-            <p className="muted">通知专用代理：<b>{String(settings.notify_proxy || "http://127.0.0.1:7070")}</b></p>
-            <p className="muted">E-Mail 与 Telegram 各一个框体，左上角按键启用/停用；每日财报设置与测试都在框体内；发送测试按键在框体右下角。</p>
-          </div>
           <div className="form2">
             <ChannelCard kind="email" settings={settings} drEnabled={drEnabled} drTime={drTime}
               setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} run={run} />

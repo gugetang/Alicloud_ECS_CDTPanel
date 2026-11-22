@@ -36,6 +36,12 @@ header p { color:var(--muted); margin:0 0 20px; }
 nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 nav button { background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 nav button.active { background:#dbeafe; border:2px solid var(--accent); color:#1d4ed8; font-weight:600; padding:7px 13px; }
+/* 设置页子标签（浏览器标签页样式，从左到右：全局设置、域名管理、通知设置）：
+   当前标签浅蓝底 + 蓝字 + 蓝边框，下边与分隔线贴合；未选灰字透明底。 */
+.subtabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.subtabs button { background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0; padding:10px 20px; cursor:pointer; font-size:14px; margin-bottom:-1px; }
+.subtabs button:hover { color:var(--text); }
+.subtabs button.active { background:#dbeafe; color:#1d4ed8; border-color:var(--accent); border-bottom:1px solid #dbeafe; font-weight:600; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); }
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
