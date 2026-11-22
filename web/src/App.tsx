@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 
@@ -163,9 +163,9 @@ const credentialToJSON = (cred: any) => {
 // 实例配置表单：服务器名排在最上面；分组不出现（新建默认进默认分组，
 // 编辑保持原分组）；必填项标签加粗（label.req）。站点/阈值动作/恢复方式/
 // 日报参与都用按键式选择。
-function InstanceForm({ account, settings, count, onDone, onCancel }: {
+function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved }: {
   account: Any | null; settings: Any; count: number;
-  onDone: () => void; onCancel: () => void;
+  onDone: () => void; onCancel: () => void; onAutoSaved?: () => void;
 }) {
   const { t } = useI18n();
   const isNew = !account;
@@ -241,19 +241,22 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
     finally { setFormBusy(false); }
   };
 
-  const save = async () => {
-    const vName = name.trim();
-    if (!vName) { setFormMsg(t("请填写服务器名")); return; }
-    if (!akId.trim()) { setFormMsg(t("请填写 AccessKey ID")); return; }
-    if (!instanceId.trim()) { setFormMsg(t("请填写实例 ID")); return; }
+  // 实例表单自动保存：改完失焦即存（300ms 防抖），不用点保存。没填完不存、
+  // 不报错；编辑已有账户存完不关闭表单；新建账户填完必填项后失焦即创建并关闭。
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingRef = useRef(false);
+  useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
+  const saveAutoNow = async () => {
+    if (savingRef.current) { autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300); return; }
+    if (!name.trim() || !akId.trim() || !instanceId.trim()) return;
     const q = Number(quota);
-    if (!quota || !(q > 0)) { setFormMsg(t("流量额度必须大于 0")); return; }
-    if (schedEnabled && onTime === offTime) { setFormMsg(t("每日开机时间与关机时间不能相同")); return; }
+    if (!quota || !(q > 0)) return;
+    if (schedEnabled && onTime === offTime) return;
     const finalRegion = regionCustom ? regionCustomVal.trim() : region;
-    if (!finalRegion) { setFormMsg(t("请选择地域或填写自定义地域")); return; }
-    setFormBusy(true); setFormMsg("");
+    if (!finalRegion) return;
+    savingRef.current = true;
     const payload: Any = {
-      name: vName, access_key_id: akId.trim(), instance_id: instanceId.trim(),
+      name: name.trim(), access_key_id: akId.trim(), instance_id: instanceId.trim(),
       site, region: finalRegion, quota_gb: q,
       group_id: account?.group_id ?? 1,
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
@@ -262,11 +265,14 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
     };
     if (akSecret) payload.access_key_secret = akSecret;  // 留空保持不变，绝不清空
     try {
-      if (isNew) { payload.priority = count; await post("/api/accounts", payload); }
-      else await put(`/api/accounts/${account.id}`, payload);
-      onDone();
-    } catch (e) { setFormMsg(String((e as Error).message)); }
-    finally { setFormBusy(false); }
+      if (isNew) { payload.priority = count; await post("/api/accounts", payload); onDone(); }
+      else { await put(`/api/accounts/${account.id}`, payload); onAutoSaved?.(); }
+    } catch { /* 自动保存失败不打扰，等用户改完再说 */ }
+    finally { savingRef.current = false; }
+  };
+  const saveAuto = () => {
+    if (autoTimer.current) clearTimeout(autoTimer.current);
+    autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300);
   };
 
   const regionKnown = regions.some((r) => r.region_id === region);
@@ -276,17 +282,17 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
   return (
     <div className="instance-form">
       <div className="form2">
-        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 AliCloud-HK-1")} /></div>
-        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
-        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} placeholder="LTAI..." /></div>
-        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
-        <div><label className="req">{t("站点类型 *")}</label>
+        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveAuto} placeholder={t("如 AliCloud-HK-1")} /></div>
+        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} onBlur={saveAuto} placeholder="i-..." /></div>
+        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} onBlur={saveAuto} placeholder="LTAI..." /></div>
+        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onBlur={saveAuto} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
+        <div onBlur={saveAuto}><label className="req">{t("站点类型 *")}</label>
           <Seg value={site} options={[
             { value: "global", label: t("国际站（USD）") },
             { value: "cn", label: t("国内站（CNY）") },
           ]} onChange={setSite} /></div>
         <div><label className="req">{t("地域 *")}</label>
-          <select value={regionCustom ? "__custom" : region} onChange={(e) => {
+          <select value={regionCustom ? "__custom" : region} onBlur={saveAuto} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
             else { setRegionCustom(false); setRegion(e.target.value); }
           }}>
@@ -301,26 +307,26 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
             {!regionKnown && !regionCustom && <option value={region}>{region}{t("（当前值）")}</option>}
             <option value="__custom">{t("自定义…")}</option>
           </select>
-          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
+          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={saveAuto} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
           <p className="muted">{regionsNote}</p>
           <div className="row">
             <button className="btn ghost" onClick={autoDiscover} disabled={formBusy}>{t("自动发现")}</button>
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
           </div>
           <p className="muted">{t("“自动发现”按实例 ID 查出该实例真实所在地域并填入；查不到会报错，不会静默填错。")}</p></div>
-        <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} /></div>
+        <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
       </div>
       <div style={{ marginTop: 12 }}>
-        <label className="check"><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
+        <label className="check" onBlur={saveAuto}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
         {schedEnabled && (
           <div className="form2">
-            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} /></div>
-            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} /></div>
+            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} onBlur={saveAuto} /></div>
+            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={saveAuto} /></div>
           </div>
         )}
         <p className="muted">{t("开启后每天在设定时间开机/关机；错过时间窗口（重启/延迟）时在 1 小时内补偿一次。阈值踢出优先于定时开机：被踢出的实例到点也不拉起；关机窗口内恢复拉起也不执行。")}</p>
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("参与日报推送")}</label>
         <Seg value={report} options={[
           { value: "follow", label: t("跟随全局") },
@@ -329,7 +335,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
         ]} onChange={setReport} />
         <p className="muted">{t("跟随全局：按全局每日财报开关；单独开启：即使全局关了也推这台；单独关闭：即使全局开了也不推这台。")}</p>
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("阈值动作")}</label>
         <Seg value={excl} options={[
           { value: "", label: t("跟随全局") },
@@ -339,7 +345,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
         ]} onChange={setExcl} />
         <p className="muted">{t("跟随全局：按全局设置（当前：{label}）。踢出DDNS 默认不停机，只跳出 DDNS 继续跑；停机/节省停机都在切完 DNS 之后。", { label: exclLabel(settings.exclusion_action) })}</p>
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
         <label className="lbl">{t("阈值恢复")}</label>
         <Seg value={recovery} options={[
           { value: "", label: t("跟随全局") },
@@ -351,7 +357,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel }: {
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={onCancel}>{t("取消")}</button>
-        <button className="icon-btn green" title={t("保存")} onClick={save} disabled={formBusy}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
       </div>
     </div>
   );
@@ -482,15 +487,8 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
   const dom = domains.find((d) => (d.group_id || 1) === g.id);
   const cur = dom ? accounts.find((a) => a.id === dom.current_account_id) : null;
 
-  const saveParams = () => run(() => put(`/api/groups/${g.id}`, {
-    interval_hours: Number(interval) || 6,
-    switch_diff_mode: diffMode,
-    switch_diff_pct: Number(diffPct) || 10,
-    switch_diff_gb: Number(diffGb) || 10,
-    fixed_switch_time: fixed || "",
-    night_window_start: nStart || "00:00",
-    night_window_end: nEnd || "04:00",
-  }), t("分组参数已保存"));
+  // 分组参数自动保存：改动即存，不用点保存
+  const savePatch = (patch: Any) => run(() => put(`/api/groups/${g.id}`, patch), t("分组参数已保存"));
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -519,10 +517,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
                 { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
                 { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                 { value: "24", label: t("24 小时") },
-              ]} onChange={setInterval} /></div>
-            <div><label className="lbl">{t("固定每日切换时刻")}</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} /></div>
-            <div><label className="lbl">{t("夜间窗口开始")}</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} /></div>
-            <div><label className="lbl">{t("夜间窗口结束")}</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} /></div>
+              ]} onChange={(v) => { setInterval(v); savePatch({ interval_hours: Number(v) || 6 }); }} /></div>
+            <div><label className="lbl">{t("固定每日切换时刻")}</label><input type="time" value={fixed} onChange={(e) => setFixed(e.target.value)} onBlur={() => savePatch({ fixed_switch_time: fixed || "" })} /></div>
+            <div><label className="lbl">{t("夜间窗口开始")}</label><input type="time" value={nStart} onChange={(e) => setNStart(e.target.value)} onBlur={() => savePatch({ night_window_start: nStart || "00:00" })} /></div>
+            <div><label className="lbl">{t("夜间窗口结束")}</label><input type="time" value={nEnd} onChange={(e) => setNEnd(e.target.value)} onBlur={() => savePatch({ night_window_end: nEnd || "04:00" })} /></div>
           </div>
           <p className="muted">{t("未填的项继承全局设置。夜间窗口内每晚切换一次至使用率更低的候选；间隔按上次切换锚点每 N 小时切一次。")}</p>
         </div>
@@ -532,20 +530,17 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
           <Seg value={diffMode} options={[
             { value: "percent", label: t("百分比（%）") },
             { value: "gb", label: t("固定流量（GB）") },
-          ]} onChange={setDiffMode} />
+          ]} onChange={(m) => { setDiffMode(m); savePatch({ switch_diff_mode: m }); }} />
           <div className="form2">
             {diffMode === "percent" ? (
-              <div><label className="lbl">{t("切换阀值（%）")}</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} /></div>
+              <div><label className="lbl">{t("切换阀值（%）")}</label><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div>
             ) : (
-              <div><label className="lbl">{t("切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} /></div>
+              <div><label className="lbl">{t("切换阀值（GB）")}</label><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div>
             )}
           </div>
           <p className="muted">{t("负载均衡：% 模式差值 ≥ 阈值切，GB 模式差值 ≥ 阈值 GB 切。未填的项继承全局设置。")}</p>
         </div>
       )}
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="icon-btn green" title={t("保存")} onClick={saveParams}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
-      </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("成员实例（参与 DDNS，可多选）")}</h3>
       <p className="muted">{t("点一下选中 / 取消，被选中的实例参与 DDNS 域名分配；名称前的点是当前状态。")}</p>
@@ -603,6 +598,11 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
       });
     }
   };
+  // 通知渠道自动保存：配置改完失焦即存，财报开关/时间改完即存
+  const saveAll = async () => {
+    await saveConfig();
+    await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" });
+  };
   return (
     <div className="card">
       <div className="row"><h3 style={{ margin: 0 }}>{title}</h3><span className="spacer" />
@@ -611,28 +611,25 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
       </div>
       {isEmail ? (
         <div style={{ marginTop: 12 }}>
-          <label>{t("SMTP 服务器")}</label><input id="em-host" defaultValue={String(settings.email_smtp_host ?? "")} placeholder="smtp.example.com" />
-          <label>{t("SMTP 端口")}</label><input id="em-port" defaultValue={String(settings.email_smtp_port ?? 465)} />
-          <label>{t("发件邮箱")}</label><input id="em-user" defaultValue={String(settings.email_user ?? "")} placeholder="sender@example.com" />
-          <label>{t("SMTP 密码")}</label><input type="password" id="em-pass" placeholder={t("留空保持不变")} />
-          <label>{t("收件邮箱")}</label><input id="em-to" defaultValue={String(settings.email_to ?? "")} placeholder="receiver@example.com" />
+          <label>{t("SMTP 服务器")}</label><input id="em-host" defaultValue={String(settings.email_smtp_host ?? "")} placeholder="smtp.example.com" onBlur={saveAll} />
+          <label>{t("SMTP 端口")}</label><input id="em-port" defaultValue={String(settings.email_smtp_port ?? 465)} onBlur={saveAll} />
+          <label>{t("发件邮箱")}</label><input id="em-user" defaultValue={String(settings.email_user ?? "")} placeholder="sender@example.com" onBlur={saveAll} />
+          <label>{t("SMTP 密码")}</label><input type="password" id="em-pass" placeholder={t("留空保持不变")} onBlur={saveAll} />
+          <label>{t("收件邮箱")}</label><input id="em-to" defaultValue={String(settings.email_to ?? "")} placeholder="receiver@example.com" onBlur={saveAll} />
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <label>Bot Token</label><input type="password" id="tg-token" placeholder={t("留空保持不变")} />
-          <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} />
+          <label>Bot Token</label><input type="password" id="tg-token" placeholder={t("留空保持不变")} onBlur={saveAll} />
+          <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} onBlur={saveAll} />
           <p className="muted">{t("Token 留空保存时保持不变，只有填了新值才更新。")}</p>
         </div>
       )}
       <div style={{ marginTop: 12 }}>
         <label>{t("每日财报推送")}</label>
         <div className="row"><span>{t("启用每日财报推送")}</span><span className="spacer" />
-          <Toggle checked={drEnabled} label={t("启用每日财报推送")} onChange={setDrEnabled} /></div>
-        <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} />
-        <p className="muted">{t("每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。")}</p>
-      </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="icon-btn green" title={t("保存")} onClick={async () => { await saveConfig(); await saveSettings({ daily_report_enabled: drEnabled ? "1" : "0", daily_report_time: drTime || "00:00" }); }}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
+          <Toggle checked={drEnabled} label={t("启用每日财报推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
+        <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
+        <p className="muted">{t("每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。")}</p>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn ghost" onClick={() => run(() => post("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
@@ -739,20 +736,14 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
       <h3 style={{ marginTop: 20 }}>{t("Google 登录")}</h3>
       <p className="muted">{t("在 Google Cloud Console 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/google/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
-        <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} /></div>
-        <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} /></div>
-      </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="icon-btn green" title={t("保存")} onClick={saveGoogleOAuth}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
+        <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
+        <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onBlur={saveGoogleOAuth} /></div>
       </div>
       <h3 style={{ marginTop: 20 }}>{t("GitHub 登录")}</h3>
       <p className="muted">{t("在 GitHub Settings 创建 OAuth 应用，回调地址填 {origin}/api/auth/oauth/github/callback。Secret 留空保持不变。", { origin: window.location.origin })}</p>
       <div className="form2">
-        <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} /></div>
-        <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} /></div>
-      </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-        <button className="icon-btn green" title={t("保存")} onClick={saveGithubOAuth}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
+        <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
+        <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onBlur={saveGithubOAuth} /></div>
       </div>
       {secMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{secMsg}</p>}
     </div>
@@ -954,7 +945,7 @@ export default function App() {
   };
 
   // DDNS 设置（Cloudflare Token + 时区）：Token 留空保持不变，只有填了
-  // 新值才提交；时区随“保存参数设置”一起保存，也可单独保存。
+  // 新值才提交；改动自动保存。
   const ddnsPatch = () => {
     const patch: Any = { timezone: (document.getElementById("s-timezone") as HTMLSelectElement)?.value || "Asia/Shanghai" };
     const tok = (document.getElementById("cf-token") as HTMLInputElement)?.value || "";
@@ -1019,7 +1010,8 @@ export default function App() {
     <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
       <InstanceForm account={a} settings={settings} count={accounts.length}
         onDone={() => { setCardSettingsId(null); load(); setMsg(t("已保存")); }}
-        onCancel={() => setCardSettingsId(null)} />
+        onCancel={() => setCardSettingsId(null)}
+        onAutoSaved={() => { load(); setMsg(t("已保存")); }} />
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn ghost" title={t("复制配置摘要")} onClick={async () => {
           const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("地域")}：${a.region}\nIP：${a.public_ip || "—"}`;
@@ -1066,6 +1058,29 @@ export default function App() {
     const mins = (parseFloat(sCustVal) || 0) * custMult(sCustUnit);
     setSCustUnit(u);
     setSCustVal(fmtCust(mins / custMult(u)));
+  };
+
+  // 参数设置自动保存：改动即存（按键改完即存、输入框失焦即存），不用点保存
+  const saveParamSettings = (overrides: Any = {}) => {
+    const patch: Any = {
+      quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
+      protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
+      switch_diff_mode: sDiffMode,
+      switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement)?.value || String(settings.switch_diff_pct ?? 10),
+      switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
+      interval_hours: sInterval,
+      custom_interval_minutes: String(Math.round((parseFloat(sCustVal) || 0) * custMult(sCustUnit))),
+      exclusion_action: sExcl,
+      threshold_recovery_action: sRecovery,
+      api_refresh_minutes: (() => {
+        if (sRefresh === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5";
+        return sRefresh;
+      })(),
+      settlement_currency: sCurrency,
+      exchange_rate_usd_cny: (document.getElementById("s-fx-rate") as HTMLInputElement).value || String(settings.exchange_rate_usd_cny ?? "6.6719"),
+      ...ddnsPatch(),
+    };
+    return saveSettings({ ...patch, ...overrides });
   };
 
   // ---------- 每日财报（通知设置两个渠道框体共用同一组开关） ----------
@@ -1261,11 +1276,11 @@ export default function App() {
 
       {tab === "accounts" && (
         <div className="card">
-          <h2 style={{ margin: "0 0 12px" }}>{t("账户管理 {count}", { count: accounts.length })}</h2>
           {editingId === "new" && (
             <InstanceForm account={null} settings={settings} count={accounts.length}
               onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
-              onCancel={() => setEditingId(null)} />
+              onCancel={() => setEditingId(null)}
+              onAutoSaved={() => { load(); setMsg(t("已保存")); }} />
           )}
           {accounts.map((a) => (
             <div className="card" key={a.id as number} style={{ marginTop: 12 }}>
@@ -1308,13 +1323,22 @@ export default function App() {
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
               const editing = editDomId === d.id;
+              // 域名行内编辑自动保存：改完即存，不退出编辑态（点叉号退出）；没改过不发请求
+              const saveDomEdit = (nm0: string, grp0: string) => {
+                const nm = nm0.trim();
+                if (!nm) { setMsg(t("请填写域名")); return; }
+                if (nm === d.name && Number(grp0) === (d.group_id || 1)) return;
+                const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(grp0) };
+                if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
+                run(() => put(`/api/domains/${d.id}`, payload), t("域名已更新"));
+              };
               return (
               <tr key={d.id as number}><td>{String(i + 1).padStart(2, "0")}<br />
                 <button className="btn ghost" disabled={i === 0 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↑</button>
                 <button className="btn ghost" disabled={i === domains.length - 1 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↓</button></td>
-                <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
+                <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} onBlur={() => saveDomEdit(editDomName, editDomGroup)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
                 <td>{editing ? (
-                  <select value={editDomGroup} onChange={(e) => setEditDomGroup(e.target.value)}>
+                  <select value={editDomGroup} onChange={(e) => { const gv = e.target.value; setEditDomGroup(gv); saveDomEdit(editDomName, gv); }}>
                     {groups.map((g) => {
                       const bound = domains.some((x) => x.id !== d.id && (x.group_id || 1) === g.id);
                       return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
@@ -1326,15 +1350,6 @@ export default function App() {
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
                 <td>{editing ? (
                   <div className="row" style={{ gap: 6 }}>
-                    <button className="icon-btn green" title={t("保存")} onClick={() => {
-                      const nm = editDomName.trim();
-                      if (!nm) { setMsg(t("请填写域名")); return; }
-                      const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(editDomGroup) };
-                      if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
-                      run(async () => { await put(`/api/domains/${d.id}`, payload); setEditDomId(null); }, t("域名已更新"));
-                    }}>
-                      <Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico>
-                    </button>
                     <button className="icon-btn" title={t("取消")} onClick={() => setEditDomId(null)}>
                       <Ico label={t("取消")}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Ico>
                     </button>
@@ -1374,18 +1389,15 @@ export default function App() {
           <p className="muted">{t("Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
           <div className="form2">
             <div><label>Cloudflare API Token</label>
-              <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} />
+              <input type="password" id="cf-token" placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onBlur={() => saveSettings(ddnsPatch())} />
               <p className="muted">{settings.cloudflare_configured ? t("已配置。留空保存时保持不变，只有填了新值才更新。") : t("未配置。填写后才能执行 DDNS 更新。")}</p></div>
             <div><label className="req">{t("时区 *")}</label>
-              <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone">
+              <select defaultValue={String(settings.timezone ?? "Asia/Shanghai")} id="s-timezone" onChange={() => saveSettings(ddnsPatch())}>
                 {(timezones.length ? timezones : TZ_FALLBACK).map((tz) => (
                   <option key={tz.value} value={tz.value}>{tz.label}</option>
                 ))}
               </select>
               <p className="muted">{t("当前：{tz}。夜间窗口、固定时刻、间隔锚点、每日开关机、日报推送时间都按此时区执行；保存后立即生效，下次调度按新时区走，不用重启。容器 TZ 环境变量只作后备默认值。", { tz: String(settings.timezone ?? "Asia/Shanghai") })}</p></div>
-          </div>
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-            <button className="icon-btn green" title={t("保存")} onClick={() => saveSettings(ddnsPatch())}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
           </div>
         </div>
         )}
@@ -1436,19 +1448,19 @@ export default function App() {
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>{t("去分组管理")}</button>
             </div>
             <div className="form2">
-              <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" /></div>
-              <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" /></div>
+              <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
+              <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
             <div className="form2">
               <div><label className="req">{t("切换阀值 *")}</label>
                 <Seg value={sDiffMode} options={[
                   { value: "percent", label: t("百分比（%）") },
                   { value: "gb", label: t("固定流量（GB）") },
-                ]} onChange={setSDiffMode} /></div>
+                ]} onChange={(v) => { setSDiffMode(v); saveParamSettings({ switch_diff_mode: v }); }} /></div>
               {sDiffMode === "percent" ? (
-                <div><label className="req">{t("切换阀值 *（%）")}</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" /></div>
+                <div><label className="req">{t("切换阀值 *（%）")}</label><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div>
               ) : (
-                <div><label className="lbl">{t("切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" /></div>
+                <div><label className="lbl">{t("切换阀值（GB）")}</label><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div>
               )}
               <div><p className="muted" style={{ marginTop: 28 }}>{t("负载均衡：% 模式差值 ≥ 10% 切，GB 模式差值 ≥ 10 GB 切。")}</p></div>
               <div><label className="req">{t("API 刷新时间 *（分钟）")}</label>
@@ -1457,9 +1469,9 @@ export default function App() {
                   { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
                   { value: "60", label: t("60 分钟") },
                   { value: "custom", label: t("自定义") },
-                ]} onChange={setSRefresh} />
+                ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
                 {sRefresh === "custom" && (
-                <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} />)}
+                <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
                 <p className="muted">{t("多久查一次阿里云 CDT/ECS/BSS 状态并重新评估。保存后下次调度按新间隔走（与旧的检查间隔是同一项，已合并）。")}</p></div>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("阈值")}</h3>
@@ -1470,7 +1482,7 @@ export default function App() {
                 { value: "none", label: t("踢出DDNS") },
                 { value: "stop_charging", label: t("节省停机") },
                 { value: "stop", label: t("停机") },
-              ]} onChange={setSExcl} />
+              ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
               <p className="muted">{t("默认不停机，只跳出 DDNS；如需省流量费再选停机/节省停机。停机永远在切完 DNS 之后，同一台只停一次。")}</p>
             </div>
             <div style={{ marginTop: 12 }}>
@@ -1478,7 +1490,7 @@ export default function App() {
               <Seg value={sRecovery} options={[
                 { value: "start", label: t("恢复时拉起（默认）") },
                 { value: "keep_stopped", label: t("恢复入池但保持停机") },
-              ]} onChange={setSRecovery} />
+              ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
               <p className="muted">{t("每日定时关机窗口内恢复拉起不执行（定时关机优先）；定时开机窗口内正常执行。")}</p>
             </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
@@ -1490,9 +1502,9 @@ export default function App() {
                   { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                   { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
-                ]} onChange={setSInterval} /></div>
+                ]} onChange={(v) => { setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div>
               {sInterval === "0" && (
-              <div><label className="lbl">{t("自定义间隔")}</label>
+              <div onBlur={() => saveParamSettings()}><label className="lbl">{t("自定义间隔")}</label>
                 <div className="row" style={{ alignItems: "center" }}>
                   <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: 120 }} />
                   <Seg value={sCustUnit} options={[
@@ -1508,32 +1520,12 @@ export default function App() {
               <Seg value={sCurrency} options={[
                 { value: "USD", label: "USD" },
                 { value: "CNY", label: "CNY" },
-              ]} onChange={setSCurrency} />
+              ]} onChange={(v) => { setSCurrency(v); saveParamSettings({ settlement_currency: v }); }} />
               <div style={{ marginTop: 8 }}>
                 <label className="lbl">{t("汇率")}</label>
-                <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} /><span>&nbsp;CNY</span></div>
+                <div className="row" style={{ alignItems: "center" }}><span>1 USD =&nbsp;</span><input id="s-fx-rate" type="number" step="0.0001" min={0} defaultValue={String(settings.exchange_rate_usd_cny ?? "6.6719")} style={{ width: 120 }} onBlur={() => saveParamSettings()} /><span>&nbsp;CNY</span></div>
               </div>
               <p className="muted">{t("当前费用卡片按所选货币与汇率换算显示；日报仍按各账户币种。")}</p>
-            </div>
-            <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="icon-btn green" title={t("保存")} onClick={() => saveSettings({
-              quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
-              protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
-              switch_diff_mode: sDiffMode,
-              switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement)?.value || String(settings.switch_diff_pct ?? 10),
-              switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
-              interval_hours: sInterval,
-              custom_interval_minutes: String(Math.round((parseFloat(sCustVal) || 0) * custMult(sCustUnit))),
-              exclusion_action: sExcl,
-              threshold_recovery_action: sRecovery,
-              api_refresh_minutes: (() => {
-                if (sRefresh === "custom") return (document.getElementById("s-refresh-custom") as HTMLInputElement).value || "5";
-                return sRefresh;
-              })(),
-              settlement_currency: sCurrency,
-              exchange_rate_usd_cny: (document.getElementById("s-fx-rate") as HTMLInputElement).value || String(settings.exchange_rate_usd_cny ?? "6.6719"),
-              ...ddnsPatch(),
-            })}><Ico label={t("保存")}><polyline points="20 6 9 17 4 12" /></Ico></button>
             </div>
           </div>
           <LoginSecurity adminName={String(authInfo.admin_name || "")} settings={settings} saveSettings={saveSettings} setMsg={setMsg} />

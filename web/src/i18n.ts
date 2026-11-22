@@ -159,7 +159,6 @@ export const EN: Record<string, string> = {
   操作: "Actions",
   已跳出: "Evicted",
   // 账户管理
-  "账户管理 {count}": "Account Management {count}",
   "+ 添加实例": "+ Add instance",
   账户已添加: "Account added",
   卡片设置: "Card settings",
@@ -413,7 +412,7 @@ export const EN: Record<string, string> = {
   每日财报推送: "Daily report",
   启用每日财报推送: "Enable daily report",
   推送时间: "Push time",
-  "每天这个时间推送一次，只推已启用的渠道。改时间后点保存才生效；若改到的时间当天已过，等明天再推，不会当天补推。": "Push once a day at this time, only to enabled channels. Changing the time takes effect after saving; if the new time has already passed today, it will push tomorrow instead of catching up today.",
+  "每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。": "Push once a day at this time, only to enabled channels. Changing the time saves automatically; if the new time has already passed today, it will push tomorrow instead of catching up today.",
   "{title}启用": "{title} enabled",
   发送测试通知: "Send test notification",
   发送测试财报: "Send test report",
