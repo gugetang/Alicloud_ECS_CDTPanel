@@ -87,16 +87,19 @@ push 到 main 自动构建并推送到 GHCR）。端口固定 `1999:1999`，
 
 **容器启动报 `sqlite3.OperationalError: unable to open database file`**
 
-容器以 UID 10001 运行，但宿主机上的数据卷目录 `/opt/docker/cdt-alicloud_ecs_cdtpanel`
-是 Docker 自动创建的，属主是 root，容器写不进去。修复：
+容器里的服务以 UID 10001 运行，但宿主机上的数据卷目录 `/opt/docker/cdt-alicloud_ecs_cdtpanel`
+是 Docker 自动创建的，属主是 root，容器写不进去。
+
+新版镜像已自动修复：容器入口脚本（`entrypoint.sh`）启动时先以 root 把 `/data`
+改属主为 10001，再切到 10001 用户运行服务，`docker compose pull && docker compose up -d`
+直接拉取启动，不用手动处理。一键部署脚本也会在 `up` 之前提前改好属主（双保险）。
+
+只有旧版镜像（没有入口脚本的版本）才需要手动修：
 
 ```bash
 sudo chown -R 10001:10001 /opt/docker/cdt-alicloud_ecs_cdtpanel
 docker compose restart   # 或 docker restart Alicloud_ECS_CDTPanel
 ```
-
-一键部署脚本会在 `up` 之前自动建好该目录并改属主；手动 `docker compose up` 时请先执行上面两条。
-新版启动时若目录仍不可写，会直接报明原因和修复命令，不再是没头没尾的 sqlite 报错。
 
 ### DDNS 设置与时区
 

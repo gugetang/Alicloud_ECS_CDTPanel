@@ -163,13 +163,13 @@ fi
 
 mkdir -p "$PROJECT_DIR/data"
 
-# 数据卷宿主机目录：容器以 UID 10001 运行；Docker 自动创建的宿主机挂载目录
-# 属主是 root，容器写不进去启动时会报 sqlite3 OperationalError: unable to
-# open database file。先建好并改属主，之后再 up 就不会遇到。
+# 数据卷宿主机目录：新版镜像的入口脚本会在容器启动时自动把 /data 改属主
+# 为 10001，拉取启动不用手动处理。这里再提前改一次是双保险（旧版镜像
+# 没有入口脚本时也靠它），改失败也不影响，容器启动时入口脚本会再修一次。
 DATA_HOST_DIR="/opt/docker/cdt-alicloud_ecs_cdtpanel"
 mkdir -p "$DATA_HOST_DIR"
 if ! chown -R 10001:10001 "$DATA_HOST_DIR" 2>/dev/null; then
-  log "警告：无法把 $DATA_HOST_DIR 改属主为 10001:10001（需要 root）；若容器启动报 unable to open database file，请手动执行：sudo chown -R 10001:10001 $DATA_HOST_DIR 后重启容器"
+  log "提示：无法把 $DATA_HOST_DIR 改属主为 10001:10001（需要 root）；新版镜像启动时入口脚本会自动修好，旧版镜像请手动执行：sudo chown -R 10001:10001 $DATA_HOST_DIR 后重启容器"
 fi
 
 # ---------------- 拉取镜像并启动 ----------------
