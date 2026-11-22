@@ -95,6 +95,8 @@ class AccountView:
     # 阈值恢复操作覆盖：None/""=跟随全局 threshold_recovery_action；
     # start=恢复时拉起；keep_stopped=恢复入池但保持停机
     recovery_action: str | None = None
+    # 是否参与 DDNS（分组管理里点选，多选；取消的实例不参与域名分配）
+    ddns_enabled: bool = True
 
     @property
     def usage_rate(self) -> float | None:
@@ -338,8 +340,11 @@ def is_in_daily_window(a: AccountView, now: dt.datetime) -> bool:
 
 
 def is_allocatable(a: AccountView, cfg: Config, now: dt.datetime | None = None) -> bool:
-    """可分配：流量已知、未超保护阈值、状态已知（Running/Stopped 均可，Stopped 由保活拉起）、
-    在每日开机窗口内（now 给出时才判断窗口；不给 now 时跳过窗口判断）。"""
+    """可分配：已选中参与 DDNS、流量已知、未超保护阈值、状态已知
+    （Running/Stopped 均可，Stopped 由保活拉起）、在每日开机窗口内
+    （now 给出时才判断窗口；不给 now 时跳过窗口判断）。"""
+    if not a.ddns_enabled:
+        return False
     rate = a.usage_rate
     if rate is None:
         return False

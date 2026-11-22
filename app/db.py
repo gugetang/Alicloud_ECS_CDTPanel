@@ -110,6 +110,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               recovery_action TEXT,
               billing_updated_at INTEGER DEFAULT 0,
               last_seen_at INTEGER DEFAULT 0,
+              ddns_enabled INTEGER NOT NULL DEFAULT 1,
               created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS domains(
@@ -182,6 +183,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN daily_off_time TEXT NOT NULL DEFAULT '20:00'",
             "ALTER TABLE accounts ADD COLUMN daily_report TEXT NOT NULL DEFAULT 'follow'",
             "ALTER TABLE accounts ADD COLUMN recovery_action TEXT",
+            "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
         ):
             try:
                 conn.execute(ddl)
@@ -541,7 +543,7 @@ def update_account(aid: int, data: dict) -> dict | None:
                "billing_month_cost", "billing_currency", "billing_balance",
                "billing_balance_currency", "instance_type", "instance_spec",
                "billing_updated_at",
-               "last_seen_at"]
+               "last_seen_at", "ddns_enabled"]
     sets = [(k, data[k]) for k in allowed if k in data]
     if not sets:
         return get_account(aid)

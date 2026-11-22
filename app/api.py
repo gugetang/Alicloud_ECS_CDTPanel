@@ -98,6 +98,8 @@ def _status_context(accounts_raw: list[dict] | None = None) -> tuple[dict[int, s
         rate, _t, evicted = _rate_and_threshold(row, settings)
         if (row.get("instance_status") or "").strip() != "Running":
             continue
+        if row.get("ddns_enabled") in (0, False):
+            continue  # 未选中参与 DDNS，不进排队
         if rate is None or evicted or row["id"] in serving_map:
             continue
         by_group.setdefault(row.get("group_id") or 1, []).append(row)
@@ -144,8 +146,9 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
     # 3. 停机/离线 red：Stopped 或状态未知/查询不到；若同时已跳出，detail 同时写“已跳出且已停机”
     # 4. 已跳出 gray：Running 且达保护阈值（被踢出池子，不再参与 DDNS）
     # 5. 在线 green：Running、未踢出、流量已知、且正被某个域名指向（正在服务）
-    # 6. 排队中 yellow：Running、未踢出、可分配、但当前未被任何域名指向（池内排队待命）
-    # 7. 未知 gray：Running 但流量未知（保守不动）
+    # 6. 未参与 gray：Running、未踢出、但未选中参与 DDNS（分组管理里可点选加入）
+    # 7. 排队中 yellow：Running、未踢出、已选中参与、可分配、但当前未被任何域名指向（池内排队待命）
+    # 8. 未知 gray：Running 但流量未知（保守不动）
     # status_dot 枚举：green | yellow | gray | red | green_pulse | red_pulse
     if serving_map is None and serving_ids is None:
         serving_map, queue_ranks = _status_context()
@@ -177,6 +180,9 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         out["status_detail"] = (
             f"使用率 {rate}% ≥ 阈值 {threshold:.0f}%，"
             "已跳出池子不再参与 DDNS；用量回落后自动恢复")
+    elif a.get("ddns_enabled") in (0, False) and not out["serving"]:
+        out["status_dot"], out["status_label"] = "gray", "未参与"
+        out["status_detail"] = "未选中参与 DDNS，不参与域名分配；在分组管理里点选即可加入"
     elif rate is None:
         out["status_dot"], out["status_label"] = "gray", "未知"
         out["status_detail"] = "实例运行中，但流量未知（保守不动）"

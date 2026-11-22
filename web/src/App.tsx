@@ -481,17 +481,22 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
         <button className="btn" onClick={saveParams}>保存分组参数</button>
       </div>
-      <h3 style={{ marginTop: 12 }}>成员 IP（{members.length}）</h3>
+      <h3 style={{ marginTop: 12 }}>成员实例（参与 DDNS，可多选）</h3>
+      <p className="muted">点一下选中 / 取消，被选中的实例参与 DDNS 域名分配；名称前的点是当前状态。</p>
       {members.length === 0 && <p className="muted">暂无成员，去「Ali 账户」添加并选本分组。</p>}
-      {members.map((a) => (
-        <div key={a.id as number} className="row" style={{ padding: "4px 0" }}>
-          {dotEl(a.status_dot, a.status_detail || a.status_label || "")}
-          <b>{a.name as string}</b><span className="muted">{a.status_label || a.instance_status || "未知"}</span>
-          <span>{a.public_ip as string || "—"}</span>
-          <span className="muted">{a.usage_rate != null ? `${a.usage_rate}%` : "—"}</span>
-          {a.evicted ? <span className="pill gray">已跳出</span> : null}
-        </div>
-      ))}
+      <div className="seg">
+        {members.map((a) => {
+          const on = a.ddns_enabled == null ? true : Boolean(a.ddns_enabled);
+          return (
+            <button key={a.id as number} className={on ? "seg-on" : ""}
+              title={`${a.status_label || a.instance_status || "未知"}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
+              onClick={() => run(() => put(`/api/accounts/${a.id}`, { ddns_enabled: on ? 0 : 1 }), on ? `已取消 ${a.name} 参与 DDNS` : `${a.name} 已参与 DDNS`)}>
+              {dotEl(a.status_dot, a.status_detail || a.status_label || "")}
+              {a.name as string}
+            </button>
+          );
+        })}
+      </div>
       <h3 style={{ marginTop: 12 }}>绑定域名（最多 1 个）</h3>
       {dom ? (
         <div className="row"><b>{dom.name as string}</b><span className="muted">当前指向</span>
@@ -826,6 +831,7 @@ export default function App() {
       <span><span className="dot" style={{ background: "#34A853" }} />绿=在线</span>
       <span><span className="dot" style={{ background: "#FBBC04" }} />黄=排队中</span>
       <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=已跳出</span>
+      <span><span className="dot" style={{ background: "#9AA0A6" }} />灰=未参与</span>
       <span><span className="dot" style={{ background: "#EA4335" }} />红=停机/离线</span>
       <span><span className="dot dot-pulse" style={{ background: "#34A853" }} />闪烁绿=启动中</span>
       <span><span className="dot dot-pulse-red" style={{ background: "#EA4335" }} />闪烁红=停止中</span>

@@ -38,7 +38,7 @@ COLUMNS: dict[str, list[str]] = {
                  "instance_type", "instance_spec",
                  "daily_schedule_enabled", "daily_on_time", "daily_off_time",
                  "daily_report", "recovery_action", "billing_updated_at",
-                 "last_seen_at", "created_at", "group_id"],
+                 "last_seen_at", "created_at", "group_id", "ddns_enabled"],
     "domains": ["id", "name", "zone", "priority", "record_type", "proxied",
                 "ttl", "current_account_id", "current_ip", "fallback_active",
                 "enabled", "created_at", "group_id"],

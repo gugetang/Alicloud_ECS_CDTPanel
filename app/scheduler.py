@@ -73,7 +73,8 @@ def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
             daily_schedule_enabled=bool(a.get("daily_schedule_enabled")),
             daily_on_time=a.get("daily_on_time") or "08:00",
             daily_off_time=a.get("daily_off_time") or "20:00",
-            recovery_action=a.get("recovery_action")))
+            recovery_action=a.get("recovery_action"),
+            ddns_enabled=bool(a.get("ddns_enabled", 1))))
     return views
 
 
