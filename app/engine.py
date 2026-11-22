@@ -68,6 +68,7 @@ class GroupView:
     switch_diff_gb: float | None = None
     switch_diff_pct: float | None = None
     time_switch_mode: str | None = None
+    paused: bool = False  # 停止：域名不再解析（指向 0.0.0.0），不分配实例
 
     def __post_init__(self):
         m = (self.switch_mode or "load_balance").strip().lower()
@@ -197,6 +198,7 @@ class Plan:
     notifications: list[tuple[str, str, str]] = field(default_factory=list)  # (event, title, body)
     evicted_account_ids: list[int] = field(default_factory=list)
     fallback_domain_ids: list[int] = field(default_factory=list)
+    paused_domain_ids: list[int] = field(default_factory=list)  # 已停止分组的域名：DNS 指向 0.0.0.0
     night_done_date: str = ""   # 本轮触发夜间优化的日期（YYYY-MM-DD），否则 ""
     fixed_done_date: str = ""
     time_switch_at: dt.datetime | None = None  # 本轮触发间隔切换的时刻（需持久化为锚点）
@@ -757,6 +759,16 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
         # 未绑定域名（group_id NULL）不参与任何分组的调度
         gdoms = [d for d in domains if d.group_id == gid]
         if not gaccs and not gdoms:
+            continue
+        if group.paused:
+            # 停止的分组：域名不再解析（指向 0.0.0.0），不分配实例
+            for d in gdoms:
+                if d.enabled:
+                    merged.paused_domain_ids.append(d.id)
+                    if d.current_ip != "0.0.0.0":
+                        merged.actions.append(Action(kind="dns", domain_id=d.id,
+                                                     account_id=None, target_ip="0.0.0.0",
+                                                     reason="group_paused"))
             continue
         nd = _lookup(night_done_by_group if night_done_by_group is not None
                      else night_done_dates, gid, set())

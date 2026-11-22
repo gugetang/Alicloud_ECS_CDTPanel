@@ -488,3 +488,14 @@ def test_buttons_filled_with_accent():
     # 删除实例仍是红色实心（内联样式，不受 .btn 影响）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert 'background: "#EA4335"' in tsx
+
+
+def test_group_card_pause_toggle_button():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 分组卡片右下角的停止/启动按钮：停止后绿色三角（点一下启动），
+    # 启动后灰色方块（点一下停止）
+    assert 't("启动分组")' in tsx and 't("停止分组")' in tsx
+    assert 'paused: g.paused ? 0 : 1' in tsx
+    assert 'icon-btn ${g.paused ? "green" : "gray"}' in tsx
+    assert '<polygon points="6 3 20 12 6 21 6 3"' in tsx
+    assert '<rect x="6" y="6" width="12" height="12"' in tsx

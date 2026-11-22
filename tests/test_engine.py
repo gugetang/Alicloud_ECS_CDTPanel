@@ -519,3 +519,29 @@ def test_unbound_domain_not_scheduled():
     d2 = dom(1, gid=1)
     plan = plan_reconcile([a1], [d2], cfg, noon(), groups=[g])
     assert plan.assignments[1] == 1
+
+
+def test_paused_group_points_domain_to_zero():
+    # 停止的分组：域名指向 0.0.0.0，不分配实例；恢复后正常分配
+    from app.engine import GroupView
+    g = GroupView(id=1, name="A", switch_mode="load_balance", paused=True)
+    cfg = Config(night_optimize_enabled=False)
+    a1 = acc(1, 10)
+    a1.group_id = 1
+    a1.group_ids = [1]
+    d = dom(1, current=1, ip="203.0.113.1")
+    plan = plan_reconcile([a1], [d], cfg, noon(), groups=[g])
+    assert plan.assignments == {}
+    assert 1 in plan.paused_domain_ids
+    assert any(a.kind == "dns" and a.target_ip == "0.0.0.0"
+               and a.reason == "group_paused" for a in plan.actions)
+    # 已是 0.0.0.0 时不再重复发 DNS 动作
+    d2 = dom(1, current=None, ip="0.0.0.0")
+    plan = plan_reconcile([a1], [d2], cfg, noon(), groups=[g])
+    assert 1 in plan.paused_domain_ids
+    assert not any(a.kind == "dns" for a in plan.actions)
+    # 恢复启动后正常分配
+    g2 = GroupView(id=1, name="A", switch_mode="load_balance", paused=False)
+    plan = plan_reconcile([a1], [d], cfg, noon(), groups=[g2])
+    assert plan.assignments[1] == 1
+    assert plan.paused_domain_ids == []

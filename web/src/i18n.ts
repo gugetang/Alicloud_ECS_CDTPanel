@@ -186,6 +186,11 @@ export const EN: Record<string, string> = {
   // 单台操作
   刷新: "Refresh",
   启动: "Start",
+  停止: "Stop",
+  启动分组: "Start group",
+  停止分组: "Stop group",
+  分组已启动: "Group started",
+  分组已停止: "Group stopped",
   重启: "Restart",
   "刷新中…": "Refreshing…",
   "启动中…": "Starting…",

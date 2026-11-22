@@ -473,3 +473,15 @@ def test_unbind_domain_via_update(tmpdb):
     g2 = tmpdb.create_group({"name": "分组B", "switch_mode": "time",
                              "domain_id": d["id"]})
     assert tmpdb.get_domain(d["id"])["group_id"] == g2["id"]
+
+
+def test_group_pause_flag_persists(tmpdb):
+    g = tmpdb.create_group({"name": "分组A", "switch_mode": "time"})
+    assert not g["paused"]
+    row = tmpdb.update_group(g["id"], {"paused": 1})
+    assert row["paused"] == 1
+    row = tmpdb.update_group(g["id"], {"paused": 0})
+    assert row["paused"] == 0
+    # 新建时可直接指定停止
+    g2 = tmpdb.create_group({"name": "分组B", "switch_mode": "time", "paused": 1})
+    assert g2["paused"] == 1

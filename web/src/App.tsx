@@ -600,6 +600,14 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           );
         })}
       </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+        <button className={`icon-btn ${g.paused ? "green" : "gray"}`} title={g.paused ? t("启动分组") : t("停止分组")}
+          onClick={() => run(() => put(`/api/groups/${g.id}`, { paused: g.paused ? 0 : 1 }), g.paused ? t("分组已启动") : t("分组已停止"))}>
+          {g.paused
+            ? <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>
+            : <Ico label={t("停止")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>}
+        </button>
+      </div>
     </div>
   );
 }

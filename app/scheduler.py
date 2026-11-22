@@ -113,7 +113,8 @@ def _to_group_views(groups: list[dict]) -> list[engine.GroupView]:
         switch_diff_mode=g.get("switch_diff_mode"),
         switch_diff_gb=g.get("switch_diff_gb"),
         switch_diff_pct=g.get("switch_diff_pct"),
-        time_switch_mode=g.get("time_switch_mode")) for g in groups]
+        time_switch_mode=g.get("time_switch_mode"),
+        paused=bool(g.get("paused"))) for g in groups]
 
 
 def _flag_dt(key: str) -> dt.datetime | None:
@@ -326,6 +327,7 @@ def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
                                     for e, t, b in plan.notifications],
                   "evicted": plan.evicted_account_ids,
                   "fallback_domains": plan.fallback_domain_ids,
+                  "paused_domains": plan.paused_domain_ids,
                   "groups": [{"id": g.id, "name": g.name,
                               "switch_mode": g.switch_mode} for g in groups]}
         job_id = db.create_job("dry_run")
@@ -336,10 +338,13 @@ def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
                                    _to_domain_views(domains),
                                    _CloudOps(settings), _DnsOps(settings),
                                    notify_fn=_notify, dry_run=False)
-    # 落库：域名当前指向 / 备用标记
+    # 落库：域名当前指向 / 备用标记 / 已停止分组的域名（指向 0.0.0.0）
     for d in domains:
         target = plan.assignments.get(d["id"])
-        if d["id"] in plan.fallback_domain_ids:
+        if d["id"] in plan.paused_domain_ids:
+            db.update_domain(d["id"], {"fallback_active": 0, "current_account_id": None,
+                                       "current_ip": "0.0.0.0"})
+        elif d["id"] in plan.fallback_domain_ids:
             db.update_domain(d["id"], {"fallback_active": 1, "current_account_id": None})
         elif target is not None:
             acc = next((a for a in accounts if a["id"] == target), None)

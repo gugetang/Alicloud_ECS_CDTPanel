@@ -80,6 +80,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               switch_diff_gb REAL,
               switch_diff_pct REAL,
               time_switch_mode TEXT,
+              paused INTEGER NOT NULL DEFAULT 0,
               priority INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL
             );
@@ -193,6 +194,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN interval_start_time TEXT",
+            "ALTER TABLE groups ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
             "CREATE TABLE IF NOT EXISTS account_groups(account_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY(account_id, group_id))",
             "INSERT OR IGNORE INTO account_groups(account_id, group_id) SELECT id, group_id FROM accounts WHERE group_id IS NOT NULL",
         ):
@@ -405,10 +407,12 @@ def create_group(data: dict) -> dict:
             "interval_start_time",
             "fixed_switch_time", "night_window_start", "night_window_end",
             "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-            "switch_diff_pct", "time_switch_mode", "priority"]
+            "switch_diff_pct", "time_switch_mode", "paused", "priority"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
     vals[1] = _check_switch_mode(data.get("switch_mode"))
+    # 停止状态归一化（新建默认运行中）
+    vals[cols.index("paused")] = 1 if data.get("paused") else 0
     # 开始时间归一化（非法回退 00:00:00）
     if "interval_start_time" in cols:
         vals[cols.index("interval_start_time")] = _norm_start_time(data.get("interval_start_time"))
@@ -460,8 +464,10 @@ def update_group(gid: int, data: dict) -> dict | None:
                "interval_start_time",
                "fixed_switch_time", "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-               "switch_diff_pct", "time_switch_mode", "priority"]
+               "switch_diff_pct", "time_switch_mode", "paused", "priority"]
     sets = [(k, data[k]) for k in allowed if k in data]
+    if any(k == "paused" for k, _ in sets):
+        sets = [(k, (1 if v else 0) if k == "paused" else v) for k, v in sets]
     if any(k == "switch_mode" for k, _ in sets):
         sets = [(k, _check_switch_mode(v) if k == "switch_mode" else v)
                 for k, v in sets]
