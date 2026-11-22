@@ -618,6 +618,8 @@ def test_controls_align_with_indented_labels():
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sInterval}' in tsx
     # 全局：阈值动作/阈值恢复整段缩进
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
+    # API 刷新时间按键区与上面轮巡周期按键区左对齐（同缩进 2em）
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sRefresh}' in tsx
     # 分组：差值 Seg、间隔 Seg 包在缩进 div 里
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={diffMode}' in tsx
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={interval}' in tsx
@@ -644,3 +646,24 @@ def test_theme_accents_are_light():
     # 主题卡片渐变色块同步改浅
     for g in ("#a7f3d0,#10b981", "#bfdbfe,#3b82f6", "#fed7aa,#f97316", "#ddd6fe,#8b5cf6", "#fecaca,#ef4444"):
         assert g in tsx, g
+
+
+def test_settings_cards_use_parent_child_layout():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 父栏标题（h2/h3/16px）贴左，子栏内容缩进 2 字符：登录与安全、通知渠道、
+    # 备份与恢复、站点信息、货币结算、主题设置、通知事件、DDNS 设置都一样
+    # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
+    assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
+    # 通知渠道：字段区缩进；每日财报推送升为 h3 父标题、其控件缩进
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
+    assert '<h3 style={{ margin: 0 }}>{t("每日财报推送")}</h3>' in tsx
+    # 备份与恢复：按钮行缩进
+    assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
+    # 站点信息：内容包在缩进 div 里
+    assert '<div className="card"><h2>{t("站点信息")}</h2>\n      <div style={{ paddingLeft: "2em" }}>' in tsx
+    # 货币结算 / 主题设置：内容缩进
+    assert '<div className="card"><h2>{t("货币结算")}</h2>\n            <div style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<div className="theme-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    # 通知事件开关行、DDNS 设置表单网格缩进
+    assert 'style={{ padding: "6px 0 6px 2em" }}' in tsx
+    assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx

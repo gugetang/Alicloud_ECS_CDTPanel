@@ -727,7 +727,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
           onChange={(v) => saveSettings(isEmail ? { email_enabled: v ? "1" : "0" } : { telegram_enabled: v ? "1" : "0" })} />
       </div>
       {isEmail ? (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12, paddingLeft: "2em" }}>
           <label>{t("SMTP 服务器")}</label><input id="em-host" defaultValue={String(settings.email_smtp_host ?? "")} placeholder="smtp.example.com" onBlur={saveAll} />
           <label>{t("SMTP 端口")}</label><input id="em-port" defaultValue={String(settings.email_smtp_port ?? 465)} onBlur={saveAll} />
           <label>{t("发件邮箱")}</label><input id="em-user" defaultValue={String(settings.email_user ?? "")} placeholder="sender@example.com" onBlur={saveAll} />
@@ -735,16 +735,18 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
           <label>{t("收件邮箱")}</label><input id="em-to" defaultValue={String(settings.email_to ?? "")} placeholder="receiver@example.com" onBlur={saveAll} />
         </div>
       ) : (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 12, paddingLeft: "2em" }}>
           <label>Bot Token</label><input type="password" id="tg-token" key={String(settings.telegram_configured)} defaultValue={settings.telegram_configured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.telegram_configured)); saveAll(); }} />
           <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} onBlur={saveAll} />
         </div>
       )}
       <div style={{ marginTop: 12 }}>
-        <label>{t("每日财报推送")}</label>
+        <h3 style={{ margin: 0 }}>{t("每日财报推送")}</h3>
+        <div style={{ paddingLeft: "2em" }}>
         <div className="row"><span>{t("启用每日财报推送")}</span><span className="spacer" />
           <Toggle checked={drEnabled} label={t("启用每日财报推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
         <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
+        </div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         {!isEmail && (
@@ -834,19 +836,19 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
   return (
     <div className="card"><h2>{t("登录与安全")}</h2>
       <h3 style={{ marginTop: 12 }}>{t("修改密码")}</h3>
-      <div className="form2">
+      <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>{t("当前密码")}</label><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder={t("首次设置留空")} /></div>
         <div><label>{t("新密码")}</label><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("至少 6 位")} /></div>
       </div>
-      <div className="row" style={{ marginTop: 8 }}>
+      <div className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
         <button className="btn" onClick={changePw} disabled={busy}>{t("修改密码")}</button>
-      </div>
+      </div></div>
       <h3 style={{ marginTop: 20 }}>{t("指纹登录")}</h3>
-      <div className="row">
+      <div className="row" style={{ paddingLeft: "2em" }}>
         <button className="btn" onClick={registerFingerprint} disabled={busy}>{t("注册指纹")}</button>
       </div>
       {creds.map((c) => (
-        <div key={c.credential_id as string} className="row" style={{ marginTop: 8 }}>
+        <div key={c.credential_id as string} className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
           <span>{c.label as string || t("指纹")}</span>
           <span className="muted">{new Date((c.created_at as number) * 1000).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US")}</span>
           <span className="spacer" />
@@ -856,16 +858,16 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
         </div>
       ))}
       <h3 style={{ marginTop: 20 }}>{t("Google 登录")}</h3>
-      <div className="form2">
+      <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
         <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" key={String(settings.google_oauth_configured)} defaultValue={settings.google_oauth_configured ? SECRET_MASK : ""} placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.google_oauth_configured)); saveGoogleOAuth(); }} /></div>
-      </div>
+      </div></div>
       <h3 style={{ marginTop: 20 }}>{t("GitHub 登录")}</h3>
-      <div className="form2">
+      <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
         <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" key={String(settings.github_oauth_configured)} defaultValue={settings.github_oauth_configured ? SECRET_MASK : ""} placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.github_oauth_configured)); saveGithubOAuth(); }} /></div>
-      </div>
-      {secMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{secMsg}</p>}
+      </div></div>
+      {secMsg && <p style={{ color: "#f87171", marginTop: 12, paddingLeft: "2em" }}>{secMsg}</p>}
     </div>
   );
 }
@@ -919,13 +921,13 @@ function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () =>
 
   return (
     <div className="card"><h2>{t("备份与恢复")}</h2>
-      <div className="row">
+      <div className="row" style={{ paddingLeft: "2em" }}>
         <button className="btn" onClick={download} disabled={busy}>{t("下载备份")}</button>
         <input type="file" id="backup-file" accept=".json,application/json"
           style={{ flex: 1 }} onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
         <button className="btn" onClick={restore} disabled={busy || !fileName}>{t("恢复备份")}</button>
       </div>
-      {fileName && <p className="muted">{t("已选：{name}", { name: fileName })}</p>}
+      {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
     </div>
   );
 }
@@ -980,6 +982,7 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
 
   return (
     <div className="card"><h2>{t("站点信息")}</h2>
+      <div style={{ paddingLeft: "2em" }}>
       <label className="lbl">{t("站点 logo")}</label>
       <div className="row" style={{ alignItems: "center" }}>
         {hasLogo && (
@@ -996,6 +999,7 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("站点简介")}</label>
         <input value={intro} onChange={(e) => setIntro(e.target.value)} onBlur={() => void saveIntro()} placeholder={t("页眉显示的简介，留空显示默认副标题")} />
+      </div>
       </div>
     </div>
   );
@@ -1631,7 +1635,7 @@ export default function App() {
         </div>
         {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
-          <div className="form2">
+          <div className="form2" style={{ paddingLeft: "2em" }}>
             <div><label className="req">{t("域名 *")}</label>
               <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 domainname.com")} onBlur={() => saveSettings(ddnsPatch())} /></div>
             <div><label>{t("账户邮箱")}</label>
@@ -1756,14 +1760,14 @@ export default function App() {
             </div>
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
-              <Seg value={sRefresh} options={[
+              <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
                 { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
                 { value: "60", label: t("60 分钟") },
                 { value: "custom", label: t("自定义") },
               ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v === "custom" ? ((document.getElementById("s-refresh-custom") as HTMLInputElement)?.value || "5") : v }); }} />
               {sRefresh === "custom" && (
-              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}
+              <input placeholder={t("自定义分钟数")} defaultValue={["5", "10", "15", "30", "60"].includes(String(settings.api_refresh_minutes ?? 5)) ? "" : String(settings.api_refresh_minutes ?? 5)} id="s-refresh-custom" style={{ marginTop: 6 }} onBlur={() => saveParamSettings()} />)}</div>
             </div>
             </div>
           </div>
@@ -1774,6 +1778,7 @@ export default function App() {
         <>
           <SiteInfoCard settings={settings} setMsg={setMsg} load={load} />
           <div className="card"><h2>{t("货币结算")}</h2>
+            <div style={{ paddingLeft: "2em" }}>
             <label className="lbl">{t("结算货币")}</label>
             <Seg value={sCurrency} options={[
               { value: "USD", label: "USD" },
@@ -1783,15 +1788,17 @@ export default function App() {
               <label className="lbl">{t("汇率")}</label>
               <div>1 USD = {String(settings.exchange_rate_usd_cny ?? "6.6719")} CNY</div>
             </div>
+            </div>
           </div>
           <div className="card"><h2>{t("主题设置")}</h2>
+            <div style={{ paddingLeft: "2em" }}>
             <Seg value={theme} options={[
               { value: "light", label: t("亮色") },
               { value: "dark", label: t("暗色") },
               { value: "system", label: t("跟随系统") },
             ]} onChange={(v) => setTheme(v)} />
             <h3 style={{ marginTop: 16 }}>🎨 {t("主题风格")}</h3>
-            <div className="theme-grid">
+            <div className="theme-grid" style={{ paddingLeft: "2em" }}>
               {ACCENTS.map((a) => (
                 <button key={a.id} type="button" className={accent === a.id ? "theme-card sel" : "theme-card"} onClick={() => setAccent(a.id)}>
                   <span className="theme-swatch" style={{ background: a.gradient }}>
@@ -1801,6 +1808,7 @@ export default function App() {
                   <span className="theme-en">{a.en}</span>
                 </button>
               ))}
+            </div>
             </div>
           </div>
         </>
@@ -1824,7 +1832,7 @@ export default function App() {
             {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery"] as const).map((k) => {
               const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复") } as Any)[k] as string;
               return (
-                <div className="row" key={k} style={{ padding: "6px 0" }}>
+                <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />
                   <Toggle checked={settings[`notify_${k}`] === "1"} label={label}
                     onChange={(v) => saveSettings({ [`notify_${k}`]: v ? "1" : "0" })} />
