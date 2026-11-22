@@ -498,7 +498,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run }: {
         <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
         <button className="btn ghost" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
-        <button className="btn ghost" onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>{t("删除")}</button>
+        <button className="btn ghost" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>{t("删除")}</button>
       </div>
       {showSettings && (<>
       <div style={{ marginTop: 12 }}>
@@ -730,7 +730,7 @@ function LoginSecurity({ adminName, saveSettings, settings, setMsg }: {
           <span>{c.label as string || t("指纹")}</span>
           <span className="muted">{new Date((c.created_at as number) * 1000).toLocaleDateString(lang === "zh" ? "zh-CN" : "en-US")}</span>
           <span className="spacer" />
-          <button className="btn ghost" onClick={async () => { await del(`/api/auth/webauthn/${c.credential_id}`); await loadCreds(); }}>{t("删除")}</button>
+          <button className="btn ghost" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }} onClick={async () => { if (!confirm(t("删除指纹 {label}？", { label: (c.label as string) || t("指纹") }))) return; await del(`/api/auth/webauthn/${c.credential_id}`); await loadCreds(); }}>{t("删除")}</button>
         </div>
       ))}
       <h3 style={{ marginTop: 20 }}>{t("Google 登录")}</h3>
@@ -836,6 +836,10 @@ export default function App() {
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   // 域名管理页 DDNS 设置卡片是否展开（右上角 ⚙ 开关）
   const [showDdns, setShowDdns] = useState(true);
+  // 域名管理页：正在编辑的行（null=无），行内表单
+  const [editDomId, setEditDomId] = useState<number | null>(null);
+  const [editDomName, setEditDomName] = useState("");
+  const [editDomGroup, setEditDomGroup] = useState("");
   const [acting, setActing] = useState<Record<number, string>>({});
 
   // ---------- 语言：中英切换，默认英文（localStorage `cdt-lang`） ----------
@@ -1292,16 +1296,44 @@ export default function App() {
           <table><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
+              const editing = editDomId === d.id;
               return (
               <tr key={d.id as number}><td>{String(i + 1).padStart(2, "0")}<br />
-                <button className="btn ghost" disabled={i === 0} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↑</button>
-                <button className="btn ghost" disabled={i === domains.length - 1} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↓</button></td>
-                <td><b>{d.name as string}</b></td>
-                <td>{groupName(d.group_id)}<br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></td>
+                <button className="btn ghost" disabled={i === 0 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↑</button>
+                <button className="btn ghost" disabled={i === domains.length - 1 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↓</button></td>
+                <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
+                <td>{editing ? (
+                  <select value={editDomGroup} onChange={(e) => setEditDomGroup(e.target.value)}>
+                    {groups.map((g) => {
+                      const bound = domains.some((x) => x.id !== d.id && (x.group_id || 1) === g.id);
+                      return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
+                    })}
+                  </select>
+                ) : (<>{groupName(d.group_id)}<br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>)}</td>
                 <td>{d.zone as string || t("自动发现")}</td>
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
-                <td><button className="btn ghost" onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) run(() => del(`/api/domains/${d.id}`), t("已删除")); }}>{t("删除")}</button></td></tr>
+                <td>{editing ? (
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className="btn" onClick={() => {
+                      const nm = editDomName.trim();
+                      if (!nm) { setMsg(t("请填写域名")); return; }
+                      const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(editDomGroup) };
+                      if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
+                      run(async () => { await put(`/api/domains/${d.id}`, payload); setEditDomId(null); }, t("域名已更新"));
+                    }}>{t("保存")}</button>
+                    <button className="btn ghost" onClick={() => setEditDomId(null)}>{t("取消")}</button>
+                  </div>
+                ) : (
+                  <div className="row" style={{ gap: 6 }}>
+                    <button className="icon-btn" title={t("编辑")} onClick={() => { setEditDomId(d.id as number); setEditDomName(d.name as string); setEditDomGroup(String(d.group_id || 1)); }}>
+                      <Ico label={t("编辑")}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></Ico>
+                    </button>
+                    <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) run(() => del(`/api/domains/${d.id}`), t("已删除")); }}>
+                      <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+                    </button>
+                  </div>
+                )}</td></tr>
               ); })}</tbody></table>
           <p className="muted">{t("同名存在多条 A / AAAA / CNAME 记录时报告冲突，由用户整理。")}</p>
           <div className="row">

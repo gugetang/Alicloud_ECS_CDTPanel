@@ -83,6 +83,8 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
 .icon-btn:hover { border-color:var(--accent); color:#1d4ed8; background:#dbeafe; }
 .icon-btn:disabled { opacity:.45; cursor:default; }
+.icon-btn.danger { color:#EA4335; }
+.icon-btn.danger:hover { border-color:#EA4335; color:#EA4335; background:rgba(234,67,53,.08); }
 /* 滑动开关：开=蓝底（--accent），关=灰底；圆点左右滑动。 */
 .switch { width:44px; height:24px; border-radius:999px; border:none; background:#cbd5e1; position:relative; cursor:pointer; padding:0; flex:none; transition:background .2s; }
 .switch.on { background:var(--accent); }
