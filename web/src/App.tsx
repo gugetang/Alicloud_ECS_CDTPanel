@@ -34,18 +34,6 @@ const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
   { region_id: "cn-hangzhou", local_name: "杭州" },
 ];
 
-// 阈值动作三选一：全局设置页与实例配置表单共用同一组选项与文案。
-// 内部值沿用 exclusion_action：none=踢出DDNS（默认，不停机）/
-// stop_charging=节省停机 / stop=停机。
-const EXCL_OPTIONS = [
-  { value: "none", title: "踢出DDNS（默认，不停机）", sub: "只跳出 DDNS，继续跑" },
-  { value: "stop_charging", title: "节省停机", sub: "切完 DNS 后节省停机" },
-  { value: "stop", title: "停机", sub: "切完 DNS 后停机" },
-];
-
-const exclLabel = (v: string | undefined | null) =>
-  translate(getLang(), (EXCL_OPTIONS.find((o) => o.value === (v || "none"))?.title as string) || "踢出DDNS（默认，不停机）");
-
 // 时区下拉内置回退列表（与后端 GET /api/timezones 同款；接口加载失败时用它）。
 const TZ_FALLBACK = [
   { value: "Asia/Shanghai", label: "上海 Asia/Shanghai" },
@@ -194,8 +182,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
   const [onTime, setOnTime] = useState((account?.daily_on_time as string) || "08:00");
   const [offTime, setOffTime] = useState((account?.daily_off_time as string) || "20:00");
   const [report, setReport] = useState((account?.daily_report as string) || "follow");
-  const [excl, setExcl] = useState((account?.exclusion_action as string) || "");
-  const [recovery, setRecovery] = useState((account?.recovery_action as string) || "");
   const [regions, setRegions] = useState<{ region_id: string; local_name: string }[]>(BUILTIN_REGIONS);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
   const [formMsg, setFormMsg] = useState("");
@@ -268,7 +254,7 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
       group_id: account?.group_id ?? 1,
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime, daily_report: report,
-      exclusion_action: excl || "", recovery_action: recovery || "",
+      // 阈值动作/恢复已移到分组卡片：实例级不再保存这两个字段。
       // 实例级刷新时间已取消：强制跟随全局，存 null 清掉旧的自定义值。
       api_refresh_minutes: null,
     };
@@ -339,23 +325,6 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
           { value: "on", label: t("单独开启") },
           { value: "off", label: t("单独关闭") },
         ]} onChange={setReport} />
-      </div>
-      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
-        <label className="lbl">{t("阈值动作")}</label>
-        <Seg value={excl} options={[
-          { value: "", label: t("跟随全局") },
-          { value: "none", label: t("踢出DDNS") },
-          { value: "stop_charging", label: t("节省停机") },
-          { value: "stop", label: t("停机") },
-        ]} onChange={setExcl} />
-      </div>
-      <div style={{ marginTop: 12 }} onBlur={saveAuto}>
-        <label className="lbl">{t("阈值恢复")}</label>
-        <Seg value={recovery} options={[
-          { value: "", label: t("跟随全局") },
-          { value: "start", label: t("恢复时拉起") },
-          { value: "keep_stopped", label: t("恢复入池但保持停机") },
-        ]} onChange={setRecovery} />
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
@@ -515,6 +484,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
+  // 分组级阈值策略：空=跟随全局
+  const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
+  const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(false);
 
@@ -601,6 +573,23 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
         </div>
       )}
+      <div style={{ marginTop: 12 }}>
+        <label className="lbl">{t("阈值动作")}</label>
+        <Seg value={gExcl} options={[
+          { value: "", label: t("跟随全局") },
+          { value: "none", label: t("踢出DDNS") },
+          { value: "stop_charging", label: t("节省停机") },
+          { value: "stop", label: t("停机") },
+        ]} onChange={(v) => { setGExcl(v); savePatch({ exclusion_action: v }); }} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <label className="lbl">{t("阈值恢复")}</label>
+        <Seg value={gRecovery} options={[
+          { value: "", label: t("跟随全局") },
+          { value: "start", label: t("恢复时拉起") },
+          { value: "keep_stopped", label: t("恢复入池但保持停机") },
+        ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
+      </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>
       <div className="seg" style={{ paddingLeft: "2em" }}>
@@ -1629,7 +1618,7 @@ export default function App() {
       {tab === "groups" && (
         <>
           {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}`}
+            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.exclusion_action ?? ""}-${g.recovery_action ?? ""}`}
               g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
               dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
           ))}

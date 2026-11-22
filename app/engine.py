@@ -68,6 +68,10 @@ class GroupView:
     switch_diff_gb: float | None = None
     switch_diff_pct: float | None = None
     time_switch_mode: str | None = None
+    # 阈值策略（分组级）：None/""=继承全局设置；exclusion_action=none/stop/
+    # stop_charging，recovery_action=start/keep_stopped
+    exclusion_action: str | None = None
+    recovery_action: str | None = None
     paused: bool = False  # 停止：域名不再解析（指向 0.0.0.0），不分配实例
 
     def __post_init__(self):
@@ -84,6 +88,7 @@ class AccountView:
     switch_diff_pct: float | None = None
     switch_diff_mode: str | None = None   # percent | gb（None=继承全局）
     switch_diff_gb: float | None = None   # gb 模式下的差值（GB）
+    # 分组级阈值动作（由调度器按所属分组填入；None/""=跟随全局）
     exclusion_action: str | None = None
     priority: int = 0
     used_gb: float | None = None          # None = 未知
@@ -96,7 +101,8 @@ class AccountView:
     daily_schedule_enabled: bool = False
     daily_on_time: str = "08:00"
     daily_off_time: str = "20:00"
-    # 阈值恢复操作覆盖：None/""=跟随全局 threshold_recovery_action；
+    # 阈值恢复操作（分组级，由调度器按所属分组填入）：
+    # None/""=跟随全局 threshold_recovery_action；
     # start=恢复时拉起；keep_stopped=恢复入池但保持停机
     recovery_action: str | None = None
     # 是否参与 DDNS（分组管理里点选，多选；取消的实例不参与域名分配）

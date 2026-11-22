@@ -375,3 +375,42 @@ def test_status_paused_when_refresh_zero(tmpdb):
     r = client.get("/api/status")
     assert r.json()["scheduler"]["paused"] is False
     assert r.json()["scheduler"]["api_refresh_minutes"] == 5
+
+
+def test_to_views_resolves_threshold_from_group(tmpdb):
+    """实例的阈值动作/恢复取所属分组的值，不再取实例自身的字段。"""
+    from app.scheduler import _to_views
+    tmpdb.update_group(1, {"exclusion_action": "stop_charging",
+                           "recovery_action": "keep_stopped"})
+    a = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    b = tmpdb.create_account({"name": "IP2", "group_id": 1})
+    views = _to_views(tmpdb.list_accounts(), tmpdb.get_settings())
+    by_id = {v.id: v for v in views}
+    assert by_id[a["id"]].exclusion_action == "stop_charging"
+    assert by_id[a["id"]].recovery_action == "keep_stopped"
+    assert by_id[b["id"]].exclusion_action == "stop_charging"
+    # 分组改回跟随全局：视图里为空，引擎再按全局走。
+    tmpdb.update_group(1, {"exclusion_action": "", "recovery_action": ""})
+    views = _to_views(tmpdb.list_accounts(), tmpdb.get_settings())
+    by_id = {v.id: v for v in views}
+    assert by_id[a["id"]].exclusion_action in (None, "")
+    assert by_id[a["id"]].recovery_action in (None, "")
+
+
+def test_group_threshold_drives_effective_values(tmpdb):
+    """公开账户行的有效阈值动作/恢复跟随所属分组；分组为空时跟随全局。"""
+    from app.api import _public_account
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    # 分组自定义：有效值跟分组走（全局默认 none/start）
+    tmpdb.update_group(1, {"exclusion_action": "stop",
+                           "recovery_action": "keep_stopped"})
+    body = _public_account(tmpdb.get_account(row["id"]))
+    assert body["exclusion_action_effective"] == "stop"
+    assert body["recovery_action_effective"] == "keep_stopped"
+    # 分组改回跟随全局：有效值跟全局走
+    tmpdb.update_group(1, {"exclusion_action": "", "recovery_action": ""})
+    tmpdb.set_settings({"exclusion_action": "stop_charging",
+                        "threshold_recovery_action": "keep_stopped"})
+    body = _public_account(tmpdb.get_account(row["id"]))
+    assert body["exclusion_action_effective"] == "stop_charging"
+    assert body["recovery_action_effective"] == "keep_stopped"

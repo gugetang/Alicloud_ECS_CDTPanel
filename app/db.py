@@ -5,7 +5,8 @@ groups: 分组（IP 池 + 最多 1 个域名 + 只选一种切换模式 time/loa
   分组层无 both）。默认分组 id=1，模式 load_balance。
 accounts: 一个阿里云账号 + 一台 ECS（与参考项目一致：1 账号 1 实例），
   group_id 指向所属分组（NULL=默认分组）；一个账户只属于一个分组。
-  site: cn | global；exclusion_action 可单账户覆盖全局。
+  site: cn | global；阈值动作/恢复是分组级策略（groups.exclusion_action /
+  recovery_action），空=跟随全局设置。
 domains: 域名 + 优先级（priority 越小越先分配）+ 当前指向的账户，
   group_id 指向所属分组（NULL=默认分组）；1 分组最多 1 个域名
   （partial UNIQUE 索引 + 创建/更新时校验双重保障）。
@@ -80,6 +81,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               switch_diff_gb REAL,
               switch_diff_pct REAL,
               time_switch_mode TEXT,
+              exclusion_action TEXT,
+              recovery_action TEXT,
               paused INTEGER NOT NULL DEFAULT 0,
               priority INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL
@@ -197,6 +200,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN interval_start_time TEXT",
             "ALTER TABLE groups ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE groups ADD COLUMN exclusion_action TEXT",
+            "ALTER TABLE groups ADD COLUMN recovery_action TEXT",
             "CREATE TABLE IF NOT EXISTS account_groups(account_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY(account_id, group_id))",
             "INSERT OR IGNORE INTO account_groups(account_id, group_id) SELECT id, group_id FROM accounts WHERE group_id IS NOT NULL",
         ):
@@ -403,13 +408,15 @@ def _check_group_exists(gid) -> None:
 
 
 def create_group(data: dict) -> dict:
+    data = _norm_group_threshold(data)
     conn = connect()
     now = int(time.time())
     cols = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
             "interval_start_time",
             "fixed_switch_time", "night_window_start", "night_window_end",
             "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-            "switch_diff_pct", "time_switch_mode", "paused", "priority"]
+            "switch_diff_pct", "time_switch_mode",
+            "exclusion_action", "recovery_action", "paused", "priority"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
     vals[1] = _check_switch_mode(data.get("switch_mode"))
@@ -462,11 +469,13 @@ def _norm_start_time(value) -> str:
 
 def update_group(gid: int, data: dict) -> dict | None:
     conn = connect()
+    data = _norm_group_threshold(data)
     allowed = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
                "interval_start_time",
                "fixed_switch_time", "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
-               "switch_diff_pct", "time_switch_mode", "paused", "priority"]
+               "switch_diff_pct", "time_switch_mode",
+               "exclusion_action", "recovery_action", "paused", "priority"]
     sets = [(k, data[k]) for k in allowed if k in data]
     if any(k == "paused" for k, _ in sets):
         sets = [(k, (1 if v else 0) if k == "paused" else v) for k, v in sets]
@@ -610,19 +619,12 @@ def _check_daily_fields(data: dict, cur: dict | None = None) -> None:
     dr = val("daily_report")
     if dr is not None and dr not in ("follow", "on", "off"):
         raise ValueError("参与日报推送只能是 follow/on/off")
-    ra = val("recovery_action")
-    if ra is not None and ra not in ("", "start", "keep_stopped"):
-        raise ValueError("阈值恢复操作只能是 start/keep_stopped（空=跟随全局）")
     site = val("site")
     if site is not None and site not in ("cn", "global"):
         raise ValueError("站点只能是 cn（国内站）或 global（国际站）")
     region = val("region")
     if region is not None and not str(region).strip():
         raise ValueError("地域不能为空")
-    excl = val("exclusion_action")
-    if excl is not None and excl not in (
-            "", "none", "stop", "stop_charging", "evict_ddns"):
-        raise ValueError("阈值动作只能是 none/stop_charging/stop（evict_ddns=none）")
     q = val("quota_gb")
     if q is not None:
         try:
@@ -645,6 +647,20 @@ def _norm_exclusion_action(data: dict) -> dict:
     return data
 
 
+def _norm_group_threshold(data: dict) -> dict:
+    """分组级阈值策略归一化/校验：exclusion_action 别名 evict_ddns→none；
+    recovery_action 只能是 ''/start/keep_stopped（空=跟随全局），非法报错；
+    exclusion_action 只能是 ''/none/stop/stop_charging（空=跟随全局），非法报错。"""
+    data = _norm_exclusion_action(data)
+    excl = data.get("exclusion_action")
+    if excl is not None and excl not in ("", "none", "stop", "stop_charging"):
+        raise ValueError("阈值动作只能是 none/stop_charging/stop（evict_ddns=none）")
+    ra = data.get("recovery_action")
+    if ra is not None and ra not in ("", "start", "keep_stopped"):
+        raise ValueError("阈值恢复操作只能是 start/keep_stopped（空=跟随全局）")
+    return data
+
+
 def _norm_refresh_minutes(data: dict) -> dict:
     """单账户 API 刷新时间（分钟）归一化：None/空/0/非法 = 跟随全局（存 NULL）；
     否则存正整数分钟。"""
@@ -661,7 +677,7 @@ def _norm_refresh_minutes(data: dict) -> dict:
 
 
 def create_account(data: dict) -> dict:
-    data = _norm_refresh_minutes(_norm_exclusion_action(data))
+    data = _norm_refresh_minutes(data)
     data = {**data, "name": _check_account_name(
         data.get("name"), data.get("group_id"))}
     _check_group_exists(data.get("group_id"))
@@ -671,17 +687,14 @@ def create_account(data: dict) -> dict:
     cols = ["name", "site", "region", "access_key_id", "access_key_secret_enc",
             "instance_id", "quota_gb", "protection_threshold_pct",
             "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
-            "exclusion_action", "priority", "group_id",
+            "priority", "group_id",
             "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-            "daily_report", "recovery_action", "api_refresh_minutes"]
+            "daily_report", "api_refresh_minutes"]
     _text = {"name", "site", "region", "access_key_id", "access_key_secret_enc",
-             "instance_id", "exclusion_action",
-             "daily_on_time", "daily_off_time", "daily_report", "recovery_action"}
+             "instance_id",
+             "daily_on_time", "daily_off_time", "daily_report"}
     _defaults = {"daily_schedule_enabled": 0, "daily_on_time": "08:00",
                  "daily_off_time": "20:00", "daily_report": "follow",
-                 # 阈值动作默认空=跟随全局（新建账户不填就是跟随全局）；
-                 # 自定义时才存 none/stop_charging/stop。
-                 "exclusion_action": "",
                  # 地域默认中国香港，站点默认国际站（USD）。
                  "region": "cn-hongkong", "site": "global"}
     vals = [data.get(c) if data.get(c) is not None
@@ -704,7 +717,7 @@ def create_account(data: dict) -> dict:
 
 def update_account(aid: int, data: dict) -> dict | None:
     conn = connect()
-    data = _norm_refresh_minutes(_norm_exclusion_action(data))
+    data = _norm_refresh_minutes(data)
     if "group_id" in data:
         _check_group_exists(data.get("group_id"))
     if "name" in data:
@@ -716,9 +729,9 @@ def update_account(aid: int, data: dict) -> dict | None:
     allowed = ["name", "site", "region", "access_key_id", "access_key_secret_enc",
                "instance_id", "quota_gb", "protection_threshold_pct",
                "switch_diff_pct", "switch_diff_mode", "switch_diff_gb",
-               "exclusion_action", "priority", "group_id",
+               "priority", "group_id",
                "daily_schedule_enabled", "daily_on_time", "daily_off_time",
-               "daily_report", "recovery_action", "api_refresh_minutes",
+               "daily_report", "api_refresh_minutes",
                "traffic_used_gb", "instance_status", "public_ip",
                "billing_month_cost", "billing_currency", "billing_balance",
                "billing_balance_currency", "instance_type", "instance_spec",

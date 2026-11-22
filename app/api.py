@@ -135,11 +135,13 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
                     serving_ids: set[int] | None = None,
                     settings: dict | None = None,
                     evicted_ids: set[int] | None = None,
-                    membership: dict[int, list[int]] | None = None) -> dict:
+                    membership: dict[int, list[int]] | None = None,
+                    groups: dict[int, dict] | None = None) -> dict:
     """公开账户行（去掉 AK Secret，补算使用率/状态点/排队位次）。
     settings / evicted_ids 不传时现场查；列表接口应一次查好传入，
     并把 serving_map + queue_ranks 一起传入，避免每账户重复推导。
-    membership（多对多成员关系）不传时现场查，列表接口应一次查好传入。"""
+    membership（多对多成员关系）不传时现场查，列表接口应一次查好传入。
+    groups（分组 dict 映射）不传时现场按所属分组查，用于阈值策略取值。"""
     out = dict(a)
     out.pop("access_key_secret_enc", None)
     out["has_secret"] = bool(a.get("access_key_secret_enc"))
@@ -170,10 +172,24 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
     out["protection_threshold_pct"] = (
         a.get("protection_threshold_pct")
         if a.get("protection_threshold_pct") is not None else threshold)
+    # 阈值策略取所属分组（空=跟随全局），不再读实例自身的覆盖值；
+    # 分组不存在/查不到时按跟随全局处理。所属分组：主分组 group_id 优先，
+    # 其次多对多成员分组的首个，再次默认分组 1。
+    _gids = out.get("group_ids") or []
+    _gid = _gids[0] if _gids else (a.get("group_id") or 1)
+    _g = None
+    if groups is not None:
+        _g = groups.get(int(_gid)) if _gid is not None else None
+    else:
+        try:
+            _g = db.get_group(int(_gid)) if _gid is not None else None
+        except Exception:
+            _g = None
     out["exclusion_action_effective"] = engine._norm_exclusion(
-        a.get("exclusion_action") or settings.get("exclusion_action") or "none")
+        (_g.get("exclusion_action") if _g else None)
+        or settings.get("exclusion_action") or "none")
     out["recovery_action_effective"] = (
-        a.get("recovery_action")
+        (_g.get("recovery_action") if _g else None)
         or settings.get("threshold_recovery_action") or "start")
     out["switch_diff_mode_effective"] = (
         a.get("switch_diff_mode") or settings.get("switch_diff_mode") or "percent")
@@ -579,7 +595,8 @@ def _public_group(g: dict, serving_map: dict[int, str] | None = None,
             accounts_raw, settings, evicted_ids)
     out["accounts"] = [_public_account(x, serving_map, queue_ranks,
                                        settings=settings,
-                                       evicted_ids=evicted_ids)
+                                       evicted_ids=evicted_ids,
+                                       groups={g["id"]: g})
                        for x in accounts]
     out["evicted_account_ids"] = [
         a["id"] for a in out["accounts"] if a.get("evicted")]
@@ -638,8 +655,10 @@ def status(_: bool = Depends(_admin_required)):
     evicted_ids = db.list_evicted_account_ids()
     raw_accounts = db.list_accounts()
     serving_map, queue_ranks = _status_context(raw_accounts, settings, evicted_ids)
+    _groups = {int(g["id"]): g for g in db.list_groups()}
     accounts = [_public_account(a, serving_map, queue_ranks, settings=settings,
-                                evicted_ids=evicted_ids) for a in raw_accounts]
+                                evicted_ids=evicted_ids, groups=_groups)
+                for a in raw_accounts]
     domains = db.list_domains()
     total_used = sum(a["traffic_used_gb"] for a in accounts
                      if a.get("traffic_used_gb") is not None)
@@ -688,8 +707,10 @@ def list_accounts(_: bool = Depends(_admin_required)):
     membership: dict[int, list[int]] = {}
     for row in db.list_account_groups():
         membership.setdefault(int(row["account_id"]), []).append(int(row["group_id"]))
+    _groups = {int(g["id"]): g for g in db.list_groups()}
     return [_public_account(a, serving_map, queue_ranks, settings=settings,
-                            evicted_ids=evicted_ids, membership=membership) for a in raw]
+                            evicted_ids=evicted_ids, membership=membership,
+                            groups=_groups) for a in raw]
 
 
 @router.post("/accounts")

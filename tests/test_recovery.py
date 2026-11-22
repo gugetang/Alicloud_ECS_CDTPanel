@@ -230,8 +230,9 @@ def test_persist_running_recovers_without_start(tmpdb):
 
 
 def test_persist_keep_stopped_no_start(tmpdb):
-    a = _mk(tmpdb, "IP1", 192.0, status="Stopped",
-            recovery_action="keep_stopped")
+    a = _mk(tmpdb, "IP1", 192.0, status="Stopped")
+    # 分组级阈值恢复：恢复入池但保持停机
+    tmpdb.update_group(1, {"recovery_action": "keep_stopped"})
     tmpdb.set_flag(f"evicted:{a['id']}", _at(0, 10, 0).isoformat())
     tmpdb.update_account(a["id"], {"traffic_used_gb": 184.0})
     fake = FakeAliyun()

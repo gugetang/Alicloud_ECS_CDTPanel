@@ -28,6 +28,7 @@ COLUMNS: dict[str, list[str]] = {
                "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode",
                "switch_diff_gb", "switch_diff_pct", "time_switch_mode",
+               "exclusion_action", "recovery_action",
                "priority", "created_at"],
     "accounts": ["id", "name", "site", "region", "access_key_id",
                  "access_key_secret_enc", "instance_id", "quota_gb",

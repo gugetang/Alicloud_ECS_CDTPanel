@@ -55,7 +55,8 @@ def _month_key(now: dt.datetime) -> str:
     return now.strftime("%Y-%m")
 
 
-def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
+def _to_views(accounts: list[dict], settings: dict,
+              groups: list[dict] | None = None) -> list[engine.AccountView]:
     # 多对多成员关系一次取齐（group_ids 为准；未填时引擎回退主分组 group_id）
     try:
         _membership: dict[int, list[int]] = {}
@@ -63,16 +64,28 @@ def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
             _membership.setdefault(int(row["account_id"]), []).append(int(row["group_id"]))
     except Exception:
         _membership = {}
+    # 分组级阈值策略：实例的阈值动作/恢复取其所属分组的值（空=跟随全局）；
+    # groups 未传时现场查（与成员关系同理，查不到时按跟随全局处理）。
+    if groups is None:
+        try:
+            groups = db.list_groups()
+        except Exception:
+            groups = []
+    _gmap = {int(g["id"]): g for g in groups}
     views = []
     for a in accounts:
         quota = a.get("quota_gb") if a.get("quota_gb") is not None else float(settings.get("quota_gb", 200))
+        # 所属分组：主分组 group_id 优先，其次多对多成员分组的首个，再次默认分组 1
+        _gids = _membership.get(int(a["id"]), [])
+        _gid = a.get("group_id") or (_gids[0] if _gids else 1)
+        _g = _gmap.get(int(_gid)) if _gid is not None else None
         views.append(engine.AccountView(
             id=a["id"], name=a["name"], quota_gb=float(quota),
             protection_threshold_pct=a.get("protection_threshold_pct"),
             switch_diff_pct=a.get("switch_diff_pct"),
             switch_diff_mode=a.get("switch_diff_mode"),
             switch_diff_gb=a.get("switch_diff_gb"),
-            exclusion_action=a.get("exclusion_action"),
+            exclusion_action=(_g.get("exclusion_action") if _g else None),
             priority=a.get("priority") or 0,
             used_gb=a.get("traffic_used_gb"),
             status=a.get("instance_status") or "",
@@ -82,7 +95,7 @@ def _to_views(accounts: list[dict], settings: dict) -> list[engine.AccountView]:
             daily_schedule_enabled=bool(a.get("daily_schedule_enabled")),
             daily_on_time=a.get("daily_on_time") or "08:00",
             daily_off_time=a.get("daily_off_time") or "20:00",
-            recovery_action=a.get("recovery_action"),
+            recovery_action=(_g.get("recovery_action") if _g else None),
             ddns_enabled=bool(a.get("ddns_enabled", 1))))
     return views
 
@@ -114,6 +127,8 @@ def _to_group_views(groups: list[dict]) -> list[engine.GroupView]:
         switch_diff_gb=g.get("switch_diff_gb"),
         switch_diff_pct=g.get("switch_diff_pct"),
         time_switch_mode=g.get("time_switch_mode"),
+        exclusion_action=g.get("exclusion_action"),
+        recovery_action=g.get("recovery_action"),
         paused=bool(g.get("paused"))) for g in groups]
 
 

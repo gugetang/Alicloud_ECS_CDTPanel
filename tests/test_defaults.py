@@ -184,33 +184,33 @@ def test_threshold_stop_charging_after_dns_switch():
 
 
 # ---------------------------------------------------------------------------
-# 三选一互斥 + 别名 evict_ddns 归一化
+# 三选一互斥 + 别名 evict_ddns 归一化（分组级）
 # ---------------------------------------------------------------------------
 
-def test_exclusion_mutual_exclusion_only_last_wins(tmpdb):
+def test_exclusion_group_only_last_wins(tmpdb):
     from fastapi.testclient import TestClient
     from app.main import create_app
+    from app.api import _public_account
     client = TestClient(create_app())
     row = tmpdb.create_account({"name": "IP1", "group_id": 1})
-    r = client.put(f"/api/accounts/{row['id']}", json={"exclusion_action": "stop"})
+    r = client.put("/api/groups/1", json={"exclusion_action": "stop"})
     assert r.status_code == 200
     assert r.json()["exclusion_action"] == "stop"
-    assert r.json()["exclusion_action_effective"] == "stop"
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "stop"
     # 再选节省停机：只存后者，stop 自动取消
-    r = client.put(f"/api/accounts/{row['id']}",
-                   json={"exclusion_action": "stop_charging"})
+    r = client.put("/api/groups/1", json={"exclusion_action": "stop_charging"})
     assert r.status_code == 200
     assert r.json()["exclusion_action"] == "stop_charging"
-    assert tmpdb.get_account(row["id"])["exclusion_action"] == "stop_charging"
+    assert tmpdb.get_group(1)["exclusion_action"] == "stop_charging"
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "stop_charging"
 
 
 def test_exclusion_alias_evict_ddns_normalized_to_none(tmpdb):
-    # 账户级：别名归一化存 none
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1,
-                                "exclusion_action": "evict_ddns"})
+    # 分组级：别名归一化存 none
+    row = tmpdb.create_group({"name": "G2", "exclusion_action": "evict_ddns"})
     assert row["exclusion_action"] == "none"
-    tmpdb.update_account(row["id"], {"exclusion_action": "evict_ddns"})
-    assert tmpdb.get_account(row["id"])["exclusion_action"] == "none"
+    tmpdb.update_group(row["id"], {"exclusion_action": "evict_ddns"})
+    assert tmpdb.get_group(row["id"])["exclusion_action"] == "none"
     # 全局设置：别名归一化存 none
     from fastapi.testclient import TestClient
     from app.main import create_app
@@ -228,66 +228,79 @@ def test_exclusion_invalid_value_rejected(tmpdb):
     client = TestClient(create_app())
     r = client.put("/api/settings", json={"exclusion_action": "explode"})
     assert r.status_code == 400
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
     with pytest.raises(ValueError):
-        tmpdb.update_account(row["id"], {"exclusion_action": "explode"})
+        tmpdb.update_group(1, {"exclusion_action": "explode"})
+    with pytest.raises(ValueError):
+        tmpdb.update_group(1, {"recovery_action": "explode"})
 
 
-# ---------------------------------------------------------------------------
-# 账户级阈值动作：跟随全局（默认）/ 自定义
-# ---------------------------------------------------------------------------
-
-def test_exclusion_follow_global_tracks_global(tmpdb):
-    """新建账户默认跟随全局：全局改成 stop 后跟随账户有效值随之变 stop；
-    全局改回 none 后又跟回 none。"""
-    from app.api import _public_account
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
-    assert row["exclusion_action"] == ""
-    # 全局默认 none：跟随账户有效值 none
-    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "none"
-    # 全局改成 stop：跟随账户随之生效为 stop
-    tmpdb.set_settings({"exclusion_action": "stop"})
-    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "stop"
-    # 全局改回 none：跟随账户跟回 none
-    tmpdb.set_settings({"exclusion_action": "none"})
-    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "none"
-
-
-def test_exclusion_custom_none_unaffected_by_global(tmpdb):
-    """自定义为 none 的账户不受全局改动影响。"""
-    from app.api import _public_account
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1,
-                                "exclusion_action": "none"})
-    assert row["exclusion_action"] == "none"
-    tmpdb.set_settings({"exclusion_action": "stop"})
-    body = _public_account(tmpdb.get_account(row["id"]))
-    assert body["exclusion_action"] == "none"
-    assert body["exclusion_action_effective"] == "none"
-
-
-def test_exclusion_follow_can_be_set_back_via_api(tmpdb):
-    """账户级自定义后可通过 API 改回跟随全局（传空字符串），改回后随全局走。"""
+def test_exclusion_account_field_ignored(tmpdb):
+    """实例级阈值动作已移走：PUT /api/accounts 传 exclusion_action 不再生效，
+    有效值仍由所属分组（跟随全局）决定。"""
     from fastapi.testclient import TestClient
     from app.main import create_app
     from app.api import _public_account
     client = TestClient(create_app())
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1,
-                                "exclusion_action": "stop"})
-    r = client.put(f"/api/accounts/{row['id']}", json={"exclusion_action": ""})
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    r = client.put(f"/api/accounts/{row['id']}", json={"exclusion_action": "stop"})
+    assert r.status_code == 200
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# 分组级阈值动作：跟随全局（默认）/ 自定义
+# ---------------------------------------------------------------------------
+
+def test_exclusion_group_follow_global_tracks_global(tmpdb):
+    """分组默认跟随全局：全局改成 stop 后分组内账户有效值随之变 stop；
+    全局改回 none 后又跟回 none。"""
+    from app.api import _public_account
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    assert tmpdb.get_group(1)["exclusion_action"] in (None, "")
+    # 全局默认 none：跟随分组内账户有效值 none
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "none"
+    # 全局改成 stop：跟随分组随之生效为 stop
+    tmpdb.set_settings({"exclusion_action": "stop"})
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "stop"
+    # 全局改回 none：跟随分组跟回 none
+    tmpdb.set_settings({"exclusion_action": "none"})
+    assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "none"
+
+
+def test_exclusion_group_custom_none_unaffected_by_global(tmpdb):
+    """自定义为 none 的分组不受全局改动影响。"""
+    from app.api import _public_account
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    tmpdb.update_group(1, {"exclusion_action": "none"})
+    assert tmpdb.get_group(1)["exclusion_action"] == "none"
+    tmpdb.set_settings({"exclusion_action": "stop"})
+    body = _public_account(tmpdb.get_account(row["id"]))
+    assert body["exclusion_action_effective"] == "none"
+
+
+def test_exclusion_group_follow_can_be_set_back_via_api(tmpdb):
+    """分组级自定义后可通过 API 改回跟随全局（传空字符串），改回后随全局走。"""
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.api import _public_account
+    client = TestClient(create_app())
+    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
+    tmpdb.update_group(1, {"exclusion_action": "stop"})
+    r = client.put("/api/groups/1", json={"exclusion_action": ""})
     assert r.status_code == 200
     assert r.json()["exclusion_action"] == ""
     tmpdb.set_settings({"exclusion_action": "stop_charging"})
     assert _public_account(tmpdb.get_account(row["id"]))["exclusion_action_effective"] == "stop_charging"
 
 
-def test_exclusion_follow_survives_reinit(tmpdb, tmp_path):
+def test_exclusion_group_follow_survives_reinit(tmpdb, tmp_path):
     """跟随全局的 '' 在进程重启（再次 init_db）后仍是 ''，不会被迁移改成 none。"""
     import app.db as dbmod
-    row = tmpdb.create_account({"name": "IP1", "group_id": 1})
-    assert row["exclusion_action"] == ""
+    tmpdb.update_group(1, {"exclusion_action": ""})
+    assert tmpdb.get_group(1)["exclusion_action"] == ""
     dbmod.close()
     dbmod.init_db(db_path=Path(tmp_path) / "t.db")
-    assert dbmod.get_account(row["id"])["exclusion_action"] == ""
+    assert dbmod.get_group(1)["exclusion_action"] == ""
 
 
 def test_exclusion_effective_engine_level():
