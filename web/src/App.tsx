@@ -904,7 +904,7 @@ export default function App() {
         }}>⧉ 复制配置摘要</button>
       </div>
       <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-        <button className="btn" style={{ background: "#EA4335" }}
+        <button className="btn" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
           onClick={() => { if (confirm(`删除实例 ${a.name}？删除后域名将重新分配。`)) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), "已删除"); } }}>
           删除实例
         </button>

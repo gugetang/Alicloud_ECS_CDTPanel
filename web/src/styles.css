@@ -1,5 +1,7 @@
 /* 主题：亮 / 暗 / 跟随系统。尺寸与旧版一致，只换颜色与磨砂质感。
-   亮色：底色磨砂玻璃 70% 透明，蓝色主题；暗色（夜间）：磨砂灰 50% 透明带蓝。
+   色值角色（用户定）：底色=磨砂玻璃（亮色 70% 透明，夜间灰 50% 透明）；
+   蓝色=按键边框色（--accent）；浅蓝=按键选中色（#dbeafe 底 + 蓝字）。
+   蓝色只作边框/文字色，不作填充色（危险操作红按钮除外）。
    主题由 <html data-theme="light|dark"> 控制，App.tsx 里跟随系统用
    matchMedia("(prefers-color-scheme: dark)") 判断。 */
 :root {
@@ -7,12 +9,12 @@
   --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6;
 }
 html[data-theme="dark"] {
-  --bg:#0b1220; --card:rgba(71,85,105,0.5); --card2:rgba(15,25,48,0.55);
+  --bg:#0b1220; --card:rgba(71,85,105,0.5); --card2:rgba(71,85,105,0.5);
   --border:rgba(148,163,184,0.35); --text:#e6edf7; --muted:#8ea0bf;
   --input:rgba(11,21,38,0.55); --seg-off:#9AA0A6;
 }
 html[data-theme="light"] {
-  --bg:#dbeafe; --card:rgba(255,255,255,0.7); --card2:rgba(255,255,255,0.75);
+  --bg:#dbeafe; --card:rgba(255,255,255,0.7); --card2:rgba(255,255,255,0.7);
   --border:rgba(37,99,235,0.25); --text:#0f172a; --muted:#64748b;
   --input:rgba(255,255,255,0.75); --seg-off:#9AA0A6;
 }
@@ -72,7 +74,10 @@ th { color:var(--muted); font-weight:500; font-size:13px; }
 .bar { height:6px; background:#1e293b; border-radius:3px; margin-top:6px; overflow:hidden; }
 html[data-theme="light"] .bar { background:#e2e8f0; }
 .bar i { display:block; height:100%; background:#60a5fa; }
-.btn { background:var(--accent); color:#fff; border:none; border-radius:8px; padding:9px 16px; cursor:pointer; font-size:14px; }
+.btn { background:transparent; color:#1d4ed8; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
+.btn:hover { background:#dbeafe; }
+html[data-theme="dark"] .btn { color:#93c5fd; }
+html[data-theme="dark"] .btn:hover { color:#1d4ed8; }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -88,7 +93,7 @@ html[data-theme="light"] .notice { background:rgba(219,234,254,0.7); border-colo
 pre { background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:12px; overflow:auto; font-size:12px; max-height:320px; }
 .check { display:flex; gap:8px; align-items:center; margin:8px 0; }
 .check input { width:auto; }
-/* 按键式选择（全站统一）：选中蓝框（2px 蓝边 + 蓝字 + 淡蓝底），未选灰框灰字。
+/* 按键式选择（全站统一）：选中蓝框（2px 蓝边 + 蓝字 + 浅蓝主底色 #dbeafe），未选灰框灰字。
    选中态 padding 少 1px，抵掉边框多出的 1px，外形尺寸与未选态一致。 */
 .seg { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
 .seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted); border-radius:10px; padding:8px 16px; cursor:pointer; font-size:14px; }
