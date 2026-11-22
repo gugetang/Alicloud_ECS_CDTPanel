@@ -55,3 +55,52 @@ def test_invalid_ip_skipped():
     cf = CloudflareClient("tok", session=FakeSession({}))
     res = cf.sync("www.example.xyz", "example.xyz", "not-an-ip")
     assert res.status == "invalid_ip" and res.changed is False
+
+
+class AccountFakeSession:
+    """账户下有 kadi.eu.org 与 example.com 两个 Zone。"""
+    def __init__(self):
+        self.calls = []
+    def get(self, url, headers=None, params=None, timeout=None):
+        self.calls.append(url)
+        if "/accounts/" in url and url.endswith("/zones"):
+            return FakeResp({"success": True,
+                             "result": [{"id": "z-kadi", "name": "kadi.eu.org"},
+                                        {"id": "z-ex", "name": "example.com"}],
+                             "result_info": {"total_pages": 1}})
+        if url.endswith("/zones"):
+            return FakeResp({"success": True, "result": [{"id": "z-eu", "name": "eu.org"}]})
+        return FakeResp({"success": True, "result": []})
+    def put(self, url, headers=None, json=None, timeout=None):
+        return FakeResp({"success": True, "result": json})
+
+
+def test_account_id_longest_suffix_match():
+    # 二级/三级域名：按账户查 Zone，取最长后缀匹配
+    # premium.kadi.eu.org → kadi.eu.org（不是 eu.org）
+    s = AccountFakeSession()
+    cf = CloudflareClient("tok", session=s)
+    assert cf.find_zone_id("eu.org", domain="premium.kadi.eu.org",
+                           account_id="acct123") == "z-kadi"
+    assert any("/accounts/acct123/zones" in u for u in s.calls)
+    # 一级域名同样匹配
+    assert cf.find_zone_id("example.com", domain="www.example.com",
+                           account_id="acct123") == "z-ex"
+
+
+def test_account_id_falls_back_to_name_lookup():
+    # 账户下没有匹配的 Zone 时回退到按名查询（旧行为）
+    s = AccountFakeSession()
+    cf = CloudflareClient("tok", session=s)
+    assert cf.find_zone_id("eu.org", domain="other.example.net",
+                           account_id="acct123") == "z-eu"
+
+
+def test_sync_passes_account_id():
+    s = AccountFakeSession()
+    cf = CloudflareClient("tok", session=s)
+    # 账户方式找到 Zone 后，没有记录 → no_record（不抛错）
+    res = cf.sync("premium.kadi.eu.org", "eu.org", "203.0.113.9",
+                  account_id="acct123")
+    assert res.status == "no_record"
+    assert res.zone_id == "z-kadi"

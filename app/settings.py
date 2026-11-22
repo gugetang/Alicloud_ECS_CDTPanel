@@ -58,6 +58,14 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # UI 里改了以后以 UI 设置为准，不用重启。
     "timezone": TZ,
     "cloudflare_token": "",
+    # Cloudflare 账户 ID：配了以后按账户列出全部 Zone，取与域名最长后缀
+    # 匹配的那个（二级/三级域名也能识别）；不配时按 zone 名精确查询（旧行为）
+    "cloudflare_account_id": "",
+    # DDNS 域名（Zone 名，如 kadi.eu.org）：配了以后直接按它查 Zone，
+    # 二级/三级域名不用再靠后两段推算
+    "cloudflare_zone": "",
+    # Cloudflare 账户邮箱（账号标识，随 Token 一起填）
+    "cloudflare_email": "",
     "notify_proxy": "http://127.0.0.1:7070",
     "telegram_enabled": "0",
     "telegram_chat_id": "",

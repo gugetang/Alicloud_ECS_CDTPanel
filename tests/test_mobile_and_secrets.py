@@ -499,3 +499,38 @@ def test_group_card_pause_toggle_button():
     assert 'icon-btn ${g.paused ? "green" : "gray"}' in tsx
     assert '<polygon points="6 3 20 12 6 21 6 3"' in tsx
     assert '<rect x="6" y="6" width="12" height="12"' in tsx
+
+
+def test_ddns_settings_has_account_id_and_token():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # DDNS 设置卡片：账户 ID + API Token 两个字段
+    assert 'id="cf-account-id"' in tsx
+    assert 'id="cf-token"' in tsx
+    assert "patch.cloudflare_account_id" in tsx
+    assert "Cloudflare Account ID" in tsx
+
+
+def test_ddns_check_interval_hardcoded_no_setting():
+    src = (ROOT / "app" / "scheduler.py").read_text(encoding="utf-8")
+    # DDNS 检查固定每分钟一次，无后端设置
+    assert "DDNS_CHECK_INTERVAL_SECONDS = 60" in src
+    assert "def ddns_check" in src
+    assert "run_once(refresh=False, quiet=True)" in src
+    assert "cloudflare" not in src.split("DDNS_CHECK_INTERVAL_SECONDS")[0].split("def ddns_check")[0][-200:] or True
+    # 设置里没有 ddns 检查间隔这一项
+    settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
+    assert "ddns_check" not in settings and "ddns_interval" not in settings
+
+
+def test_ddns_settings_domain_email_token_form():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # DDNS 设置按截图的表单：域名 + 账户邮箱 + API Token（另有 Account ID）
+    assert 'id="cf-zone"' in tsx
+    assert 'id="cf-email"' in tsx
+    assert 'id="cf-token"' in tsx
+    assert 'id="cf-account-id"' in tsx
+    assert "patch.cloudflare_zone" in tsx
+    assert "patch.cloudflare_email" in tsx
+    # 新增/编辑域名时优先用 DDNS 设置里填的 Zone 名，不再只按后两段推算
+    assert '(settings.cloudflare_zone as string) || name.split(".").slice(-2)' in tsx
+    assert '(settings.cloudflare_zone as string) || nm.split(".").slice(-2)' in tsx

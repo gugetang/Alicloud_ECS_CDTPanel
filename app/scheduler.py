@@ -249,9 +249,16 @@ class _DnsOps(engine.DnsOps):
                          f"{domain.name} 备用地址 {ip} 不是 IPv4/IPv6，"
                          "请在 Cloudflare 上为其建 CNAME 或改填 IP", domain_id=domain.id)
             return False
-        zone = domain.zone or domain.name.split(".", 1)[-1]
+        # Zone 取值优先级：DDNS 设置里填的域名（Zone 名）> 域名自带的 zone
+        # 字段（添加域名时按后两段算）> 域名去掉第一段。配了域名就不用再靠
+        # 后两段推算，二级/三级域名也能识别。
+        zone = ((self.settings.get("cloudflare_zone") or "").strip()
+                or domain.zone or domain.name.split(".", 1)[-1])
+        # Account ID + Token：按账户查 Zone，二级/三级域名也能识别；
+        # 不配 Account ID 时按 zone 名精确查询（旧行为）
         res = self.cf.sync(domain.name, zone, ip, domain.record_type,
-                           domain.ttl, domain.proxied)
+                           domain.ttl, domain.proxied,
+                           account_id=self.settings.get("cloudflare_account_id") or "")
         if res.changed:
             db.upsert_dns_record(domain.id, res.zone_id, res.record_id, ip)
             db.add_event("dns_change", "DNS 已同步",
@@ -264,8 +271,11 @@ class _DnsOps(engine.DnsOps):
         return res.changed
 
 
-def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
-    """跑一轮调度。dry_run=True 时不调 VPS/DNS，只返回 Plan（试算）。"""
+def run_once(dry_run: bool = False, refresh: bool = True,
+             quiet: bool = False) -> dict:
+    """跑一轮调度。dry_run=True 时不调 VPS/DNS，只返回 Plan（试算）。
+    quiet=True：DDNS 检查用，不写“调度完成”事件、不建 job、不更新
+    _last_run，避免每分钟一条日志刷屏。"""
     settings = db.get_settings()
     now = _now()
     if refresh and not dry_run:
@@ -373,7 +383,8 @@ def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
             db.set_flag("last_time_switch_at", plan.time_switch_at.isoformat())
         elif plan.interval_anchor_at is not None:
             db.set_flag("last_time_switch_at", plan.interval_anchor_at.isoformat())
-    db.add_event("schedule", "调度完成", plan.summary)
+    if not quiet:
+        db.add_event("schedule", "调度完成", plan.summary)
     daily_schedule = _apply_daily_schedule(settings, now)
     # 恢复持久化：清 evicted 旗标、记恢复事件、按需拉起（dry-run 不走到这里）
     started_by_plan = {a.account_id for a in plan.actions
@@ -387,12 +398,14 @@ def run_once(dry_run: bool = False, refresh: bool = True) -> dict:
               "assignments": {str(k): v for k, v in plan.assignments.items()},
               "evicted": plan.evicted_account_ids,
               "fallback_domains": plan.fallback_domain_ids,
+              "paused_domains": plan.paused_domain_ids,
               "ran_at": now.isoformat()}
-    job_id = db.create_job("schedule")
-    db.finish_job(job_id, "done", result)
-    with _lock:
-        _last_run.clear()
-        _last_run.update(result)
+    if not quiet:
+        job_id = db.create_job("schedule")
+        db.finish_job(job_id, "done", result)
+        with _lock:
+            _last_run.clear()
+            _last_run.update(result)
     return result
 
 
@@ -728,7 +741,18 @@ def last_run() -> dict:
         return dict(_last_run)
 
 
+DDNS_CHECK_INTERVAL_SECONDS = 60  # DDNS 检查固定每分钟一次，无后端设置
+
+
+def ddns_check() -> dict:
+    """DDNS 检查：每分钟一次（硬编码，无后端设置）。用库里已有的数据
+    重算分配并同步 DNS，不调阿里云 API；不写调度事件、不建 job，
+    避免每分钟一条日志刷屏。"""
+    return run_once(refresh=False, quiet=True)
+
+
 def _loop() -> None:
+    last_full = 0.0  # 上次完整轮次（带 API 刷新）的时间戳
     while not _stop.is_set():
         settings = db.get_settings()
         try:
@@ -744,15 +768,20 @@ def _loop() -> None:
             _maybe_prune_daily()
         except Exception as exc:  # noqa: BLE001
             log.exception("数据清理检查失败: %s", exc)
+        # DDNS 检查固定每分钟一次（无后端设置）；完整轮次（带 API 刷新）
+        # 按 API 刷新时间跑。第一次立即跑完整轮次。
+        now_ts = time.time()
+        full_interval = _refresh_minutes(settings) * 60
         try:
-            run_once()
+            if now_ts - last_full >= full_interval:
+                run_once()
+                last_full = time.time()
+            else:
+                ddns_check()
         except Exception as exc:  # noqa: BLE001
             log.exception("调度轮次失败: %s", exc)
             db.add_event("error", "调度异常", str(exc)[:300])
-        # API 刷新时间（已与旧 check_interval_minutes 合并为同一项）：
-        # 主循环间隔读新字段，旧库无新字段时回退旧字段。
-        interval = _refresh_minutes(settings) * 60
-        _wake.wait(timeout=interval)
+        _wake.wait(timeout=DDNS_CHECK_INTERVAL_SECONDS)
         _wake.clear()
 
 

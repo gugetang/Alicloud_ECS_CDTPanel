@@ -1049,6 +1049,10 @@ export default function App() {
     const patch: Any = { timezone: (document.getElementById("s-timezone") as HTMLSelectElement)?.value || "Asia/Shanghai" };
     const tok = (document.getElementById("cf-token") as HTMLInputElement)?.value || "";
     if (tok && tok !== SECRET_MASK) patch.cloudflare_token = tok;
+    // Account ID / 域名 / 账户邮箱都不是密钥，明文显示、改完即存（留空=清除）
+    patch.cloudflare_account_id = ((document.getElementById("cf-account-id") as HTMLInputElement)?.value || "").trim();
+    patch.cloudflare_zone = ((document.getElementById("cf-zone") as HTMLInputElement)?.value || "").trim();
+    patch.cloudflare_email = ((document.getElementById("cf-email") as HTMLInputElement)?.value || "").trim();
     return patch;
   };
 
@@ -1426,7 +1430,7 @@ export default function App() {
                 if (!nm) { setMsg(t("请填写域名")); return; }
                 const newGid = grp0 === "" ? null : Number(grp0);
                 if (nm === d.name && newGid === (d.group_id ?? null)) return;
-                const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: newGid };
+                const payload: Any = { name: nm, zone: (settings.cloudflare_zone as string) || nm.split(".").slice(-2).join("."), group_id: newGid };
                 if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
                 run(() => put(`/api/domains/${d.id}`, payload), t("已保存成功"));
               };
@@ -1481,7 +1485,7 @@ export default function App() {
                     const name = addDomName.trim();
                     if (!name) { setMsg(t("请填写域名")); return; }
                     setShowAddDom(false);
-                    run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length }), t("域名已添加"));
+                    run(() => post("/api/domains", { name, zone: (settings.cloudflare_zone as string) || name.split(".").slice(-2).join("."), priority: domains.length }), t("域名已添加"));
                   }}>{t("添加")}</button>
                 </div>
               </div>
@@ -1490,8 +1494,15 @@ export default function App() {
         </div>
         {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
-          <p className="muted">{t("Cloudflare Token 用于 DDNS 解析（Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
+          <p className="muted">{t("填入域名、账户邮箱、API Token 才能识别 Zone（按账户查 Zone，二级/三级域名也能识别；Zone / 记录 ID 自动发现，IP 不变不改）。")}</p>
           <div className="form2">
+            <div><label className="req">{t("域名 *")}</label>
+              <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 kadi.eu.org")} onBlur={() => saveSettings(ddnsPatch())} /></div>
+            <div><label>{t("账户邮箱")}</label>
+              <input type="text" id="cf-email" defaultValue={(settings.cloudflare_email as string) || ""} placeholder={t("Cloudflare 账户邮箱")} onBlur={() => saveSettings(ddnsPatch())} /></div>
+            <div><label>Cloudflare Account ID</label>
+              <input type="text" id="cf-account-id" defaultValue={(settings.cloudflare_account_id as string) || ""} placeholder={t("Cloudflare 账户 ID，在控制面板右下角查看")} onBlur={() => saveSettings(ddnsPatch())} />
+              <p className="muted">{t("在 Cloudflare 控制面板右下角的「Account ID」处复制。")}</p></div>
             <div><label>Cloudflare API Token</label>
               <input type="password" id="cf-token" key={String(settings.cloudflare_configured)} defaultValue={settings.cloudflare_configured ? SECRET_MASK : ""} placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.cloudflare_configured)); saveSettings(ddnsPatch()); }} />
               <p className="muted">{settings.cloudflare_configured ? t("已配置。留空保存时保持不变，只有填了新值才更新。") : t("未配置。填写后才能执行 DDNS 更新。")}</p></div>
