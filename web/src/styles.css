@@ -142,10 +142,10 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 .menu button.sel { background:var(--accent-soft); color:var(--accent-text); }
 .menu-ico { display:flex; color:inherit; }
 .menu-check { margin-left:auto; font-weight:700; }
-.btn { background:transparent; color:var(--accent-text); border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
-.btn:hover { background:var(--accent-soft); }
-html[data-theme="dark"] .btn { color:#93c5fd; }
-html[data-theme="dark"] .btn:hover { color:var(--accent-text); }
+.btn { background:var(--accent); color:#fff; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
+.btn:hover { filter:brightness(0.88); }
+html[data-theme="dark"] .btn { color:#fff; }
+html[data-theme="dark"] .btn:hover { color:#fff; }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }

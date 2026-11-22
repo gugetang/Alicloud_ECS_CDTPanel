@@ -438,3 +438,38 @@ def test_bind_domain_to_group_swaps(tmpdb):
     assert tmpdb.get_domain(d2["id"])["group_id"] == ga["id"]
     with pytest.raises(ValueError, match="不存在"):
         tmpdb.bind_domain_to_group(d2["id"], 99999)
+
+
+def test_create_domain_unbound_then_group_selects_it(tmpdb):
+    # 添加域名时不再选分组：新建域名是未绑定（group_id NULL）；
+    # 创建分组时选一个已添加的域名，一个域名只能被选取一次
+    d = tmpdb.create_domain({"name": "free.example.xyz"})
+    assert d["group_id"] is None
+    # 未绑定域名不进任何分组
+    assert tmpdb.group_domain(1) is None or tmpdb.group_domain(1)["id"] != d["id"]
+    g = tmpdb.create_group({"name": "新分组", "switch_mode": "time",
+                            "domain_id": d["id"]})
+    assert tmpdb.get_domain(d["id"])["group_id"] == g["id"]
+    # 已被选取的域名不能再被另一个分组选取
+    with pytest.raises(ValueError, match="已被其他分组选取"):
+        tmpdb.create_group({"name": "另一分组", "switch_mode": "time",
+                            "domain_id": d["id"]})
+    # 不存在的域名也不能选
+    with pytest.raises(ValueError, match="域名不存在"):
+        tmpdb.create_group({"name": "再一组", "switch_mode": "time",
+                            "domain_id": 99999})
+    # 不选域名也能建分组
+    g2 = tmpdb.create_group({"name": "空分组", "switch_mode": "time"})
+    assert g2["id"]
+
+
+def test_unbind_domain_via_update(tmpdb):
+    # 域名行内编辑可解除绑定（group_id 置 NULL）
+    g = tmpdb.create_group({"name": "分组A", "switch_mode": "time"})
+    d = tmpdb.create_domain({"name": "a.example.xyz", "group_id": g["id"]})
+    row = tmpdb.update_domain(d["id"], {"group_id": None})
+    assert row["group_id"] is None
+    # 解绑后该域名可被另一个分组选取
+    g2 = tmpdb.create_group({"name": "分组B", "switch_mode": "time",
+                             "domain_id": d["id"]})
+    assert tmpdb.get_domain(d["id"])["group_id"] == g2["id"]

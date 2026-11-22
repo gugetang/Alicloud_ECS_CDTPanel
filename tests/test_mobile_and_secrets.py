@@ -453,3 +453,38 @@ def test_add_domain_dialog():
     # 按钮放右下：触发按钮在卡片右下，对话框里的取消/添加也在右下
     assert ".modal-overlay" in css and ".modal" in css
     assert 'justifyContent: "flex-end", marginTop: 12' in tsx
+
+
+def test_add_domain_no_group_select_and_new_group_domain_select():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 添加域名对话框不再选分组：没有分组下拉，也不再校验“请选择分组”
+    assert 'id="dom-group"' not in tsx
+    assert "addDomGroup" not in tsx
+    assert 't("请选择分组")' not in tsx
+    # 新建分组表单里选一个已添加的域名（可选；已被选取的不可选）
+    assert "newGroupDomain" in tsx
+    assert 't("选择域名")' in tsx
+    assert 't("暂不选择域名")' in tsx
+    assert "（已被 {group} 选取）" in tsx
+    assert "domain_id: Number(newGroupDomain)" in tsx
+
+
+def test_accounts_page_no_outer_card():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 账户管理页取消最外面的大框体：卡片直接排在页面上（与分组管理页一致）
+    accounts = tsx.split('{tab === "accounts"')[1].split('{tab === "domains"')[0]
+    assert '<div className="card">' not in accounts.split("accounts.map")[0]
+    assert "accounts.map((a) => (" in accounts
+
+
+def test_buttons_filled_with_accent():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    btn = re.search(r"\.btn\s*\{([^}]*)\}", css)
+    assert btn is not None
+    body = btn.group(1)
+    # 主按钮用主题色填充（白字），不再是透明底 + 主题色边框
+    assert "background:var(--accent)" in body
+    assert "color:#fff" in body
+    # 删除实例仍是红色实心（内联样式，不受 .btn 影响）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'background: "#EA4335"' in tsx

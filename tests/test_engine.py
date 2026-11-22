@@ -14,9 +14,10 @@ def acc(i, used, status="Running", ip=None):
                        status=status, public_ip=ip if ip is not None else f"203.0.113.{i}")
 
 
-def dom(i, current=None, ip=""):
+def dom(i, current=None, ip="", gid=1):
+    # 默认归默认分组（id=1）；gid=None 表示未绑定域名，不参与任何分组调度
     return DomainView(id=i, name=f"www{i}.example.xyz", priority=i - 1,
-                      current_account_id=current, current_ip=ip)
+                      current_account_id=current, current_ip=ip, group_id=gid)
 
 
 def noon():
@@ -500,3 +501,21 @@ def test_no_serving_instance_assigns_most_remaining_traffic():
     plan = plan_reconcile([a1, a2b], [d], cfg, noon(), groups=[g])
     assert any(a.kind == "dns" and a.account_id == 1 and a.reason == "traffic_diff"
                for a in plan.actions)
+
+
+def test_unbound_domain_not_scheduled():
+    # 未绑定域名（group_id NULL）不参与任何分组的调度
+    from app.engine import GroupView
+    g = GroupView(id=1, name="A", switch_mode="load_balance")
+    cfg = Config(night_optimize_enabled=False)
+    a1 = acc(1, 10)
+    a1.group_id = 1
+    a1.group_ids = [1]
+    d = dom(1, gid=None)
+    plan = plan_reconcile([a1], [d], cfg, noon(), groups=[g])
+    assert plan.assignments == {}
+    assert plan.actions == []
+    # 绑到分组后正常调度
+    d2 = dom(1, gid=1)
+    plan = plan_reconcile([a1], [d2], cfg, noon(), groups=[g])
+    assert plan.assignments[1] == 1

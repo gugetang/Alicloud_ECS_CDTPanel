@@ -487,7 +487,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(true);
 
-  const dom = domains.find((d) => (d.group_id || 1) === g.id);
+  const dom = domains.find((d) => d.group_id === g.id);
 
   // 分组参数自动保存：改动即存，不用点保存
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
@@ -891,7 +891,6 @@ export default function App() {
   // 添加域名对话框（点“+ 添加域名”弹出，填完确认才添加）
   const [showAddDom, setShowAddDom] = useState(false);
   const [addDomName, setAddDomName] = useState("");
-  const [addDomGroup, setAddDomGroup] = useState("");
   const [acting, setActing] = useState<Record<number, string>>({});
 
   // 消息提示 5 秒后自动隐藏；新消息进来重新计时。
@@ -1049,9 +1048,9 @@ export default function App() {
   // 时间/差值两组控件都显示，不再按全局模式变灰。
   // 阈值踢出/保活/备用地址不受切换模式影响。
   const groupName = (gid: number | null | undefined) =>
-    (groups.find((g) => g.id === (gid || 1))?.name as string) || t("未分组");
+    gid ? (groups.find((g) => g.id === gid)?.name as string) || t("未分组") : t("未分组");
   const groupMode = (gid: number | null | undefined) =>
-    (groups.find((g) => g.id === (gid || 1))?.switch_mode as string) || "load_balance";
+    gid ? (groups.find((g) => g.id === gid)?.switch_mode as string) || "load_balance" : "";
 
   // ---------- 单台操作：刷新 / 启动 / 重启 / 停机 ----------
   const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop") => {
@@ -1187,6 +1186,8 @@ export default function App() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMode, setNewGroupMode] = useState("");
+  // 新建分组时选一个已添加的域名（可选；一个域名只能被选取一次，已被选取的不可选）
+  const [newGroupDomain, setNewGroupDomain] = useState("");
 
   if (authState === "loading") {
     return <div className="app"><p className="muted">{t("加载中…")}</p></div>;
@@ -1363,7 +1364,7 @@ export default function App() {
       )}
 
       {tab === "accounts" && (
-        <div className="card">
+        <>
           {editingId === "new" && (
             <InstanceForm account={null} settings={settings} count={accounts.length}
               onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
@@ -1372,7 +1373,7 @@ export default function App() {
           )}
           {accounts.map((a) => (
             <div className="card" key={a.id as number}
-              style={{ marginTop: 12, display: "flex", flexDirection: "column", cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
+              style={{ marginTop: 0, display: "flex", flexDirection: "column", cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
               {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
@@ -1397,7 +1398,7 @@ export default function App() {
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
             <button className="btn" onClick={() => setEditingId("new")}>{t("+ 添加实例")}</button>
           </div>
-        </div>
+        </>
       )}
 
       {tab === "domains" && (
@@ -1415,8 +1416,9 @@ export default function App() {
               const saveDomEdit = (nm0: string, grp0: string) => {
                 const nm = nm0.trim();
                 if (!nm) { setMsg(t("请填写域名")); return; }
-                if (nm === d.name && Number(grp0) === (d.group_id || 1)) return;
-                const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: Number(grp0) };
+                const newGid = grp0 === "" ? null : Number(grp0);
+                if (nm === d.name && newGid === (d.group_id ?? null)) return;
+                const payload: Any = { name: nm, zone: nm.split(".").slice(-2).join("."), group_id: newGid };
                 if (nm !== d.name) { payload.current_account_id = null; payload.current_ip = ""; payload.fallback_active = 0; }
                 run(() => put(`/api/domains/${d.id}`, payload), t("已保存成功"));
               };
@@ -1427,12 +1429,13 @@ export default function App() {
                 <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} onBlur={() => saveDomEdit(editDomName, editDomGroup)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
                 <td>{editing ? (
                   <select value={editDomGroup} onChange={(e) => { const gv = e.target.value; setEditDomGroup(gv); saveDomEdit(editDomName, gv); }}>
+                    <option value="">{t("未分组")}</option>
                     {groups.map((g) => {
-                      const bound = domains.some((x) => x.id !== d.id && (x.group_id || 1) === g.id);
+                      const bound = domains.some((x) => x.id !== d.id && x.group_id === g.id);
                       return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
                     })}
                   </select>
-                ) : (<>{groupName(d.group_id)}<br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>)}</td>
+                ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>) : null}</>)}</td>
                 <td>{d.zone as string || t("自动发现")}</td>
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
@@ -1444,7 +1447,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="row" style={{ gap: 6 }}>
-                    <button className="icon-btn" title={t("编辑")} onClick={() => { setEditDomId(d.id as number); setEditDomName(d.name as string); setEditDomGroup(String(d.group_id || 1)); }}>
+                    <button className="icon-btn" title={t("编辑")} onClick={() => { setEditDomId(d.id as number); setEditDomName(d.name as string); setEditDomGroup(d.group_id ? String(d.group_id) : ""); }}>
                       <Ico label={t("编辑")}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></Ico>
                     </button>
                     <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) run(() => del(`/api/domains/${d.id}`), t("已删除")); }}>
@@ -1454,7 +1457,7 @@ export default function App() {
                 )}</td></tr>
               ); })}</tbody></table>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-            <button className="btn" onClick={() => { setAddDomName(""); setAddDomGroup(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
+            <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
           </div>
           {showAddDom && (
             <div className="modal-overlay" onClick={() => setShowAddDom(false)}>
@@ -1464,24 +1467,13 @@ export default function App() {
                   <label className="lbl">{t("域名")}</label>
                   <input placeholder={t("域名，如 www.example.xyz")} value={addDomName} onChange={(e) => setAddDomName(e.target.value)} style={{ width: "100%" }} />
                 </div>
-                <div style={{ marginTop: 12 }}>
-                  <label className="lbl">{t("分组")}</label>
-                  <select value={addDomGroup} onChange={(e) => setAddDomGroup(e.target.value)} style={{ width: "100%" }}>
-                    <option value="">{t("请选择分组")}</option>
-                    {groups.map((g) => {
-                      const bound = domains.some((d) => (d.group_id || 1) === g.id);
-                      return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
-                    })}
-                  </select>
-                </div>
                 <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                   <button className="btn ghost" onClick={() => setShowAddDom(false)}>{t("取消")}</button>
                   <button className="btn" onClick={() => {
                     const name = addDomName.trim();
                     if (!name) { setMsg(t("请填写域名")); return; }
-                    if (!addDomGroup) { setMsg(t("请选择分组")); return; }
                     setShowAddDom(false);
-                    run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length, group_id: Number(addDomGroup) }), t("域名已添加"));
+                    run(() => post("/api/domains", { name, zone: name.split(".").slice(-2).join("."), priority: domains.length }), t("域名已添加"));
                   }}>{t("添加")}</button>
                 </div>
               </div>
@@ -1523,13 +1515,21 @@ export default function App() {
                 { value: "time", label: t("定时轮巡") },
                 { value: "load_balance", label: t("负载均衡") },
               ]} onChange={setNewGroupMode} />
+              <label className="lbl" style={{ marginTop: 12 }}>{t("选择域名")}</label>
+              <select value={newGroupDomain} onChange={(e) => setNewGroupDomain(e.target.value)} style={{ width: "100%" }}>
+                <option value="">{t("暂不选择域名")}</option>
+                {domains.map((d) => {
+                  const boundGroup = d.group_id ? groups.find((g) => g.id === d.group_id) : null;
+                  return <option key={d.id as number} value={d.id as number} disabled={Boolean(boundGroup)}>{d.name as string}{boundGroup ? t("（已被 {group} 选取）", { group: boundGroup.name }) : ""}</option>;
+                })}
+              </select>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-                <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); }}>{t("取消")}</button>
+                <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); setNewGroupDomain(""); }}>{t("取消")}</button>
                 <button className="btn" onClick={() => {
                   if (!newGroupName.trim()) { setMsg(t("请填写分组名")); return; }
                   if (!newGroupMode) { setMsg(t("请选择切换模式")); return; }
-                  run(() => post("/api/groups", { name: newGroupName.trim(), switch_mode: newGroupMode }), t("分组已创建"));
-                  setShowNewGroup(false); setNewGroupName(""); setNewGroupMode("");
+                  run(() => post("/api/groups", { name: newGroupName.trim(), switch_mode: newGroupMode, ...(newGroupDomain ? { domain_id: Number(newGroupDomain) } : {}) }), t("分组已创建"));
+                  setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); setNewGroupDomain("");
                 }}>{t("创建分组")}</button>
               </div>
             </div>

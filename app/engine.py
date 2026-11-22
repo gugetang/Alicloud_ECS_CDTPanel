@@ -754,7 +754,8 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
         group = by_gid[gid]
         gcfg = _group_config(group, cfg)
         gaccs = [a for a in accounts if _account_in_group(a, gid)]
-        gdoms = [d for d in domains if (d.group_id or 1) == gid]
+        # 未绑定域名（group_id NULL）不参与任何分组的调度
+        gdoms = [d for d in domains if d.group_id == gid]
         if not gaccs and not gdoms:
             continue
         nd = _lookup(night_done_by_group if night_done_by_group is not None

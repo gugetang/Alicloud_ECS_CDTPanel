@@ -31,7 +31,8 @@ def test_status_and_crud(client):
         "access_key_id": "LTAI-test", "instance_id": "i-test123"}).json()
     assert a["name"] == "Test-HK-1" and "access_key_secret_enc" not in a
     d = client.post("/api/domains", json={
-        "name": "www.example.xyz", "zone": "example.xyz", "priority": 0}).json()
+        "name": "www.example.xyz", "zone": "example.xyz", "priority": 0,
+        "group_id": 1}).json()
     assert d["name"] == "www.example.xyz"
     r = client.post("/api/schedule/dry-run")
     assert r.status_code == 200

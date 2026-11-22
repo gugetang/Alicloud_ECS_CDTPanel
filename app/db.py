@@ -214,24 +214,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             conn.execute(
                 "INSERT OR IGNORE INTO groups(id, name, switch_mode, created_at) "
                 "VALUES(1, '默认分组', 'load_balance', ?)", (int(time.time()),))
-        # 旧数据迁移：group_id 为 NULL 的域名归默认分组；若多于 1 个，
-        # 第 1 个留默认分组，其余每个自动新建一个分组（保证 1 分组=1 域名）；
-        # 默认分组已被删时，第 1 个也新建一个分组，不指向不存在的 id=1。
-        null_doms = conn.execute(
-            "SELECT id FROM domains WHERE group_id IS NULL ORDER BY id"
-        ).fetchall()
-        _has_default = conn.execute(
-            "SELECT 1 FROM groups WHERE id=1").fetchone() is not None
-        for i, row in enumerate(null_doms):
-            if i == 0 and _has_default:
-                conn.execute("UPDATE domains SET group_id=1 WHERE id=?", (row["id"],))
-            else:
-                cur = conn.execute(
-                    "INSERT INTO groups(name, switch_mode, created_at) "
-                    "VALUES(?, 'load_balance', ?)",
-                    (f"分组-{row['id']}", int(time.time())))
-                conn.execute("UPDATE domains SET group_id=? WHERE id=?",
-                             (cur.lastrowid, row["id"]))
+        # 旧数据迁移已移除：group_id 为 NULL 现在表示“未绑定”（添加域名时不再
+        # 选分组），是合法状态，不再自动归默认分组或新建分组。
         # 旧库规范化：只有 NULL 行才改成 none（旧库建表时 exclusion_action
         # 可空，NULL 是无效值）。空字符串 '' 现在表示“跟随全局”，是合法值，
         # 必须保留、绝不能改成 none，否则跟随全局的账户会在重启后变回显式
@@ -431,10 +415,23 @@ def create_group(data: dict) -> dict:
     # 新分组排最后（旧库已有分组 priority 全 0 时 max+1 也成立）
     _mx = conn.execute("SELECT COALESCE(MAX(priority), -1) FROM groups").fetchone()
     vals[-1] = (_mx[0] if _mx else -1) + 1
+    # 创建分组时可选一个已添加的域名（一个域名只能被选取一次）：先校验该域名
+    # 存在且未被其他分组选取，建组后直接绑过来
+    domain_id = data.get("domain_id")
     with _lock:
+        if domain_id not in (None, ""):
+            row = conn.execute("SELECT group_id FROM domains WHERE id=?",
+                               (int(domain_id),)).fetchone()
+            if not row:
+                raise ValueError("域名不存在")
+            if row["group_id"] is not None:
+                raise ValueError("该域名已被其他分组选取")
         cur = conn.execute(
             f"INSERT INTO groups({','.join(cols)}, created_at) "
             f"VALUES({','.join('?' * len(cols))}, ?)", (*vals, now))
+        if domain_id not in (None, ""):
+            conn.execute("UPDATE domains SET group_id=? WHERE id=?",
+                         (cur.lastrowid, int(domain_id)))
         conn.commit()
         return get_group(cur.lastrowid)
 
@@ -745,10 +742,16 @@ def get_domain(did: int) -> dict | None:
 
 
 def create_domain(data: dict) -> dict:
-    # 未指定分组 = 默认分组（id=1）；1 分组=1 域名，先校验（唯一索引是第二道防线）
-    data = {**data, "group_id": data.get("group_id") or 1}
-    _check_group_exists(data.get("group_id"))
-    check_domain_group_free(data.get("group_id"))
+    # 不指定分组 = 未绑定（group_id NULL）；指定分组时校验存在且空闲
+    # （1 分组=1 域名，先校验，唯一索引是第二道防线）
+    gid = data.get("group_id")
+    if gid not in (None, ""):
+        gid = int(gid)
+        _check_group_exists(gid)
+        check_domain_group_free(gid)
+        data = {**data, "group_id": gid}
+    else:
+        data = {**data, "group_id": None}
     conn = connect()
     now = int(time.time())
     cols = ["name", "zone", "priority", "record_type", "proxied", "ttl", "enabled", "group_id"]
@@ -768,9 +771,14 @@ def create_domain(data: dict) -> dict:
 
 def update_domain(did: int, data: dict) -> dict | None:
     if "group_id" in data:
-        data = {**data, "group_id": data.get("group_id") or 1}
-        _check_group_exists(data.get("group_id"))
-        check_domain_group_free(data.get("group_id"), exclude_domain_id=did)
+        gid = data.get("group_id")
+        if gid in (None, ""):
+            # 解除绑定：group_id 置 NULL（未分组）
+            data = {**data, "group_id": None}
+        else:
+            data = {**data, "group_id": int(gid)}
+            _check_group_exists(data.get("group_id"))
+            check_domain_group_free(data.get("group_id"), exclude_domain_id=did)
     conn = connect()
     allowed = ["name", "zone", "priority", "record_type", "proxied", "ttl",
                "current_account_id", "current_ip", "fallback_active", "enabled",
