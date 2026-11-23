@@ -57,13 +57,13 @@ const TZ_FALLBACK = [
 // value 为 "" 时表示“未选/跟随全局”，所有按钮都是灰框（分组新建时无默认选中）。
 function Seg({ value, options, onChange }: {
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; title?: string }[];
   onChange: (v: string) => void;
 }) {
   return (
     <div className="seg">
       {options.map((o) => (
-        <button key={o.value} type="button" className={value === o.value ? "seg-on" : ""} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" className={value === o.value ? "seg-on" : ""} title={o.title} onClick={() => onChange(o.value)}>
           {o.label}
         </button>
       ))}
@@ -509,7 +509,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b>{g.name as string}</b>
-        <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态切换") : t("负载均衡")}</span>
+        <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态模式") : t("负载均衡")}</span>
         <span className="spacer" />
         <button className="btn ghost" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
         <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
@@ -528,28 +528,12 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("切换模式")}</label>
-        <Seg value={g.switch_mode as string} options={[
+        <Seg value={(g.switch_mode === "time" ? "time" : "load_balance") as string} options={[
           { value: "time", label: t("定时轮巡") },
           { value: "load_balance", label: t("负载均衡") },
-          { value: "dynamic", label: t("动态切换") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
-      {g.switch_mode === "dynamic" ? (
-        <div style={{ marginTop: 12 }}>
-          <div className="form2">
-            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
-              <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
-                { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
-                { value: "0", label: t("自定义") },
-              ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
-          </div>
-          {dynInterval === "0" && (
-            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-              <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
-          <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
-        </div>
-      ) : g.switch_mode === "time" ? (
+      {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
           <div className="form2">
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
@@ -577,19 +561,39 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <TwoLineLabel parent="负载均衡" child="切换阀值" />
-          <div style={{ paddingLeft: "2em" }}><Seg value={diffMode} options={[
-            { value: "percent", label: t("百分比（%）") },
-            { value: "gb", label: t("固定流量（GB）") },
-          ]} onChange={(m) => { setDiffMode(m); savePatch({ switch_diff_mode: m }); }} /></div>
-          <div className="form2">
-            {diffMode === "percent" ? (
-              <div><TwoLineLabel parent="负载均衡" child="切换阀值（%）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div></div>
-            ) : (
-              <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div></div>
-            )}
-          </div>
-          <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
+          <TwoLineLabel parent="负载均衡" child="切换模式" />
+          <div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
+            { value: "percent", label: t("百分比模式"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
+            { value: "gb", label: t("流量模式"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
+            { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
+          ]} onChange={(m) => { if (m === "dynamic") { savePatch({ switch_mode: "dynamic" }); } else { setDiffMode(m); savePatch({ switch_mode: "load_balance", switch_diff_mode: m }); } }} /></div>
+          {g.switch_mode === "dynamic" ? (
+            <div style={{ marginTop: 12 }}>
+              <div className="form2">
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
+                  <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
+                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
+                    { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
+                    { value: "0", label: t("自定义") },
+                  ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
+              </div>
+              {dynInterval === "0" && (
+                <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
+            </div>
+          ) : (
+            <div>
+              <div className="form2" style={{ marginTop: 12 }}>
+                {diffMode === "percent" ? (
+                  <div><TwoLineLabel parent="负载均衡" child="切换阀值（%）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div></div>
+                ) : (
+                  <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div></div>
+                )}
+              </div>
+              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
+            </div>
+          )}
         </div>
       )}
       <div style={{ marginTop: 12 }}>
@@ -1649,7 +1653,7 @@ export default function App() {
               <Seg value={newGroupMode} options={[
                 { value: "time", label: t("定时轮巡") },
                 { value: "load_balance", label: t("负载均衡") },
-                { value: "dynamic", label: t("动态切换") },
+                { value: "dynamic", label: t("动态模式") },
               ]} onChange={setNewGroupMode} />
               <label className="lbl" style={{ marginTop: 12 }}>{t("选择域名")}</label>
               <select value={newGroupDomain} onChange={(e) => setNewGroupDomain(e.target.value)} style={{ width: "100%" }}>
