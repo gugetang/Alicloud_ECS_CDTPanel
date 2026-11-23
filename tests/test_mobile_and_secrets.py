@@ -175,13 +175,16 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
     assert '["domains", "域名管理"]' in tabs
     assert tabs.index('["domains", "域名管理"]') > tabs.index('["groups", "分组管理"]')
     assert '["logs", "日志"]' not in tabs
-    # 设置子标签：全局设置、账号设置、通知设置、其它设置、日志统计（日志统计在最后）
+    # 设置子标签：全局设置、账号设置、站点设置、通知设置、日志统计（日志统计在最后）
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
     assert '["logs", "日志统计"]' in subs
     assert subs.index('["logs", "日志统计"]') > subs.index('["notify", "通知设置"]')
-    assert subs.index('["logs", "日志统计"]') > subs.index('["other", "其它设置"]')
+    assert subs.index('["logs", "日志统计"]') > subs.index('["other", "站点设置"]')
+    # 站点设置在通知设置前面（原“其它设置”更名并前移）
+    assert subs.index('["other", "站点设置"]') < subs.index('["notify", "通知设置"]')
+    assert subs.index('["other", "站点设置"]') > subs.index('["account", "账号设置"]')
     assert '["account", "账号设置"]' in subs
     assert subs.index('["account", "账号设置"]') > subs.index('["settings", "全局设置"]')
     assert subs.index('["account", "账号设置"]') < subs.index('["notify", "通知设置"]')
@@ -196,7 +199,7 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
     assert 'tab === "config" && subTab === "logs"' in tsx
 
 
-def test_api_refresh_own_row_and_other_settings_tab():
+def test_api_refresh_own_row_and_site_settings_tab():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 全局的 API 刷新时间单独占一行，移到轮巡周期下面（不在两列 form2 里）；
     # 实例表单里的单账户 API 刷新时间已被用户取消（141ca7d，强制跟随全局），
@@ -207,16 +210,18 @@ def test_api_refresh_own_row_and_other_settings_tab():
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('轮巡周期') < api_idx
     assert tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>') < api_idx
-    # 其它设置是设置页的第四个子标签（在通知设置后面、日志统计前面），
+    # 站点设置是设置页的第三个子标签（在账号设置后面、通知设置前面、日志统计前面），
     # 只剩货币结算与主题设置；登录与安全、备份与恢复已移到新开的“账号设置”
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
-    assert '["other", "其它设置"]' in subs
-    assert subs.index('["other", "其它设置"]') < subs.index('["logs", "日志统计"]')
-    assert subs.index('["other", "其它设置"]') > subs.index('["notify", "通知设置"]')
+    assert '["other", "站点设置"]' in subs
+    assert '["other", "其它设置"]' not in subs
+    assert subs.index('["other", "站点设置"]') < subs.index('["logs", "日志统计"]')
+    assert subs.index('["other", "站点设置"]') < subs.index('["notify", "通知设置"]')
+    assert subs.index('["other", "站点设置"]') > subs.index('["account", "账号设置"]')
     assert '"other"' in tsx and 'type SubTab = "settings" | "account" | "notify" | "other" | "logs"' in tsx
-    # 其它设置里只有货币结算卡片、主题设置卡片
+    # 站点设置里只有货币结算卡片、主题设置卡片
     other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
     acc_idx = tsx.index('{tab === "config" && subTab === "account" && (')
     notify_idx = tsx.index('{tab === "config" && subTab === "notify" && (')
@@ -529,9 +534,12 @@ def test_header_lang_dropdown_and_logout():
     # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大
     assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
     assert ".lang-on { color:var(--accent); }" in css
-    # 主题键与退出键是 9px 小图标（页眉与登录页各一处，ThemeIcon size={9}）；
+    # 主题键图标放大 1/2（9px→14px，页眉与登录页各一处，ThemeIcon size={14}）；
+    # 退出键仍是 9px 小图标不动，中英切换键仍是 9px 字不动；
     # .btn.theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
-    assert tsx.count("size={9}") == 2
+    assert tsx.count("size={14}") == 2
+    assert tsx.count("size={9}") == 0
+    assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 2  # 退出图标仍是 9px
     assert ".btn.theme-btn { padding:3px 4px;" in css
     assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
     # 登录页右上角同样是这排图标按钮（语言键 + 主题图标 + 退出图标，右对齐一行）
@@ -1035,17 +1043,22 @@ def test_backup_card_cloud_button_local_button_and_dialog():
 
 
 def test_card_settings_gear_same_size_as_action_icons():
-    # 实例卡片右上角的设置齿轮与下面 4 个操作图标（刷新/启动/重启/停机）一样大：
-    # 都是 icon-btn（30×30 框）+ Ico 16×16 SVG，不再是 btn ghost + ⚙️ emoji
+    # 服务器卡片右上角的设置齿轮与下面 4 个操作图标（刷新/启动/重启/停机）一样大：
+    # 都是 icon-btn（30×30 框）+ Ico 16×16 SVG，不再是 btn ghost + ⚙️ emoji；
+    # 设置图标应用到全局：运行概览卡片、实例管理卡片、实例管理列表行各一处，共 3 处
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     import re
     gears = re.findall(r'<button className="([^"]*)" title=\{t\("卡片设置"\)\}.*?</button>', tsx)
-    assert len(gears) == 2, f"expected 2 card-settings gear buttons, got {len(gears)}"
+    assert len(gears) == 3, f"expected 3 card-settings gear buttons, got {len(gears)}"
     assert all(c == "icon-btn" for c in gears), gears
-    # 两处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
+    # 三处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
     for m in re.finditer(r'title=\{t\("卡片设置"\)\}.*?</button>', tsx):
         assert '<Ico label={t("卡片设置")}>' in m.group(0)
         assert '⚙️' not in m.group(0)
+    # 运行概览卡片点齿轮也能打开卡片设置（与实例管理卡片同款单行形式）；
+    # 实例管理列表行是多行形式 {cardSettingsId === a.id && (，另算
+    assert tsx.count('{cardSettingsId === a.id && <CardSettings a={a} />}') == 2
+    assert '{cardSettingsId === a.id && (' in tsx
 
 
 def test_dynamic_mode_heading_not_bold():
@@ -1171,13 +1184,13 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
     assert ".oauth-btn:hover { font-weight:600; border-color:var(--accent); }" in css
 
 
-def test_server_cards_two_per_row_no_wrap():
-    # 服务器卡片一行两个（运行概览与实例管理），卡片内文字不换行：
-    # .grid2 两列；顶上三张总览卡片仍是 grid3 三列，不动
+def test_server_cards_one_per_row_no_wrap():
+    # 服务器卡片一行一个（运行概览与实例管理），卡片内文字不换行：
+    # .grid2 已改成一列（类名未改，方便改回两列）；顶上三张总览卡片仍是 grid3 三列，不动
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }" in css
-    assert "@media (max-width:800px){ .grid2{grid-template-columns:1fr;} }" in css
+    assert ".grid2 { display:grid; grid-template-columns:1fr; gap:16px; }" in css
+    assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr)" not in css
     assert '<div className="grid2" style={{ marginTop: 12 }}>' in tsx  # 运行概览服务器卡片
     assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
     assert '<div className="grid3">' in tsx  # 顶上总览卡片仍三列
@@ -1197,7 +1210,7 @@ def test_server_cards_two_per_row_no_wrap():
 
 def test_header_shows_site_name():
     # 页眉 logo 后面固定显示站点名称，不再显示当前标签页名（运行概览/实例管理/
-    # 其它设置……）；站点名称在其它设置→站点信息里改，当前标签仍由导航高亮表示
+    # 站点设置……）；站点名称在站点设置→站点信息里改，当前标签仍由导航高亮表示
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert '<h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>' in tsx
     assert '{tab === "dash" ? t("运行概览")' not in tsx

@@ -204,13 +204,16 @@ def test_frontend_cleanup_card():
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i18n = (root / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    # 其它设置页有数据清理卡片：清理时间输入框（失焦保存）+ 上次清理 + 立即清理
+    # 站点设置页有数据清理卡片：清理时间输入框（失焦保存）+ 上次清理 + 立即清理
     assert 't("数据清理")' in tsx
     assert 'type="time" value={cleanupTime}' in tsx
     assert 'saveSettings({ cleanup_time: cleanupTime || "03:00" })' in tsx
     assert 'status?.cleanup' in tsx
     assert 'post("/api/maintenance/cleanup"' in tsx
     assert 't("立即清理")' in tsx
+    # 立即清理是图标按钮（垃圾桶，Feather trash），不是文字按钮；悬停提示仍是“立即清理”
+    assert '<button className="icon-btn" title={t("立即清理")} onClick={doCleanupNow} disabled={busy}>' in tsx
+    assert '<button className="btn" onClick={doCleanupNow}>{t("立即清理")}</button>' not in tsx
     for key, en in [("数据清理", "Data cleanup"), ("清理时间", "Cleanup time"),
                     ("立即清理", "Clean up now"), ("尚未清理", "Not cleaned yet")]:
         assert key in i18n and en in i18n

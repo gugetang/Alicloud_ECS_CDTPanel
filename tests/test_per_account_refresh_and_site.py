@@ -97,11 +97,14 @@ def test_site_logo_upload_serve_delete(client):
     assert "image/png" in r.headers["content-type"]
     # 设置里带 logo 文件名
     assert client.get("/api/settings").json()["site_logo"] == "site_logo.png"
+    # 登录页用的 auth/status 也带 site_logo 标记（有 logo 才显示）
+    assert client.get("/api/auth/status").json()["site_logo"] is True
     # 删除后读不到
     r = client.delete("/api/settings/logo")
     assert r.status_code == 200
     assert client.get("/api/settings/logo").status_code == 404
     assert client.get("/api/settings").json()["site_logo"] == ""
+    assert client.get("/api/auth/status").json()["site_logo"] is False
 
 
 def test_site_logo_rejects_non_image_and_oversize(client):
@@ -130,7 +133,7 @@ def test_frontend_site_and_refresh_and_footer():
     assert '{ value: "0", label: t("不刷新")' in tsx
     assert 't("跟随全局")' not in tsx
     assert "api_refresh_minutes: refresh ===" not in tsx
-    # 其它设置：站点信息卡片（logo 上传/删除 + 简介）
+    # 站点设置：站点信息卡片（logo 上传/删除 + 简介）
     assert "<SiteInfoCard" in tsx
     assert 't("站点信息")' in tsx
     assert 't("上传 logo")' in tsx
@@ -183,3 +186,18 @@ def test_site_logo_buttons_right_icons():
     # 删除按钮只在已有 logo 时显示，上传按钮始终显示
     assert logo.count('title={t("删除 logo")}') == 1
     assert logo.count('title={t("上传 logo")}') == 1
+
+
+def test_login_screen_shows_logo_when_set():
+    # 登录页显示站点 logo：已添加才显示（居中在标题上方），没添加不显示
+    # （不直接渲染 <img src="/api/settings/logo">，否则没 logo 时会 404 破图）。
+    # 后端 /api/auth/status 带 site_logo 标记，LoginScreen 用 info.site_logo 判断。
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    login = tsx.split("function LoginScreen")[1].split("function SetupScreen")[0]
+    assert '(info.site_logo as boolean) ? (' in login
+    assert '<img src="/api/settings/logo" alt="logo"' in login
+    # logo 在标题上方（auth-title 之前）、居中
+    assert login.index('info.site_logo') < login.index('auth-title')
+    assert 'textAlign: "center"' in login

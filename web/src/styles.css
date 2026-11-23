@@ -69,9 +69,8 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 .muted { color:var(--muted); font-size:13px; }
 .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
-/* 服务器卡片一行两个（运行概览与实例管理共用；顶上三张总览卡片仍是 grid3 三列） */
-.grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
-@media (max-width:800px){ .grid2{grid-template-columns:1fr;} }
+/* 服务器卡片一行一个（运行概览与实例管理共用；顶上三张总览卡片仍是 grid3 三列） */
+.grid2 { display:grid; grid-template-columns:1fr; gap:16px; }
 .big { font-size:14px; font-weight:700; }
 .big small { font-size:14px; color:var(--muted); font-weight:400; }
 /* 状态点：Google 色，直径约 2mm（8px，1mm ≈ 3.78px @96dpi），正圆，

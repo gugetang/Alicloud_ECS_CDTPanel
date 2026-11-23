@@ -310,6 +310,7 @@ def auth_status():
                                  or db.get_flag("admin_oauth_identity")),
         "admin_name": db.get_flag("admin_name") or "",
         "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
+        "site_logo": bool(settings.get("site_logo")),  # 登录页用：有 logo 才显示
         "oauth": {p: _oauth_configured(settings, p) for p in oauth.PROVIDERS},
         "webauthn": bool(db.list_webauthn_credentials()),
     }

@@ -17,9 +17,9 @@ const TABS: [Tab, string][] = [
   ["groups", "分组管理"], ["domains", "域名管理"], ["config", "设置"],
 ];
 
-// 设置页内的子标签（从左到右）：全局设置、账号设置、通知设置、其它设置、日志统计
+// 设置页内的子标签（从左到右）：全局设置、账号设置、站点设置、通知设置、日志统计
 const SUB_TABS: [SubTab, string][] = [
-  ["settings", "全局设置"], ["account", "账号设置"], ["notify", "通知设置"], ["other", "其它设置"], ["logs", "日志统计"],
+  ["settings", "全局设置"], ["account", "账号设置"], ["other", "站点设置"], ["notify", "通知设置"], ["logs", "日志统计"],
 ];
 
 const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
@@ -498,7 +498,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
         </div>
         <div className="theme-menu">
           <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
-            <ThemeIcon theme={theme} size={9} />
+            <ThemeIcon theme={theme} size={14} />
           </button>
           {themeMenuOpen && (
             <>
@@ -525,6 +525,11 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
       </div>
       <div className="auth-wrap">
       <div className="card">
+        {(info.site_logo as boolean) ? (
+          <div style={{ textAlign: "center", marginBottom: 12 }}>
+            <img src="/api/settings/logo" alt="logo" style={{ height: 48, maxWidth: 200, objectFit: "contain" }} />
+          </div>
+        ) : null}
         <div className="auth-title">{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
         <label className="req">{t("登录密码 *")}</label>
         <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef}
@@ -1252,7 +1257,7 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   );
 }
 
-// ---------------- 站点信息卡片（其它设置页） ----------------
+// ---------------- 站点信息卡片（站点设置页） ----------------
 function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: string) => void; load: () => Promise<void> }) {
   const { t } = useI18n();
   const [intro, setIntro] = useState((settings?.site_intro as string) || "");
@@ -1766,7 +1771,7 @@ export default function App() {
   const saveParamSettings = (overrides: Any = {}) => {
     const patch: Any = {
       // s-quota / s-prot 只在全局设置子标签渲染时才在 DOM 里（设置页子标签按需渲染），
-      // 其它子标签（如其它设置里改结算货币）调用时取不到就回退已存值，绝不能抛错——
+      // 其它子标签（如站点设置里改结算货币）调用时取不到就回退已存值，绝不能抛错——
       // 否则 PUT 发不出去，结算货币选了也存不上，费用统计就不生效。
       quota_gb: (document.getElementById("s-quota") as HTMLInputElement)?.value || String(settings.quota_gb ?? 200),
       protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement)?.value || String(settings.protection_threshold_pct ?? 95),
@@ -1797,7 +1802,7 @@ export default function App() {
     setDrTime(String(settings.daily_report_time ?? "00:00"));
   }, [settings]);
 
-  // ---------- 数据清理（其它设置）：每天固定时间自动清理一次 ----------
+  // ---------- 数据清理（站点设置）：每天固定时间自动清理一次 ----------
   const [cleanupTime, setCleanupTime] = useState("03:00");
   useEffect(() => {
     setCleanupTime(String(settings.cleanup_time ?? "03:00"));
@@ -1896,7 +1901,7 @@ export default function App() {
             </div>
             <div className="theme-menu">
               <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
-                <ThemeIcon theme={theme} size={9} />
+                <ThemeIcon theme={theme} size={14} />
               </button>
               {themeMenuOpen && (
                 <>
@@ -1982,7 +1987,10 @@ export default function App() {
                   <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                       <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
-                      <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
+                        <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
+                      </div>
                     </div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
@@ -1993,6 +2001,7 @@ export default function App() {
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                     </div>
                     {a.status_detail ? <div className="muted status-detail" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
+                    {cardSettingsId === a.id && <CardSettings a={a} />}
                   </div>
                 ))}
               </div>
@@ -2395,7 +2404,7 @@ export default function App() {
                 }) : t("尚未清理")}
               </div>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-                <button className="btn" onClick={doCleanupNow}>{t("立即清理")}</button>
+                <button className="icon-btn" title={t("立即清理")} onClick={doCleanupNow} disabled={busy}><Ico label={t("立即清理")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico></button>
               </div>
             </div>
           </div>

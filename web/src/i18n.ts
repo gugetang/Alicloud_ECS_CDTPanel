@@ -460,8 +460,8 @@ export const EN: Record<string, string> = {
   货币结算: "Settlement currency",
   结算货币: "Settlement currency",
   汇率: "Exchange rate",
-  // 其它设置
-  其它设置: "Other settings",
+  // 站点设置
+  站点设置: "Site settings",
   账号设置: "Account settings",
   站点信息: "Site info",
   站点名称: "Site name",
