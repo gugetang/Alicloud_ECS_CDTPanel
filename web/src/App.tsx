@@ -904,7 +904,7 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [fileName, setFileName] = useState("");
-  const [wdStatus, setWdStatus] = useState<Any>(null);
+  const [wdStatus, setWdStatus] = useState<Any | null>(null);
 
   const wdEnabled = settings?.webdav_enabled === "1";
   const wdConfigured = Boolean(settings?.webdav_configured);
