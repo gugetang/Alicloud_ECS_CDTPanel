@@ -13,37 +13,22 @@
 }
 /* 主题：亮 / 暗 / 跟随系统。尺寸与旧版一致，只换颜色与磨砂质感。
    色值角色（用户定）：白天白底、黑夜黑底；卡片/框体=磨砂玻璃（亮色 70% 透明，夜间灰 50% 透明）；
-   蓝色=按键边框色（--accent）；浅蓝=按键选中色（--accent-soft 底 + 蓝字），随主题风格换色。
+   蓝色=按键边框色（--accent）；选中=主题色边框 + 蓝字，不用填充色。
    蓝色只作边框/文字色，不作填充色（危险操作红按钮除外）。
    主题由 <html data-theme="light|dark"> 控制，App.tsx 里跟随系统用
    matchMedia("(prefers-color-scheme: dark)") 判断。 */
 :root {
-  --accent:#3b82f6; --accent-soft:#dbeafe; --accent-text:#1d4ed8;
-  --green:#34A853; --red:#EA4335;
+  --accent:#2563eb; --green:#34A853; --red:#EA4335;
   --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6;
 }
-/* 主题风格（5 种配色）：只改按钮与边框用的主题色，磨砂卡片底色（--card/--card2）与页面底色（--bg）不变。
-   --accent=按键边框/开关/文字主色；--accent-soft=选中按键浅底；--accent-text=浅底上的深色字。
-   默认深海谧（当前蓝色），localStorage cdt-accent，App.tsx 里写 document.documentElement.dataset.accent。 */
-html[data-accent="emerald"] { --accent:#10b981; --accent-soft:#d1fae5; --accent-text:#065f46; }
-html[data-accent="deepblue"] { --accent:#3b82f6; --accent-soft:#dbeafe; --accent-text:#1d4ed8; }
-html[data-accent="warmsun"] { --accent:#f97316; --accent-soft:#ffedd5; --accent-text:#9a3412; }
-html[data-accent="nebula"] { --accent:#8b5cf6; --accent-soft:#ede9fe; --accent-text:#5b21b6; }
-html[data-accent="crimson"] { --accent:#ef4444; --accent-soft:#fee2e2; --accent-text:#991b1b; }
-/* 亮色下卡片/输入框的细边框带主题色（夜间边框是灰色，不跟主题走）。 */
-html[data-theme="light"][data-accent="emerald"] { --border:rgba(16,185,129,0.25); }
-html[data-theme="light"][data-accent="deepblue"] { --border:rgba(59,130,246,0.25); }
-html[data-theme="light"][data-accent="warmsun"] { --border:rgba(249,115,22,0.25); }
-html[data-theme="light"][data-accent="nebula"] { --border:rgba(139,92,246,0.25); }
-html[data-theme="light"][data-accent="crimson"] { --border:rgba(239,68,68,0.25); }
 html[data-theme="dark"] {
-  --bg:#1e293b; --card:rgba(71,85,105,0.65); --card2:rgba(71,85,105,0.65);
+  --bg:#0b1220; --card:rgba(71,85,105,0.5); --card2:rgba(71,85,105,0.5);
   --border:rgba(148,163,184,0.35); --text:#e6edf7; --muted:#8ea0bf;
-  --input:rgba(30,41,59,0.55); --seg-off:#9AA0A6;
+  --input:rgba(11,21,38,0.55); --seg-off:#9AA0A6;
 }
 html[data-theme="light"] {
-  --bg:#ffffff; --card:rgba(255,255,255,0.5); --card2:rgba(255,255,255,0.5);
-  --border:rgba(59,130,246,0.25); --text:#0f172a; --muted:#64748b;
+  --bg:#ffffff; --card:rgba(255,255,255,0.3); --card2:rgba(255,255,255,0.3);
+  --border:rgba(37,99,235,0.25); --text:#0f172a; --muted:#64748b;
   --input:rgba(255,255,255,0.75); --seg-off:#9AA0A6;
 }
 * { box-sizing:border-box; }
@@ -53,20 +38,20 @@ body {
   background:var(--bg);
 }
 a { color:#7aa5ff; }
-html[data-theme="light"] a { color:var(--accent-text); }
+html[data-theme="light"] a { color:#1d4ed8; }
 .app { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
 header h1 { font-size:28px; margin:0 0 4px; }
 header p { color:var(--muted); margin:0 0 20px; }
 nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 nav button { background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
-nav button.active { background:var(--accent); border:2px solid var(--accent); color:#fff; font-weight:600; padding:7px 13px; }
+nav button.active { border:2px solid var(--accent); color:#1d4ed8; font-weight:600; padding:7px 13px; }
 /* 设置页子标签（浏览器标签页样式，从左到右：全局设置、域名管理、通知设置）：
    当前标签浅蓝底 + 蓝字 + 蓝边框，下边与分隔线贴合；未选灰字透明底。 */
 .subtabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:16px; }
-.subtabs button { background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0; padding:4px 20px; cursor:pointer; font-size:14px; margin-bottom:-1px; }
+.subtabs button { background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0; padding:10px 20px; cursor:pointer; font-size:14px; margin-bottom:-1px; }
 .subtabs button:hover { color:var(--text); }
-.subtabs button.active { background:var(--accent); color:#fff; border-color:var(--accent); border-bottom:1px solid var(--accent); font-weight:600; }
-.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4); }
+.subtabs button.active { color:#1d4ed8; border-color:var(--accent); border-bottom:1px solid transparent; font-weight:600; }
+.card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); }
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
 .muted { color:var(--muted); font-size:13px; }
@@ -94,12 +79,12 @@ html[data-theme="light"] .pill { background:#dcfce7; color:#15803d; }
 .pill.gray { background:#1e293b; color:#9AA0A6; }
 html[data-theme="light"] .pill.gray { background:#e2e8f0; color:#64748b; }
 .pill.blue { background:#172554; color:#93c5fd; }
-html[data-theme="light"] .pill.blue { background:var(--accent-soft); color:var(--accent-text); }
+html[data-theme="light"] .pill.blue { background:#dbeafe; color:#1d4ed8; }
 .pill.red { background:#3f1d1d; color:#fca5a5; }
 html[data-theme="light"] .pill.red { background:#fee2e2; color:#b91c1c; }
-table { width:100%; border-collapse:collapse; font-size:12px; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
 th,td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
-th { color:var(--muted); font-weight:500; font-size:12px; }
+th { color:var(--muted); font-weight:500; font-size:13px; }
 .bar { height:6px; background:#1e293b; border-radius:3px; margin-top:6px; overflow:hidden; }
 html[data-theme="light"] .bar { background:#e2e8f0; }
 .bar i { display:block; height:100%; background:#60a5fa; }
@@ -108,16 +93,16 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }
 .stats.five { grid-template-columns:repeat(5,1fr); }
 .stat span { display:block; font-size:12px; color:var(--muted); }
-.stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; }
+.stat b { font-size:18px; font-weight:600; overflow-wrap:anywhere; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
-.icon-btn:hover { border-color:var(--accent); color:var(--accent-text); background:var(--accent-soft); }
+.icon-btn:hover { border-color:var(--accent); color:#1d4ed8; }
 .icon-btn:disabled { opacity:.45; cursor:default; }
 .icon-btn.danger { color:#EA4335; }
 .icon-btn.danger:hover { border-color:#EA4335; color:#EA4335; background:rgba(234,67,53,.08); }
 .icon-btn.green { color:#34A853; }
 .icon-btn.green:hover { border-color:#34A853; color:#34A853; background:rgba(52,168,83,.08); }
-.icon-btn.blue { color:var(--accent); }
-.icon-btn.blue:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+.icon-btn.blue { color:#2563eb; }
+.icon-btn.blue:hover { border-color:#2563eb; color:#2563eb; background:rgba(37,99,235,.08); }
 .icon-btn.gray { color:#9AA0A6; }
 .icon-btn.gray:hover { border-color:#9AA0A6; color:#9AA0A6; background:rgba(154,160,166,.08); }
 /* 滑动开关：开=蓝底（--accent），关=灰底；圆点左右滑动。 */
@@ -130,22 +115,16 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 /* 主题菜单（页眉）：图标按钮 + 下拉菜单，选中项浅蓝底、右侧打勾。 */
 .theme-menu { position:relative; }
 .theme-btn { padding:6px 8px; display:flex; align-items:center; }
-/* 语言切换：图标式 中/En 切换键，点一下切语言；当前语言用主题色加粗，未选的灰色。 */
-.lang-btn { padding:6px 10px; display:flex; align-items:center; gap:2px; font-size:14px; }
-.lang-on { color:var(--accent-text); font-weight:600; }
-.lang-off { color:var(--muted); }
-.lang-sep { color:var(--muted); }
 .menu-backdrop { position:fixed; inset:0; z-index:40; }
 .menu { position:absolute; right:0; top:calc(100% + 6px); z-index:41; min-width:180px; background:var(--card); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:6px; }
 .menu button { display:flex; align-items:center; gap:10px; width:100%; padding:8px 10px; background:none; border:none; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; text-align:left; }
 .menu button:hover { background:var(--card2); }
-.menu button.sel { background:var(--accent-soft); color:var(--accent-text); }
+.menu button.sel { border:2px solid var(--accent); color:#1d4ed8; font-weight:600; padding:6px 8px; }
 .menu-ico { display:flex; color:inherit; }
 .menu-check { margin-left:auto; font-weight:700; }
-.btn { background:var(--accent); color:#fff; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
-.btn:hover { filter:brightness(0.88); }
-html[data-theme="dark"] .btn { color:#fff; }
-html[data-theme="dark"] .btn:hover { color:#fff; }
+.btn { background:transparent; color:#1d4ed8; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
+html[data-theme="dark"] .btn { color:#93c5fd; }
+html[data-theme="dark"] .btn:hover { color:#1d4ed8; }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -160,33 +139,14 @@ label.lbl { font-weight:700; color:var(--text); }
 @media (max-width:800px){ .form2{grid-template-columns:1fr;} }
 .notice { background:rgba(23,37,84,0.5); border:1px solid #1e3a8a; border-radius:10px; padding:12px 16px; color:#bfdbfe; font-size:14px; margin-bottom:16px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 html[data-theme="light"] .notice { background:rgba(219,234,254,0.7); border-color:rgba(37,99,235,0.3); color:#1e40af; }
-/* 自动保存后的提示框：右下角悬浮 toast，字体用主题色；5 秒后自动隐藏（App.tsx 的定时器）。 */
-.toast { position:fixed; right:16px; bottom:16px; z-index:100; max-width:min(420px, calc(100vw - 32px)); background:var(--card); border:1px solid var(--accent); border-radius:10px; padding:12px 16px; color:var(--accent-text); font-size:14px; box-shadow:0 4px 16px rgba(0,0,0,0.15); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
-/* 对话框：全屏遮罩 + 居中磨砂卡片，点遮罩关闭 */
-.modal-overlay { position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.45); display:flex; align-items:center; justify-content:center; padding:16px; }
-.modal { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; width:min(420px, 100%); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); box-shadow:0 8px 32px rgba(0,0,0,0.25); }
-.modal h3 { margin:0; }
 pre { background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:12px; overflow:auto; font-size:12px; max-height:320px; }
 .check { display:flex; gap:8px; align-items:center; margin:8px 0; }
 .check input { width:auto; }
-/* 按键式选择（全站统一）：选中蓝框（2px 蓝边 + 蓝字 + 浅蓝主底色 --accent-soft，随主题风格换色），未选灰框灰字。
+/* 按键式选择（全站统一）：选中蓝框（2px 蓝边 + 蓝字，不用填充色），未选灰框灰字。
    选中态 padding 少 1px，抵掉边框多出的 1px，外形尺寸与未选态一致。 */
 .seg { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
 .seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted); border-radius:10px; padding:8px 16px; cursor:pointer; font-size:14px; }
-.seg button.seg-on { border:2px solid var(--accent); color:var(--accent-text); background:var(--accent-soft); padding:7px 15px; font-weight:600; }
-/* 主题风格选择器（其它设置→主题设置）：5 张卡片横排，渐变色块 + 中文名 + 英文名；
-   选中卡片用当前主题色 2px 边框，色块右上角白底圆圈打勾（勾用当前主题色）。 */
-.theme-grid { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; }
-.theme-card { flex:1; min-width:96px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; cursor:pointer; text-align:center; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
-.theme-card.sel { border:2px solid var(--accent); padding:9px; }
-.theme-swatch { display:block; height:56px; border-radius:8px; position:relative; }
-.theme-check { position:absolute; top:6px; right:6px; width:20px; height:20px; border-radius:50%; background:#fff; color:var(--accent); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; box-shadow:0 1px 4px rgba(0,0,0,.25); }
-.theme-name { display:block; margin-top:8px; font-size:14px; font-weight:600; color:var(--text); }
-.theme-en { display:block; font-size:12px; color:var(--muted); margin-top:2px; }
-/* 分组成员按键：两行——上面状态点+名称，下面当前 IP（A.B 段显示，C.D 用 * 代替）。 */
-.seg button.member-btn { display:inline-flex; flex-direction:column; align-items:flex-start; gap:2px; }
-.member-top { display:flex; align-items:center; gap:6px; }
-.member-ip { font-size:12px; color:var(--muted); line-height:1.3; }
+.seg button.seg-on { border:2px solid var(--accent); color:#1d4ed8; padding:7px 15px; font-weight:600; }
 /* 实例配置表单：与卡片同色，顶部留间距 */
 .instance-form { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 /* 登录 / 首次设置页：居中窄卡片 */
@@ -195,11 +155,13 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 .auth-title { font-size:22px; font-weight:700; margin:0 0 4px; }
 .oauth-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; background:transparent; border:1px solid var(--border); color:var(--text); border-radius:10px; padding:9px 16px; cursor:pointer; font-size:14px; margin-top:8px; }
 .oauth-btn:disabled { opacity:.5; cursor:default; }
-/* 登录 / 首次设置页：输入框默认显示边框（与全站一致），聚焦时显示主题色边框；
-   登录按钮一直显示主题色边框（.btn 自带 2px 主题色边框，这里不再盖掉）。 */
+/* 登录 / 首次设置页：输入框与按钮平时无边框，点中/聚焦时才显示边框 */
+.auth-wrap input, .auth-wrap select, .auth-wrap textarea { border-color:transparent; }
 .auth-wrap input:focus, .auth-wrap select:focus, .auth-wrap textarea:focus { border-color:var(--accent); outline:none; }
-.auth-wrap .btn:focus, .auth-wrap .btn:active { outline:none; }
-.auth-wrap .oauth-btn:focus, .auth-wrap .oauth-btn:active { outline:none; }
+.auth-wrap .btn { border-color:transparent; }
+.auth-wrap .btn:focus, .auth-wrap .btn:active { border-color:var(--accent); outline:none; }
+.auth-wrap .oauth-btn { border-color:transparent; }
+.auth-wrap .oauth-btn:focus, .auth-wrap .oauth-btn:active { border-color:var(--border); outline:none; }
 /* 电脑端 / 手机端分别适配：电脑端保持 1200px 三列布局不变；
    手机端（≤800px）单独排版——单列卡片、指标两列、表格横向滚动、
    触控目标放大、输入框 16px（防 iOS 聚焦时自动放大）。颜色与字体风格两端一致。 */
@@ -215,7 +177,7 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   .stat b { font-size:16px; }
   table { display:block; overflow-x:auto; }
   .subtabs { overflow-x:auto; }
-  .subtabs button { flex:none; padding:4px 14px; }
+  .subtabs button { flex:none; padding:10px 14px; }
   .btn { padding:10px 16px; }
   .icon-btn { width:36px; height:36px; }
   .seg button { padding:10px 16px; }
