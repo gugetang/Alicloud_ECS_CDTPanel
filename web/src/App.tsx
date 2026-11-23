@@ -311,7 +311,7 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
           </select>
           {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={saveAuto} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
           <div className="row">
-            <button className="btn ghost" onClick={autoDiscover} disabled={formBusy}>{t("自动发现")}</button>
+            <button className="btn ghost" onClick={autoDiscover} disabled={formBusy} title={t("自动发现")}>{t("自动发现")}</button>
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
           </div></div>
         <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
@@ -327,7 +327,7 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
       </div>
       {formMsg && <p style={{ color: "#f87171", marginTop: 12 }}>{formMsg}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn ghost" onClick={onCancel}>{t("取消")}</button>
+        <button className="btn ghost" onClick={onCancel} title={t("取消")}>{t("取消")}</button>
       </div>
     </div>
   );
@@ -389,8 +389,8 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
         <label className="req">{t("确认密码 *")}</label>
         <PasswordField value={pw2} onChange={setPw2} placeholder={t("再输一次")} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
-        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={submit}>{t("创建管理员并进入")}</button>
-        <button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSkip}>{t("稍后设置，直接进入")}</button>
+        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={submit} title={t("创建管理员并进入")}>{t("创建管理员并进入")}</button>
+        <button className="btn ghost" style={{ width: "100%", marginTop: 8 }} onClick={onSkip} title={t("稍后设置，直接进入")}>{t("稍后设置，直接进入")}</button>
       </div>
     </div>
   );
@@ -467,18 +467,18 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
         <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef}
           onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
-        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy}>{t("登录")}</button>
+        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy} title={t("登录")}>{t("登录")}</button>
         {info.webauthn && (
-          <button className="oauth-btn" onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
+          <button className="oauth-btn" title={t("指纹登录")} onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
             {t("指纹登录")}{webauthnSupported ? "" : t("（当前浏览器不支持）")}
           </button>
         )}
-        <button className="oauth-btn" disabled={!info.oauth?.google}
+        <button className="oauth-btn" title={t("使用 Google 登录")} disabled={!info.oauth?.google}
           onClick={() => { window.location.href = "/api/auth/oauth/google/login"; }}>
           <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.223 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
           {t("使用 Google 登录")}
         </button>
-        <button className="oauth-btn" disabled={!info.oauth?.github}
+        <button className="oauth-btn" title={t("使用 GitHub 登录")} disabled={!info.oauth?.github}
           onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
           {t("使用 GitHub 登录")}
@@ -688,17 +688,17 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         <label className="lbl">{t("阈值动作")}</label>
         <Seg value={gExcl} options={[
           { value: "", label: t("跟随系统") },
-          { value: "none", label: t("踢出DDNS") },
-          { value: "stop_charging", label: t("节省停机") },
-          { value: "stop", label: t("停机") },
+          { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
+          { value: "stop_charging", label: t("节省停机"), title: t("停机并停止计费，节省费用") },
+          { value: "stop", label: t("停机"), title: t("普通停机，停机后继续计费") },
         ]} onChange={(v) => { setGExcl(v); savePatch({ exclusion_action: v }); }} />
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("阈值恢复")}</label>
         <Seg value={gRecovery} options={[
           { value: "", label: t("跟随系统") },
-          { value: "start", label: t("恢复时拉起") },
-          { value: "keep_stopped", label: t("恢复入池但保持停机") },
+          { value: "start", label: t("恢复时拉起"), title: t("流量恢复后自动拉起实例") },
+          { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
       </div>
       </>)}
@@ -828,7 +828,7 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
             const bad = steps.find((s: Any) => !s.ok);
             if (bad) throw new Error(`${bad.name}：${bad.detail}`);
             return res;
-          }, t("Telegram 连接正常"))}>{t("检测连接")}</button>
+          }, t("Telegram 连接正常"))} title={t("检测连接")}>{t("检测连接")}</button>
         )}
         <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
         <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
@@ -913,11 +913,11 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
         <div><label>{t("新密码")}</label><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("至少 6 位")} /></div>
       </div>
       <div className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
-        <button className="btn" onClick={changePw} disabled={busy}>{t("修改密码")}</button>
+        <button className="btn" onClick={changePw} disabled={busy} title={t("修改密码")}>{t("修改密码")}</button>
       </div></div>
       <h3 style={{ marginTop: 20 }}>{t("指纹登录")}</h3>
       <div className="row" style={{ paddingLeft: "2em" }}>
-        <button className="btn" onClick={registerFingerprint} disabled={busy}>{t("注册指纹")}</button>
+        <button className="btn" onClick={registerFingerprint} disabled={busy} title={t("注册指纹")}>{t("注册指纹")}</button>
       </div>
       {creds.map((c) => (
         <div key={c.credential_id as string} className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
@@ -1063,10 +1063,10 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   return (
     <div className="card"><h2>{t("备份与恢复")}</h2>
       <div className="row" style={{ paddingLeft: "2em" }}>
-        <button className="btn" onClick={download} disabled={busy}>{t("下载备份")}</button>
+        <button className="btn" onClick={download} disabled={busy} title={t("下载备份")}>{t("下载备份")}</button>
         <input type="file" id="backup-file" accept=".json,application/json"
           style={{ flex: 1 }} onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
-        <button className="btn" onClick={restore} disabled={busy || !fileName}>{t("恢复备份")}</button>
+        <button className="btn" onClick={restore} disabled={busy || !fileName} title={t("恢复备份")}>{t("恢复备份")}</button>
       </div>
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
       <div style={{ marginTop: 16 }}>
@@ -1086,9 +1086,9 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
               <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
           </div>
           <div className="row" style={{ paddingLeft: "2em", marginTop: 12 }}>
-            <button className="btn" onClick={wdTest} disabled={busy}>{t("测试连接")}</button>
-            <button className="btn" onClick={wdUpload} disabled={busy}>{t("上传到云端")}</button>
-            <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists}>{t("从云端恢复")}</button>
+            <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
+            <button className="btn" onClick={wdUpload} disabled={busy} title={t("上传到云端")}>{t("上传到云端")}</button>
+            <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists} title={t("从云端恢复")}>{t("从云端恢复")}</button>
           </div>
           <p className="muted" style={{ paddingLeft: "2em" }}>
             {!wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
@@ -1452,7 +1452,7 @@ export default function App() {
         }}>⧉ {t("复制配置摘要")}</button>
       </div>
       <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-        <button className="btn" style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
+        <button className="btn" title={t("删除实例")} style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
           onClick={() => { if (confirm(t("删除实例 {name}？删除后域名将重新分配。", { name: a.name }))) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), t("已删除")); } }}>
           {t("删除实例")}
         </button>
@@ -1611,7 +1611,7 @@ export default function App() {
               <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
             </button>
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
+              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
                 <ThemeIcon theme={theme} />
               </button>
               {themeMenuOpen && (
@@ -1815,8 +1815,8 @@ export default function App() {
               };
               return (
               <tr key={d.id as number}><td>{String(i + 1).padStart(2, "0")}<br />
-                <button className="btn ghost" disabled={i === 0 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↑</button>
-                <button className="btn ghost" disabled={i === domains.length - 1 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))}>↓</button></td>
+                <button className="btn ghost" disabled={i === 0 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))} title={t("上移")}>↑</button>
+                <button className="btn ghost" disabled={i === domains.length - 1 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))} title={t("下移")}>↓</button></td>
                 <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} onBlur={() => saveDomEdit(editDomName, editDomGroup)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
                 <td>{editing ? (
                   <select value={editDomGroup} onChange={(e) => { const gv = e.target.value; setEditDomGroup(gv); saveDomEdit(editDomName, gv); }}>
@@ -1860,7 +1860,7 @@ export default function App() {
                 </div>
                 <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                   <button className="btn ghost" onClick={() => setShowAddDom(false)}>{t("取消")}</button>
-                  <button className="btn" onClick={() => {
+                  <button className="btn" title={t("添加")} onClick={() => {
                     const name = addDomName.trim();
                     if (!name) { setMsg(t("请填写域名")); return; }
                     setShowAddDom(false);
@@ -1920,7 +1920,7 @@ export default function App() {
               </select>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
                 <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); setNewGroupDomain(""); }}>{t("取消")}</button>
-                <button className="btn" onClick={() => {
+                <button className="btn" title={t("创建分组")} onClick={() => {
                   if (!newGroupName.trim()) { setMsg(t("请填写分组名")); return; }
                   if (!newGroupMode) { setMsg(t("请选择切换模式")); return; }
                   run(() => post("/api/groups", { name: newGroupName.trim(), switch_mode: newGroupMode, ...(newGroupDomain ? { domain_id: Number(newGroupDomain) } : {}) }), t("分组已创建"));
@@ -1964,16 +1964,16 @@ export default function App() {
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
-                { value: "none", label: t("踢出DDNS") },
-                { value: "stop_charging", label: t("节省停机") },
-                { value: "stop", label: t("停机") },
+                { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
+                { value: "stop_charging", label: t("节省停机"), title: t("停机并停止计费，节省费用") },
+                { value: "stop", label: t("停机"), title: t("普通停机，停机后继续计费") },
               ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
             </div>
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值恢复")}</label>
               <Seg value={sRecovery} options={[
-                { value: "start", label: t("恢复时拉起（默认）") },
-                { value: "keep_stopped", label: t("恢复入池但保持停机") },
+                { value: "start", label: t("恢复时拉起（默认）"), title: t("流量恢复后自动拉起实例") },
+                { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
               ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
             </div>
             <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
@@ -2017,7 +2017,7 @@ export default function App() {
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
                 { value: "30", label: t("30 分钟") },
                 { value: "custom", label: t("自定义") },
-                { value: "0", label: t("不刷新") },
+                { value: "0", label: t("不刷新"), title: t("不刷新=暂停调度，选分钟数=恢复运行") },
               ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
               {sRefresh === "custom" && (
                 <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义刷新时间（分钟）")}</label>
