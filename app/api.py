@@ -309,6 +309,7 @@ def auth_status():
         "admin_configured": bool(db.get_flag("admin_password_hash")
                                  or db.get_flag("admin_oauth_identity")),
         "admin_name": db.get_flag("admin_name") or "",
+        "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
         "oauth": {p: _oauth_configured(settings, p) for p in oauth.PROVIDERS},
         "webauthn": bool(db.list_webauthn_credentials()),
     }

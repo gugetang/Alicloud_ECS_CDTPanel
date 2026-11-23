@@ -63,6 +63,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "cloudflare_token": "",
     # 站点信息：页眉显示的 logo（文件名，空=无 logo）与简介（空=显示默认副标题）。
     # logo 文件存在数据目录，由 /api/settings/logo 上传/读取/删除。
+    "site_name": "CDT 面板",
     "site_intro": "",
     "site_logo": "",
     # DDNS 域名（Zone 名，如 domainname.com）：配了以后直接按它查 Zone，

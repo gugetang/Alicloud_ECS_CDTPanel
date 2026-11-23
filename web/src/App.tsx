@@ -54,7 +54,7 @@ const TZ_FALLBACK = [
 ];
 
 // 按键式选择（全站统一）：选中主题色边框+浅底深色字、未选灰框，见 styles.css 的 .seg。
-// value 为 "" 时表示“未选/跟随全局”，所有按钮都是灰框（分组新建时无默认选中）。
+// value 为 "" 时表示“未选/跟随系统”，所有按钮都是灰框（分组新建时无默认选中）。
 function Seg({ value, options, onChange }: {
   value: string;
   options: { value: string; label: string; title?: string }[];
@@ -257,8 +257,8 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime,
       // 阈值动作/恢复已移到分组卡片：实例级不再保存这两个字段。
-      // 参与日报推送已取消：实例级不再保存，全部跟随全局开关。
-      // 实例级刷新时间已取消：强制跟随全局，存 null 清掉旧的自定义值。
+      // 参与日报推送已取消：实例级不再保存，全部跟随系统开关。
+      // 实例级刷新时间已取消：强制跟随系统，存 null 清掉旧的自定义值。
       api_refresh_minutes: null,
     };
     if (akSecret && akSecret !== SECRET_MASK) payload.access_key_secret = akSecret;  // 掩码不是新密钥，留空/掩码都保持不变，绝不清空
@@ -462,7 +462,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   return (
     <div className="auth-wrap">
       <div className="card">
-        <div className="auth-title">{t("登录 CDT 面板")}</div>
+        <div className="auth-title">{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
         <label className="req">{t("登录密码 *")}</label>
         <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef}
           onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
@@ -514,7 +514,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   // 自定义间隔：后端存的一律是分钟；自定义分钟数 >0 时间隔选“自定义”（值 0）
   const _gcm = Number(g.custom_interval_minutes ?? 0) || 0;
   const _gcu = _gcm > 0 && _gcm % 1440 === 0 ? "day" : _gcm > 0 && _gcm % 60 === 0 ? "hour" : "minute";
-  const [interval, setInterval] = useState(_gcm > 0 ? "0" : String(g.interval_hours ?? settings.interval_hours ?? 6));
+  const _gih = Number(g.interval_hours ?? settings.interval_hours ?? 6) || 6;
+  // 轮巡周期只留 3/6/12/自定义：把已取消的 1/2/4/24 小时映射到最近的保留值
+  const [interval, setInterval] = useState(_gcm > 0 ? "0" : ["3", "6", "12"].includes(String(_gih)) ? String(_gih) : _gih <= 2 ? "3" : _gih <= 4 ? "6" : "12");
   const [custUnit, setCustUnit] = useState(_gcu);
   const [custVal, setCustVal] = useState(String(_gcu === "day" ? _gcm / 1440 : _gcu === "hour" ? _gcm / 60 : _gcm));
   const [startTime, setStartTime] = useState((g.interval_start_time as string) || "00:00:00");
@@ -525,13 +527,13 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const _gdm = Number(g.dynamic_interval_minutes ?? 0) || 0;
   const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90, 120].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
   const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90, 120].includes(_gdm) ? _gdm : 30));
-  // 分组级阈值策略：空=跟随全局
+  // 分组级阈值策略：空=跟随系统
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
-  // 负载均衡/定时轮巡是否跟随全局：相关参数全为空即跟随全局（后端 NULL=继承全局）
+  // 负载均衡/定时轮巡是否跟随系统：相关参数全为空即跟随系统（后端 NULL=继承全局）
   const lbFollowGlobal = g.switch_diff_mode == null && g.switch_diff_pct == null && g.switch_diff_gb == null && g.dynamic_interval_minutes == null;
   const timeFollowGlobal = g.interval_hours == null && g.custom_interval_minutes == null && g.interval_start_time == null;
-  // 负载均衡跟随全局/自定义切换：跟随全局时参数全部置空（继承全局），自定义时
+  // 负载均衡跟随系统/自定义切换：跟随系统时参数全部置空（继承全局），自定义时
   // 参数填入当前全局值（对话框出现，用户可改）
   const setLbFollowGlobal = (follow: boolean) => {
     if (follow) {
@@ -547,7 +549,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       savePatch({ switch_diff_mode: m, switch_diff_pct: pct, switch_diff_gb: gb, dynamic_interval_minutes: dyn });
     }
   };
-  // 定时轮巡跟随全局/自定义切换
+  // 定时轮巡跟随系统/自定义切换
   const setTimeFollowGlobal = (follow: boolean) => {
     if (follow) {
       savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null });
@@ -610,17 +612,16 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         <div style={{ marginTop: 12 }}>
           <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
             <div style={{ paddingLeft: "2em" }}><Seg value={timeFollowGlobal ? "global" : "custom"} options={[
-              { value: "global", label: t("跟随全局") },
+              { value: "global", label: t("跟随系统") },
               { value: "custom", label: t("自定义") },
             ]} onChange={(v) => setTimeFollowGlobal(v === "global")} /></div></div>
           {!timeFollowGlobal && (<>
           <div className="form2" style={{ marginTop: 12 }}>
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
-                { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
-                { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
+                { value: "3", label: t("3 小时") },
                 { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
+                { value: "0", label: t("自定义") },
               ]} onChange={(v) => { setInterval(v); savePatch(v === "0" ? { interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) } : { interval_hours: Number(v) || 6, custom_interval_minutes: 0 }); }} /></div></div>
           </div>
           {interval === "0" && (
@@ -643,7 +644,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         <div style={{ marginTop: 12 }}>
           <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
             <div style={{ paddingLeft: "2em" }}><Seg value={lbFollowGlobal ? "global" : "custom"} options={[
-              { value: "global", label: t("跟随全局") },
+              { value: "global", label: t("跟随系统") },
               { value: "custom", label: t("自定义") },
             ]} onChange={(v) => setLbFollowGlobal(v === "global")} /></div></div>
           {!lbFollowGlobal && (<>
@@ -686,7 +687,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("阈值动作")}</label>
         <Seg value={gExcl} options={[
-          { value: "", label: t("跟随全局") },
+          { value: "", label: t("跟随系统") },
           { value: "none", label: t("踢出DDNS") },
           { value: "stop_charging", label: t("节省停机") },
           { value: "stop", label: t("停机") },
@@ -695,7 +696,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("阈值恢复")}</label>
         <Seg value={gRecovery} options={[
-          { value: "", label: t("跟随全局") },
+          { value: "", label: t("跟随系统") },
           { value: "start", label: t("恢复时拉起") },
           { value: "keep_stopped", label: t("恢复入池但保持停机") },
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
@@ -1102,9 +1103,18 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
 function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: string) => void; load: () => Promise<void> }) {
   const { t } = useI18n();
   const [intro, setIntro] = useState((settings?.site_intro as string) || "");
+  const [siteName, setSiteName] = useState((settings?.site_name as string) || "CDT 面板");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const hasLogo = Boolean(settings?.site_logo);
+
+  const saveSiteName = async () => {
+    const nm = siteName.trim() || "CDT 面板";
+    setSiteName(nm);
+    await put("/api/settings", { site_name: nm });
+    setMsg(t("已保存成功"));
+    await load();
+  };
 
   const saveIntro = async () => {
     await put("/api/settings", { site_intro: intro.trim() });
@@ -1149,6 +1159,11 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
   return (
     <div className="card"><h2>{t("站点信息")}</h2>
       <div style={{ paddingLeft: "2em" }}>
+      <div>
+        <label className="lbl">{t("站点名称")}</label>
+        <input value={siteName} onChange={(e) => setSiteName(e.target.value)} onBlur={() => void saveSiteName()} placeholder="CDT 面板" />
+      </div>
+      <div style={{ marginTop: 12 }}>
       <label className="lbl">{t("站点 logo")}</label>
       <div className="row" style={{ alignItems: "center" }}>
         {hasLogo && (
@@ -1165,6 +1180,7 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("站点简介")}</label>
         <input value={intro} onChange={(e) => setIntro(e.target.value)} onBlur={() => void saveIntro()} placeholder={t("页眉显示的简介，留空显示默认副标题")} />
+      </div>
       </div>
       </div>
     </div>
@@ -1454,21 +1470,30 @@ export default function App() {
   const [sDynInterval, setSDynInterval] = useState("30");
   const [sDynCustVal, setSDynCustVal] = useState("30");
   const [sRefresh, setSRefresh] = useState("5");
+  const [sRefreshCustVal, setSRefreshCustVal] = useState("5");
   const [sCurrency, setSCurrency] = useState("USD");
   useEffect(() => {
     setSExcl(settings.exclusion_action ?? "none");
     setSRecovery(settings.threshold_recovery_action ?? "start");
     setSDiffMode(settings.switch_diff_mode ?? "percent");
-    setSInterval(String(settings.interval_hours ?? 6));
+    const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
+    const ih0 = Number(settings.interval_hours ?? 6) || 6;
+    // 轮巡周期只留 3/6/12/自定义：自定义分钟数>0 时选“自定义”，否则把
+    // 已取消的 1/2/4/24 小时映射到最近的保留值。
+    setSInterval(cm > 0 ? "0" : ["3", "6", "12"].includes(String(ih0)) ? String(ih0) : ih0 <= 2 ? "3" : ih0 <= 4 ? "6" : "12");
     const dyn = Number(settings.dynamic_interval_minutes ?? 30) || 30;
     setSDynInterval(["30", "60", "90", "120"].includes(String(dyn)) ? String(dyn) : "0");
     setSDynCustVal(String(Math.max(30, dyn)));
-    const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
     const cu = cm > 0 && cm % 1440 === 0 ? "day" : cm > 0 && cm % 60 === 0 ? "hour" : "minute";
     setSCustUnit(cu);
     setSCustVal(String(cu === "day" ? cm / 1440 : cu === "hour" ? cm / 60 : cm));
     const r = String(settings.api_refresh_minutes ?? 5);
-    setSRefresh(["0", "5", "10", "15", "30", "60"].includes(r) ? r : "5");
+    const rn = Number(r) || 0;
+    // API 刷新只留 5/10/30/自定义：已取消的 15/60 归入自定义，0（不刷新）
+    // 已取消，映射回默认 5 分钟（调度不再提供暂停入口）。
+    if (["5", "10", "30"].includes(r)) { setSRefresh(r); setSRefreshCustVal(r); }
+    else if (rn > 0) { setSRefresh("custom"); setSRefreshCustVal(String(rn)); }
+    else { setSRefresh("5"); setSRefreshCustVal("5"); }
     setSCurrency(settings.settlement_currency === "CNY" ? "CNY" : "USD");
   }, [settings]);
 
@@ -1494,10 +1519,9 @@ export default function App() {
       dynamic_interval_minutes: sDynInterval === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(sDynInterval),
       exclusion_action: sExcl,
       threshold_recovery_action: sRecovery,
-      api_refresh_minutes: sRefresh,
-      // 不刷新（0）= 关闭调度；选分钟数 = 开始调度。跟暂停开关同步，
-      // 让后端已有的暂停逻辑直接生效。
-      scheduler_paused: sRefresh === "0" ? "1" : "0",
+      api_refresh_minutes: sRefresh === "custom" ? (Number(sRefreshCustVal) || 5) : sRefresh,
+      // 不刷新已取消：调度不再提供暂停入口，保存参数时一律恢复运行。
+      scheduler_paused: "0",
       settlement_currency: sCurrency,
       exchange_rate_usd_cny: String(settings.exchange_rate_usd_cny ?? "6.6719"),
       ...ddnsPatch(),
@@ -1956,10 +1980,9 @@ export default function App() {
             <div className="form2">
               <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
                 <div style={{ paddingLeft: "2em" }}><Seg value={sInterval} options={[
-                  { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
-                  { value: "3", label: t("3 小时") }, { value: "4", label: t("4 小时") },
+                  { value: "3", label: t("3 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                  { value: "24", label: t("24 小时") }, { value: "0", label: t("自定义") },
+                  { value: "0", label: t("自定义") },
                 ]} onChange={(v) => { setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div></div>
               {sInterval === "0" && (
               <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
@@ -1991,10 +2014,12 @@ export default function App() {
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
-                { value: "15", label: t("15 分钟") }, { value: "30", label: t("30 分钟") },
-                { value: "60", label: t("60 分钟") },
-                { value: "0", label: t("不刷新") },
-              ]} onChange={(v) => { setSRefresh(v); saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
+                { value: "30", label: t("30 分钟") },
+                { value: "custom", label: t("自定义") },
+              ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: "0" }); }} /></div>
+              {sRefresh === "custom" && (
+                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义刷新时间（分钟）")}</label>
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
             </div>
             </div>
           </div>

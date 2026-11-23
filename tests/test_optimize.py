@@ -957,3 +957,9 @@ def test_group_follow_global_time_nulls_interval_fields(tmpdb):
     assert gc.interval_hours == 6
     assert gc.custom_interval_minutes == 0
     assert gc.interval_start_time == "00:00:00"
+
+
+def test_site_name_default():
+    """站点名称默认 CDT 面板；登录页标题跟随它。"""
+    from app.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["site_name"] == "CDT 面板"
