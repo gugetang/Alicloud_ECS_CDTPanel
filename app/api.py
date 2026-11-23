@@ -193,6 +193,15 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         or settings.get("threshold_recovery_action") or "start")
     out["switch_diff_mode_effective"] = (
         a.get("switch_diff_mode") or settings.get("switch_diff_mode") or "percent")
+    # 停机原因小字（卡片上显示“手动停机/阈值停机，保活不拉起”）：
+    # 只有已停机且标记为手动/阈值停机时才显示。
+    _sr = (a.get("stop_reason") or "").strip().lower()
+    if (a.get("instance_status") or "").strip() == "Stopped" \
+            and _sr in ("manual", "threshold"):
+        out["stop_reason_label"] = (
+            f"{db.STOP_REASON_LABELS[_sr]}，保活不拉起")
+    else:
+        out["stop_reason_label"] = ""
     # 状态点（新映射，见 README“状态点”一节；优先级固定，一个账户只显示一个点）：
     # 1. 启动中 green_pulse：Starting/Pending（高亮闪烁绿点）
     # 2. 停止中 red_pulse：Stopping（顺延定义，用户未要求，闪烁红点）
@@ -814,7 +823,10 @@ def start_account(aid: int, _: bool = Depends(_admin_required)):
     # 推送：实例启动，原因=手动操作（开关默认开）
     Notifier(db.get_settings()).send(
         "instance_start", "实例启动", f"{a['name']} 已启动，原因：手动操作")
-    return _public_row(scheduler.refresh_one_account(aid))
+    row = scheduler.refresh_one_account(aid)
+    # 手动启动成功 → 清停机原因标记，保活恢复默认拉起
+    db.clear_stop_reason(aid)
+    return _public_row(db.get_account(aid))
 
 
 @router.post("/accounts/{aid}/restart")
@@ -840,7 +852,11 @@ def stop_account(aid: int, _: bool = Depends(_admin_required)):
     Notifier(db.get_settings()).send(
         "instance_stop", "实例停机",
         f"{a['name']} 已停机（普通停机），原因：手动操作")
-    return _public_row(scheduler.refresh_one_account(aid))
+    row = scheduler.refresh_one_account(aid)
+    # 手动停机成功 → 记 manual，保活不拉起，直到手动启动/定时开机/
+    # 阈值恢复拉起/刷新发现 Running/下一次 API 刷新显示用量在阈值内时清除。
+    db.set_stop_reason(aid, "manual")
+    return _public_row(db.get_account(aid))
 
 
 @router.get("/domains")

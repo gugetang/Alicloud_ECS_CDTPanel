@@ -3,7 +3,10 @@
 规则（与用户截图 + 文字说明一致）：
 1. 排序：按流量使用率升序；域名按优先级顺序，依次分给使用率最低的可分配账户；
    可分配 VPS 少于域名时按顺序循环使用。
-2. 保活：被分配的 VPS 若为 Stopped → 下发开机，确认 Running 后才切 DNS。
+2. 保活：默认拉起全部符合条件的已停机实例（不只限于当前服务/切换目标），
+   但 stop_reason 为 manual（面板手动停机）或 threshold（阈值动作停机）的
+   在排除期内不拉起；排除只到下一次 API 流量刷新为止，刷新显示用量回到
+   恢复线（保护阈值-2%）以下即解除、重新拉起。
 3. 阈值踢出（两步，先踢后停，可选停）：
    使用率 >= 流量保护阈值（默认 95%）→ 该账户先退出分配池（本轮不再被选中），
    其域名先切到下一个最低账户（DNS 切换在前），然后才按排除操作决定是否停机：
@@ -119,6 +122,10 @@ class AccountView:
     recovery_action: str | None = None
     # 是否参与 DDNS（分组管理里点选，多选；取消的实例不参与域名分配）
     ddns_enabled: bool = True
+    # 停机原因标记（持久化，见 db.stop_reason）：manual=面板手动停机、
+    # threshold=阈值动作停机、schedule=定时关机，''=无标记（阿里云侧停机
+    # 等未记录原因的情况）。保活只排除 manual/threshold 两类。
+    stop_reason: str = ""
 
     @property
     def usage_rate(self) -> float | None:
@@ -165,6 +172,9 @@ class Config:
     # 动态切换间隔（分钟）：仅 dynamic 模式用；默认 30，最少 30
     dynamic_interval_minutes: int = 30
     fallback_address: str = "fallback.example.xyz"
+    # 阈值恢复动作（全局设置 threshold_recovery_action）：start=恢复时拉起、
+    # keep_stopped=恢复入池但保持停机；保活全量拉起时 keep_stopped 的不拉。
+    threshold_recovery_action: str = "start"
 
     @classmethod
     def from_settings(cls, s: dict) -> "Config":
@@ -198,6 +208,10 @@ class Config:
             interval_start_time=(s.get("interval_start_time") or "00:00:00").strip() or "00:00:00",
             dynamic_interval_minutes=max(30, int(f("dynamic_interval_minutes", 30))),
             fallback_address=(s.get("fallback_address") or "fallback.example.xyz").strip(),
+            threshold_recovery_action=(
+                (s.get("threshold_recovery_action") or "start").strip().lower()
+                if (s.get("threshold_recovery_action") or "start").strip().lower()
+                in ("start", "keep_stopped") else "start"),
         )
 
 
@@ -225,6 +239,9 @@ class Plan:
     time_switch_at: dt.datetime | None = None  # 本轮触发间隔切换的时刻（需持久化为锚点）
     interval_anchor_at: dt.datetime | None = None  # 本轮新建的间隔锚点（首次检查未到点时）
     summary: str = ""
+    # 保活本轮跳过的被排除停机实例：(account_id, stop_reason)，stop_reason
+    # 为 manual（手动停机）或 threshold（阈值停机）；调度器据此记日志事件。
+    keepalive_skipped: list[tuple[int, str]] = field(default_factory=list)
     # 按组输出（分组路径用；legacy 路径为空，由标量字段承载）
     night_done_by_group: dict[int, str] = field(default_factory=dict)
     fixed_done_by_group: dict[int, str] = field(default_factory=dict)
@@ -415,6 +432,30 @@ def _norm_exclusion(value: str | None) -> str:
 
 def _eff_exclusion(a: AccountView, cfg: Config) -> str:
     return _norm_exclusion(a.exclusion_action or cfg.exclusion_action or "none")
+
+
+def _eff_recovery(a: AccountView, cfg: Config) -> str:
+    """生效的阈值恢复动作：分组级 recovery_action 为空时跟随全局
+    threshold_recovery_action；非法值回退 start。"""
+    v = ((a.recovery_action or cfg.threshold_recovery_action or "start")
+         .strip().lower())
+    return v if v in ("start", "keep_stopped") else "start"
+
+
+def _keepalive_blocked(a: AccountView) -> str | None:
+    """保活是否不得拉起该实例：stop_reason 为 manual（面板手动停机）或
+    threshold（阈值动作停机）时返回原因，否则返回 None。schedule（定时
+    关机）不由这里排除——窗口外本就不会拉起，窗口内则由定时开机负责。"""
+    reason = (a.stop_reason or "").strip().lower()
+    if reason in ("manual", "threshold"):
+        return reason
+    return None
+
+
+def _record_keepalive_skip(plan: Plan, a: AccountView, reason: str) -> None:
+    """记一台保活跳过的被排除实例（同一账户一轮只记一次）。"""
+    if (a.id, reason) not in plan.keepalive_skipped:
+        plan.keepalive_skipped.append((a.id, reason))
 
 
 # 阈值恢复滞后值（防抖动）：已踢出的账户只有回落到 阈值 - 2% 以下才算恢复，
@@ -653,10 +694,15 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
         # --- 已是目标：只做保活 ---
         if current is not None and current.id == target_id:
             if current.status == "Stopped" and current.id not in started_ids:
-                started_ids.add(current.id)
-                plan.actions.append(Action("start", domain_id=d.id, account_id=current.id,
-                                           reason="keepalive",
-                                           detail=f"{current.name} 已停机，保活拉起"))
+                blocked = _keepalive_blocked(current)
+                if blocked:
+                    # 手动停机/阈值停机：排除期内保活不拉起，只记跳过
+                    _record_keepalive_skip(plan, current, blocked)
+                else:
+                    started_ids.add(current.id)
+                    plan.actions.append(Action("start", domain_id=d.id, account_id=current.id,
+                                               reason="keepalive",
+                                               detail=f"{current.name} 已停机，保活拉起"))
             elif (current.status == "Running" and current.public_ip
                   and current.public_ip != (d.current_ip or "")):
                 # 实例已拿到新 IP（如重启后换 IP），但域名记录仍是旧 IP：
@@ -716,6 +762,12 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
 
         # 目标停机 → 先保活拉起；Running → 切 DNS；中间态 → 等，不切
         if target.status == "Stopped":
+            blocked = _keepalive_blocked(target)
+            if blocked:
+                # 切换目标是手动停机/阈值停机：保活不拉起，也不把 DNS 切给
+                # 一台停着的实例；本轮维持现状（域名仍指当前实例），下轮再看。
+                _record_keepalive_skip(plan, target, blocked)
+                continue
             if target.id not in started_ids:
                 started_ids.add(target.id)
                 plan.actions.append(Action("start", domain_id=d.id, account_id=target.id,
@@ -768,6 +820,32 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
             else:
                 detail = f"{d.name} → {target.name}（{reason}）"
             plan.notifications.append(("dns_change", "DNS 指向变化", detail))
+
+    # --- 保活默认拉起全部（不在当前服务/切换目标里的备用停机实例也拉） ---
+    # 每轮对所有符合条件的已停机实例都下发启动，不只限于当前服务/切换目标。
+    # 符合条件 = 参与 DDNS、未超保护阈值、未被踢出、在每日开机窗口内、所属
+    # 分组未暂停（暂停的分组根本不会进本函数）、阈值恢复动作不是 keep_stopped。
+    # 排除：stop_reason 为 manual（面板手动停机）或 threshold（阈值动作停机）
+    # 的在排除期内不由保活拉起，只记跳过（调度器据此记日志事件）；无标记的停机
+    # （如阿里云控制台/阿里云侧停机）默认拉起。已在上面拉起过的（started_ids）
+    # 不重复拉。
+    for a in sorted_accounts(accounts):
+        if a.id in started_ids or a.id in evicted_ids:
+            continue
+        if a.status != "Stopped":
+            continue
+        if not is_allocatable(a, cfg, now):
+            continue
+        if _eff_recovery(a, cfg) == "keep_stopped":
+            continue
+        blocked = _keepalive_blocked(a)
+        if blocked:
+            _record_keepalive_skip(plan, a, blocked)
+            continue
+        started_ids.add(a.id)
+        plan.actions.append(Action("start", domain_id=None, account_id=a.id,
+                                   reason="keepalive",
+                                   detail=f"{a.name} 已停机，保活拉起"))
 
     if night_triggered:
         plan.night_done_date = today

@@ -97,7 +97,8 @@ def _to_views(accounts: list[dict], settings: dict,
             daily_on_time=a.get("daily_on_time") or "08:00",
             daily_off_time=a.get("daily_off_time") or "20:00",
             recovery_action=(_g.get("recovery_action") if _g else None),
-            ddns_enabled=bool(a.get("ddns_enabled", 1))))
+            ddns_enabled=bool(a.get("ddns_enabled", 1)),
+            stop_reason=a.get("stop_reason") or ""))
     return views
 
 
@@ -174,6 +175,21 @@ def _refresh_one(a: dict, settings: dict) -> None:
                         bill.get("balance_currency") or bill["currency"])
                 updates["billing_updated_at"] = int(time.time())
         db.update_account(a["id"], updates)
+        if inst["status"] == "Running" and (a.get("stop_reason") or ""):
+            # 刷新发现实例已 Running（如用户在阿里云控制台手动拉起）：
+            # 清除停机原因标记，保活恢复默认拉起。
+            db.clear_stop_reason(a["id"])
+        elif (a.get("stop_reason") or "") in ("manual", "threshold"):
+            # 排除只到下一次 API 流量刷新为止：本次刷新显示用量在阈值内就
+            # 清标记、重新加入默认拉起（本轮调度随即拉起）；用量仍在阈值外
+            # 则继续排除。判断见 _stop_exclusion_lifted。
+            _reason = _stop_exclusion_lifted(a, used, settings)
+            if _reason:
+                db.clear_stop_reason(a["id"])
+                msg = (f"{a['name']} {_reason}，重新加入保活拉起")
+                db.add_event("keepalive_rejoin", "流量更新，重新加入保活",
+                             msg, account_id=a["id"])
+                log.info("保活重新加入 %s：%s", a["name"], _reason)
         db.add_traffic_sample(a["id"], used, _month_key(_now()))
     except AliyunError as exc:
         # 保守：查不到就把流量记未知（None），引擎不会据此停机/切换
@@ -250,6 +266,62 @@ def _refresh_one_safe(a: dict, settings: dict) -> None:
         _refresh_one(a, settings)
     except Exception as exc:  # noqa: BLE001
         log.warning("刷新 %s 失败（已跳过）: %s", a.get("name"), exc)
+
+
+def _stop_exclusion_lifted(a: dict, used_gb: float | None,
+                           settings: dict) -> str:
+    """停机排除是否因本次 API 流量刷新而解除：返回原因文案，否返回 ""。
+
+    排除的有效期只到下一次 API 流量刷新为止：刷新显示用量在阈值内就清除
+    标记、重新加入默认拉起（保活在同轮调度里拉起）；用量仍在阈值外则继续
+    排除。阈值内/外的判断沿用现有阈值恢复的恢复线（保护阈值-2%，
+    engine.RECOVERY_HYSTERESIS_PCT），不另起一套线：用量回落到恢复线以下
+    才算在阈值内，介于恢复线与阈值之间仍视为阈值外（防抖动，与
+    _evaluate_threshold_recovery 一致）。流量未知（used_gb 为 None）时
+    不解除，保持排除。schedule（定时关机）标记不走这里——窗口外本来也不
+    拉，由每日窗口控制。
+    注意这个含义下的后果：用量正常的手动停机，通常在下一次 API 刷新后就
+    会被保活重新拉起（排除只保一轮刷新间隔）。
+    """
+    reason = (a.get("stop_reason") or "")
+    if reason not in ("manual", "threshold"):
+        return ""
+    if used_gb is None:
+        return ""
+    quota = a.get("quota_gb") or settings.get("quota_gb") or 200
+    if not quota:
+        return ""
+    thr = a.get("protection_threshold_pct")
+    thr = float(thr) if thr is not None else float(
+        settings.get("protection_threshold_pct") or 95)
+    line = thr - engine.RECOVERY_HYSTERESIS_PCT
+    rate = float(used_gb) / float(quota) * 100.0
+    if rate < line:
+        return f"用量 {rate:.2f}% 在阈值内（恢复线 {line:.0f}%）"
+    return ""
+
+
+def _log_keepalive_skips(accounts: list[dict],
+                         skipped: list[tuple[int, str]]) -> None:
+    """保活跳过被排除实例的可观测性：每轮都写日志；事件只在同一停机标记
+    下记一次（flags.keepalive_skip_logged:<id>:<原因>:<stopped_at>），
+    避免每分钟的 DDNS 检查把事件表刷满。标记清除/重记后 stopped_at 变化，
+    下一次停机可再记。"""
+    if not skipped:
+        return
+    by_id = {a["id"]: a for a in accounts}
+    for aid, reason in skipped:
+        row = by_id.get(aid) or {}
+        name = row.get("name") or str(aid)
+        label = db.STOP_REASON_LABELS.get(reason, reason)
+        log.info("保活跳过 %s：%s，保活不拉起", name, label)
+        key = (f"keepalive_skip_logged:{aid}:{reason}:"
+               f"{row.get('stopped_at') or 0}")
+        if db.get_flag(key):
+            continue
+        db.set_flag(key, "1")
+        db.add_event("keepalive_skip", "保活跳过",
+                     f"{name} {label}，保活不拉起", account_id=aid)
 
 
 def _check_threshold_alarms(settings: dict, accounts: list[dict],
@@ -433,6 +505,9 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                   "evicted": plan.evicted_account_ids,
                   "fallback_domains": plan.fallback_domain_ids,
                   "paused_domains": plan.paused_domain_ids,
+                  "keepalive_skipped": [
+                      {"account_id": aid, "reason": r}
+                      for aid, r in plan.keepalive_skipped],
                   "groups": [{"id": g.id, "name": g.name,
                               "switch_mode": g.switch_mode} for g in groups]}
         job_id = db.create_job("dry_run")
@@ -443,6 +518,21 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                                    _to_domain_views(domains),
                                    _CloudOps(settings), _DnsOps(settings),
                                    notify_fn=_notify, dry_run=False)
+    # 停机原因标记流转（保活用）：
+    # - Plan 里拉起成功的实例 → 清标记（保活恢复默认拉起）；
+    # - Plan 里执行的阈值停机（exclusion）→ 记 threshold，保活不再拉起；
+    # - 保活跳过的被排除实例 → 记日志事件（同一标记只记一次）。
+    started_by_plan = {a.account_id for a in plan.actions
+                       if a.kind == "start" and a.account_id}
+    for _aid in started_by_plan:
+        db.clear_stop_reason(_aid)
+    for _act in plan.actions:
+        if _act.kind == "stop" and _act.reason == "exclusion" and _act.account_id:
+            # 记 threshold，保活不再拉起；下一次 API 刷新显示用量回到
+            # 恢复线以下时解除（_stop_exclusion_lifted，沿用现有恢复线），
+            # 与阈值恢复逻辑一致。
+            db.set_stop_reason(_act.account_id, "threshold")
+    _log_keepalive_skips(accounts, plan.keepalive_skipped)
     # 阈值报警：刷新后的用量首次跨 80% 时推一次（见 _check_threshold_alarms）
     _check_threshold_alarms(settings, accounts, notifier)
     # 落库：域名当前指向 / 备用标记 / 已停止分组的域名（指向 0.0.0.0）
@@ -495,8 +585,6 @@ def run_once(dry_run: bool = False, refresh: bool = True,
         db.add_event("schedule", "调度完成", _detail)
     daily_schedule = _apply_daily_schedule(settings, now)
     # 恢复持久化：清 evicted 旗标、记恢复事件、按需拉起（dry-run 不走到这里）
-    started_by_plan = {a.account_id for a in plan.actions
-                       if a.kind == "start" and a.account_id}
     threshold_recovery = _persist_threshold_recovery(
         settings, accounts, plan, recovered, started_by_plan, now)
     result = {"dry_run": False, "summary": plan.summary,
@@ -507,6 +595,9 @@ def run_once(dry_run: bool = False, refresh: bool = True,
               "evicted": plan.evicted_account_ids,
               "fallback_domains": plan.fallback_domain_ids,
               "paused_domains": plan.paused_domain_ids,
+              "keepalive_skipped": [
+                  {"account_id": aid, "reason": r}
+                  for aid, r in plan.keepalive_skipped],
               "ran_at": now.isoformat()}
     if not quiet:
         job_id = db.create_job("schedule")
@@ -597,6 +688,8 @@ def _apply_daily_schedule(settings: dict, now: dt.datetime,
                         client = (cloud_factory(a, secret) if cloud_factory
                                   else AliyunClient(a, secret))
                         client.start_instance()
+                        # 定时开机成功 → 清停机原因标记，保活恢复默认拉起
+                        db.clear_stop_reason(a["id"])
                         msg = (f"{a['name']} 定时开机已执行"
                                f"（每日 {a.get('daily_on_time') or '08:00'}）")
                         done.append(msg)
@@ -619,6 +712,8 @@ def _apply_daily_schedule(settings: dict, now: dt.datetime,
                     client = (cloud_factory(a, secret) if cloud_factory
                               else AliyunClient(a, secret))
                     client.stop_instance(stop_charging=False)
+                    # 定时关机成功 → 记 schedule（窗口外本来也不拉，双重保险）。
+                    db.set_stop_reason(a["id"], "schedule")
                     msg = (f"{a['name']} 定时关机已执行"
                            f"（每日 {a.get('daily_off_time') or '20:00'}）")
                     done.append(msg)
@@ -779,6 +874,9 @@ def _persist_threshold_recovery(settings: dict, accounts: list[dict],
                     client = (cloud_factory(a, secret) if cloud_factory
                               else AliyunClient(a, secret))
                     client.start_instance()
+                    # 阈值恢复拉起成功 → 清停机原因标记（用量已回到恢复线
+                    # 以下，排除随恢复解除，与现有恢复逻辑一致）。
+                    db.clear_stop_reason(aid)
                     msg = (f"阈值恢复，已拉起：{a['name']}"
                            f"（使用率 {rate:.1f}% < 恢复线 {line:.0f}%）")
                     done.append(msg)

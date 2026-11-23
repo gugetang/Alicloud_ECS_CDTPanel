@@ -124,6 +124,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               last_seen_at INTEGER DEFAULT 0,
               ddns_enabled INTEGER NOT NULL DEFAULT 1,
               api_refresh_minutes INTEGER,
+              stop_reason TEXT NOT NULL DEFAULT '',
+              stopped_at INTEGER NOT NULL DEFAULT 0,
               created_at INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS domains(
@@ -198,6 +200,12 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE accounts ADD COLUMN recovery_action TEXT",
             "ALTER TABLE accounts ADD COLUMN ddns_enabled INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE accounts ADD COLUMN api_refresh_minutes INTEGER",
+            # 停机原因标记（保活用，持久化）：阿里云 DescribeInstances 只返回
+            # Running/Stopped，分不出“谁停的”。manual=面板手动停机、
+            # threshold=阈值动作停机、schedule=定时关机，''=无标记（阿里云
+            # 侧停机等未记录原因的情况，保活默认拉起）。stopped_at=标记时间。
+            "ALTER TABLE accounts ADD COLUMN stop_reason TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE accounts ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN interval_start_time TEXT",
             "ALTER TABLE groups ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
@@ -377,6 +385,40 @@ def get_flags(keys: list[str]) -> dict[str, str]:
         % ",".join("?" * len(keys)),
         tuple(keys)).fetchall()
     return {r["key"]: r["value"] for r in rows}
+
+
+# 停机原因标记（保活用，见 init_db 迁移注释）：
+# manual=面板手动停机、threshold=阈值动作停机、schedule=定时关机；
+# ''=无标记。保活只排除 manual/threshold 两类。
+STOP_REASONS = ("manual", "threshold", "schedule")
+STOP_REASON_LABELS = {"manual": "手动停机", "threshold": "阈值停机",
+                      "schedule": "定时关机"}
+# 保活排除的停机原因：手动停机与阈值停机在排除期内不由保活拉起；
+# 排除只到下一次 API 流量刷新为止，刷新显示用量在阈值内即解除。
+KEEPALIVE_EXCLUDED_STOP_REASONS = ("manual", "threshold")
+
+
+def set_stop_reason(aid: int, reason: str, now: int | None = None) -> None:
+    """记停机原因（停机动作成功后调用）。reason 只能是 manual/threshold/
+    schedule，非法值直接报错，不写库。"""
+    if reason not in STOP_REASONS:
+        raise ValueError(f"停机原因只能是 {STOP_REASONS}，收到 {reason!r}")
+    conn = connect()
+    with _lock:
+        conn.execute(
+            "UPDATE accounts SET stop_reason=?, stopped_at=? WHERE id=?",
+            (reason, now if now is not None else int(time.time()), aid))
+        conn.commit()
+
+
+def clear_stop_reason(aid: int) -> None:
+    """清停机原因标记（任何一次启动成功、或刷新发现实例已 Running 时调用；
+    标记清空后保活恢复默认拉起）。"""
+    conn = connect()
+    with _lock:
+        conn.execute(
+            "UPDATE accounts SET stop_reason='', stopped_at=0 WHERE id=?", (aid,))
+        conn.commit()
 
 
 def list_evicted_account_ids() -> set[int]:
