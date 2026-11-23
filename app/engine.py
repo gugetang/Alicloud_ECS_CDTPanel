@@ -368,8 +368,12 @@ def _latest_scheduled_moment(now: dt.datetime, start: tuple[int, int, int],
     if base > now:
         base -= dt.timedelta(days=1)
     step = dt.timedelta(minutes=minutes)
-    while base + step <= now:
-        base += step
+    # B-11：锚点很久以前、间隔又很小时，逐分钟推进的循环次数会很大；
+    # 用除法直接算 k = floor((now - base) / step)，结果与逐分钟推进相同。
+    if minutes > 0:
+        k = int((now - base) // step)
+        if k > 0:
+            base += k * step
     return base
 
 
@@ -913,7 +917,7 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
     for act in plan.actions:
         if act.kind == "stop" and act.account_id in by_acc:
             acc = by_acc[act.account_id]
-            stop_charging = act.stop_charging or ("节省停机" in act.detail)
+            stop_charging = act.stop_charging
             cloud.stop(acc, stop_charging=stop_charging)
             executed.append(f"stop:{acc.name}")
     if notify_fn:

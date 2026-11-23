@@ -91,7 +91,8 @@ def test_mobile_media_query():
     m = re.search(r"@media\s*\(max-width:\s*800px\)\s*\{(.*)\}\s*$", CSS, re.S)
     assert m, "mobile media query missing"
     block = m.group(1)
-    assert ".stats { grid-template-columns:repeat(2,1fr)" in block
+    # M-05（已批准）：手机端指标改 1 列（以前 2 列太挤）
+    assert ".stats { grid-template-columns:1fr" in block
     # 桌面端卡片内文字不换行（.stat b/span 与 .status-detail 的 nowrap），
     # 手机端卡片窄，恢复换行
     assert ".stat b, .stat span, .status-detail { white-space:normal; }" in block
@@ -129,23 +130,13 @@ def test_light_card_is_30pct_transparent():
 
 
 def test_google_sans_font_self_hosted():
-    # 谷歌新闻字体 Google Sans：latin 子集以 base64 内嵌在 CSS 里，不走
-    # Google Fonts CDN；内嵌而不是单独 woff2 文件，是因为 GitHub 推送工具
-    # 只接受 UTF-8 文本文件，二进制字体推不上去
-    assert "data:font/woff2;base64," in CSS
+    # M-09（已批准）：内嵌约 48KB base64 字体已移除，改用系统字体栈；
+    # 不走 Google Fonts CDN，国内也能加载
+    assert "data:font/woff2;base64," not in CSS
+    assert "@font-face" not in CSS
+    assert "font-family:system-ui" in CSS
     assert "/fonts/" not in CSS
     assert not (ROOT / "web" / "public" / "fonts").exists(), "no separate font file"
-    # @font-face 声明：可变字体 400–700，latin 范围
-    assert "@font-face" in CSS and "'Google Sans'" in CSS
-    assert "font-weight: 400 700" in CSS
-    # body 字体栈：Google Sans 在前，中文回落 Noto Sans SC / 系统字体
-    m = re.search(r"body\s*\{([^}]*)\}", CSS)
-    assert m, "body rule missing"
-    fam = m.group(1)
-    assert "'Google Sans'" in fam
-    assert fam.index("'Google Sans'") < fam.index("system-ui")
-    assert "Noto Sans SC" in fam and "PingFang SC" in fam and "Microsoft YaHei" in fam
-
 
 def test_list_font_and_dash_notice_removed():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
@@ -158,7 +149,9 @@ def test_list_font_and_dash_notice_removed():
     #（字体主题色），不再是顶部通栏 notice——见 test_save_toast_bottom_right_theme_color
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in tsx
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in i18n
-    assert '{msg && <div className="toast">{msg}</div>}' in tsx
+    # M-10（已批准）：Toast 带关闭按钮、错误时加 toast-error 类
+    assert 'className={`toast${msgError ? " toast-error" : ""}`}' in tsx
+    assert 'className="toast-close"' in tsx
     # 在线/排队状态详情（当前在线…/池内排队待命…）显示主题色字体，
     # 仅 status_dot 为 green/yellow 时用主题色，其它状态仍是 muted 灰色
     # （2026-11-22 用户要求：以前的绿色字体统一改成主题字体）
@@ -411,8 +404,8 @@ def test_save_toast_renders_and_autohides():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 自动保存后的提示框：{msg} 仍渲染为 toast 元素，不再是顶部通栏 notice；
-    # 5 秒自动隐藏的定时器仍在
-    assert '<div className="toast">{msg}</div>' in tsx
+    # 成功类 5 秒自动隐藏的定时器仍在（M-10：错误类不自动消失、带关闭按钮）
+    assert 'className={`toast${msgError ? " toast-error" : ""}`}' in tsx
     assert '<div className="notice">{msg}</div>' not in tsx
     assert "setTimeout" in tsx and "5000" in tsx
 

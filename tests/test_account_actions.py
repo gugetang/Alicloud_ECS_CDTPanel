@@ -28,7 +28,7 @@ class FakeAliyun:
     def get_traffic_gb(self):
         return 42.0
 
-    def get_billing(self):
+    def get_billing(self, timezone="Asia/Shanghai", force_refresh=False):
         return None
 
     def start_instance(self):

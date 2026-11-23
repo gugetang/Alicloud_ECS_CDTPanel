@@ -1,0 +1,10 @@
+# P1-03：Docker 构建上下文不含仓库元数据、测试与前端构建产物；
+# 前端每次构建都从 web/ 重新生成 app/static，不需要进镜像。
+.git
+tests
+*.md
+app/static
+.venv
+node_modules
+web/dist
+data

@@ -701,7 +701,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           }} />
             {interval === "0" && (
               <div className="row" style={{ alignItems: "center", marginTop: 8 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}>
-                <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: 120 }} />
+                <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
                 <Seg value={custUnit} options={[
                   { value: "minute", label: t("分钟") },
                   { value: "hour", label: t("小时") },
@@ -774,7 +774,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
                     <h3>{t("自定义动态切换间隔")}</h3>
                     <div style={{ marginTop: 12 }}>
                       <label className="lbl">{t("间隔（分钟，最少 30）")}</label>
-                      <input type="number" min={30} value={dynCustomVal} onChange={(e) => setDynCustomVal(e.target.value)} style={{ width: 120 }} />
+                      <input type="number" min={30} value={dynCustomVal} onChange={(e) => setDynCustomVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
                     </div>
                     <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                       <button className="btn ghost" onClick={() => setShowDynCustom(false)}>{t("取消")}</button>
@@ -970,8 +970,10 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
   const [creds, setCreds] = useState<Any[]>([]);
   const [busy, setBusy] = useState(false);
   const [secMsg, setSecMsg] = useState("");
+  const [credsError, setCredsError] = useState("");
   const loadCreds = async () => {
-    try { setCreds(await get("/api/auth/webauthn/list") as Any[]); } catch { setCreds([]); }
+    try { setCreds(await get("/api/auth/webauthn/list") as Any[]); setCredsError(""); }
+    catch (e) { setCreds([]); setCredsError(String((e as Error).message)); }
   };
   useEffect(() => { loadCreds(); }, []);
 
@@ -1039,6 +1041,7 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
       <div className="row" style={{ paddingLeft: "2em" }}>
         <button className="btn" onClick={registerFingerprint} disabled={busy} title={t("注册指纹")}>{t("注册指纹")}</button>
       </div>
+      {credsError ? <p className="muted" style={{ paddingLeft: "2em", color: "var(--danger)" }}>{t("指纹列表加载失败：{err}", { err: credsError })}</p> : null}
       {creds.map((c) => (
         <div key={c.credential_id as string} className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
           <span>{c.label as string || t("指纹")}</span>
@@ -1106,11 +1109,12 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const wdEnabled = settings?.webdav_enabled === "1";
   const wdConfigured = Boolean(settings?.webdav_configured);
 
+  const [wdError, setWdError] = useState("");
   const refreshWdStatus = async () => {
     try {
       const s = await get("/api/backup/webdav/status") as Any;
-      setWdStatus(s);
-    } catch { setWdStatus(null); }
+      setWdStatus(s); setWdError("");
+    } catch (e) { setWdStatus(null); setWdError(String((e as Error).message)); }
   };
   useEffect(() => { refreshWdStatus(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
@@ -1233,9 +1237,9 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
                 <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} style={{ width: "100%" }} onBlur={saveWd} /></div>
                 <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("WebDAV 连接 Alist 可参考官方文档")} <a href="https://alist.nn.ci/zh/guide/webdav.html" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>↗ {t("快速跳转")}</a></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 用户名")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: "100%", maxWidth: 240 }} onBlur={saveWd} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 密码")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: "100%", maxWidth: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 备份目录")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} style={{ width: "100%" }} onBlur={saveWd} /></div></div>
             </div>
@@ -1245,7 +1249,7 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
               <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists} title={t("从云端恢复")}>{t("从云端恢复")}</button>
             </div>
             <p className="muted" style={{ paddingLeft: "2em" }}>
-              {!wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
+              {wdError ? t("云端状态加载失败：{err}", { err: wdError }) : !wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
             </p>
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
               <button className="btn ghost" onClick={() => setShowWdDialog(false)}>{t("关闭")}</button>
@@ -1360,7 +1364,17 @@ export default function App() {
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   const [settings, setSettings] = useState<Any>({});
   const [timezones, setTimezones] = useState<Any[]>([]);
-  const [msg, setMsg] = useState("");
+  const [msg, _setMsg] = useState("");
+  // E-10：错误类提示不自动消失、带关闭按钮；成功类 5 秒消失。
+  // setMsg 统一清掉错误标记，showError 专用于错误提示。
+  const [msgError, setMsgError] = useState(false);
+  const setMsg = (v: string) => { _setMsg(v); setMsgError(false); };
+  const showError = (v: string) => { _setMsg(v); setMsgError(true); };
+  // E-04：load() 失败时的可见错误（带重试），不再静默空态。
+  const [loadError, setLoadError] = useState("");
+  // E-05：网络/500 失败与未登录分开：后端不可达时在登录页上方提示，
+  // 不让用户反复输密码。
+  const [connError, setConnError] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
@@ -1432,12 +1446,13 @@ export default function App() {
   const [addDomName, setAddDomName] = useState("");
   const [acting, setActing] = useState<Record<number, string>>({});
 
-  // 消息提示 5 秒后自动隐藏；新消息进来重新计时。
+  // 消息提示：成功类 5 秒后自动隐藏；错误类不自动消失，手动关闭。
+  // 新消息进来重新计时。
   useEffect(() => {
-    if (!msg) return;
+    if (!msg || msgError) return;
     const t = setTimeout(() => setMsg(""), 5000);
     return () => clearTimeout(t);
-  }, [msg]);
+  }, [msg, msgError]);
 
   // ---------- 语言：中英切换，默认英文（localStorage `cdt-lang`） ----------
   const { lang, setLang, t } = useI18n();
@@ -1489,10 +1504,19 @@ export default function App() {
       if (!s.admin_configured) { setAuthState("setup"); return; }
       if (getToken()) {
         try { await get("/api/status"); setAuthState("authed"); return; }
-        catch { setAuthState("login"); return; }
+        catch (e) {
+          // E-05：401 才是未登录；网络失败 / 500 是服务不可达，提示而不跳登录。
+          if ((e as Any)?.status === 401) { setAuthState("login"); return; }
+          setConnError(t("服务不可达，请检查后端是否运行，稍后重试"));
+          setAuthState("login"); return;
+        }
       }
       setAuthState("login");
-    } catch { setAuthState("login"); }
+    } catch (e) {
+      if ((e as Any)?.status) setAuthState("login");
+      else setConnError(t("服务不可达，请检查后端是否运行，稍后重试"));
+      setAuthState("login");
+    }
   };
 
   useEffect(() => {
@@ -1535,7 +1559,12 @@ export default function App() {
       setAccounts((s.accounts as Any[]) || []);
       setDomains((s.domains as Any[]) || []);
       setGroups((s.groups as Any[]) || []);
-    } catch { /* 后端未就绪时先显示空态 */ }
+      setLoadError("");
+    } catch (e) {
+      // E-04：关键路径失败不再静默空态，显示错误 + 重试按钮。
+      setLoadError(t("加载失败：后端未就绪或网络断开，请重试"));
+      showError(String((e as Error).message || t("加载失败")));
+    }
     try { setSettings(await get("/api/settings") as Any); } catch { /* ignore */ }
     try { setTimezones((((await get("/api/timezones") as Any).timezones as Any[]) || [])); } catch { /* 失败时下拉用内置列表 */ }
   };
@@ -1544,14 +1573,14 @@ export default function App() {
   const [logs, setLogs] = useState<Any[]>([]);
   const loadLogs = async () => {
     try { setLogs(await get("/api/logs?limit=100") as Any[]); }
-    catch (e) { setMsg(String((e as Error).message)); }
+    catch (e) { showError(String((e as Error).message)); }
   };
   useEffect(() => { if (tab === "config" && subTab === "logs" && authState === "authed") loadLogs(); }, [tab, subTab, authState]);
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true); setMsg("");
     try { await fn(); setMsg(ok); await load(); }
-    catch (e) { setMsg(String((e as Error).message)); }
+    catch (e) { showError(String((e as Error).message)); }
     finally { setBusy(false); }
   };
 
@@ -1832,6 +1861,11 @@ export default function App() {
   if (authState === "login") {
     return (
       <div className="app">
+        {connError ? (
+          <p className="notice" style={{ marginBottom: 12 }}>{connError}{" "}
+            <button className="btn btn-sm" onClick={() => { setConnError(""); checkAuth(); }}>{t("重试")}</button>
+          </p>
+        ) : null}
         <LoginScreen info={authInfo} oauthMsg={oauthMsg} onDone={() => { setAuthState("authed"); }} theme={theme} setTheme={setTheme} />
       </div>
     );
@@ -1941,7 +1975,12 @@ export default function App() {
           <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{t(label)}</button>
         ))}</div>
       )}
-      {msg && <div className="toast">{msg}</div>}
+      {msg && <div className={`toast${msgError ? " toast-error" : ""}`} role="alert"><span>{msg}</span><button className="toast-close" aria-label={t("关闭")} onClick={() => { setMsg(""); setMsgError(false); }}>×</button></div>}
+      {loadError && authState === "authed" ? (
+        <p className="notice" style={{ marginBottom: 12 }}>{loadError}{" "}
+          <button className="btn btn-sm" onClick={() => void load()}>{t("重试")}</button>
+        </p>
+      ) : null}
 
       {tab === "dash" && (
         <>
@@ -2054,7 +2093,7 @@ export default function App() {
               <div className="stats">
                 <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
                 <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
-                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
+                <div className="stat stat-ip"><span>IP</span><b><IpView a={a} /></b></div>
                 <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
@@ -2297,7 +2336,7 @@ export default function App() {
               </div>
               {sDynInterval === "0" && (
                 <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} /></div></div>)}
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
             </div>
             )}
@@ -2330,7 +2369,7 @@ export default function App() {
               {sInterval === "0" && (
               <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
                 <div style={{ paddingLeft: "2em" }}><div className="row" style={{ alignItems: "center" }}>
-                  <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: 120 }} />
+                  <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
                   <Seg value={sCustUnit} options={[
                     { value: "minute", label: t("分钟") },
                     { value: "hour", label: t("小时") },
@@ -2348,7 +2387,7 @@ export default function App() {
               ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
               {sRefresh === "custom" && (
                 <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义刷新时间（分钟）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} /></div></div>)}
             </div>
             </div>
           </div>

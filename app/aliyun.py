@@ -66,7 +66,17 @@ def _swas_domain(region: str) -> str:
 # 轻量服务器实例 ID 是 UUID（32 位十六进制，可带连字符），ECS 实例 ID 是 i-…。
 _SWAS_ID_RE = re.compile(r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$", re.I)
 
-# 内置常用地域：DescribeRegions 接口失败时前端回退用（与 web/src/App.tsx 同步）。
+# BSS 账单缓存（P1-01）：账单按月结算，5 分钟刷一次纯属浪费还易限流。
+# 进程内按（AK、站点、结算周期）缓存 6 小时；ECS 状态与 CDT 流量仍按
+# 刷新间隔刷，不受影响。失败不缓存，下次刷新重试。缓存只存费用/余额
+# 数值，不存任何密钥。
+BILLING_CACHE_TTL_SECONDS = 6 * 3600
+_BILLING_CACHE: dict[tuple[str, str, str], tuple[float, dict]] = {}
+
+
+def clear_billing_cache() -> None:
+    """清空 BSS 账单缓存（测试用；费用卡片手动刷新时也可调用）。"""
+    _BILLING_CACHE.clear()
 BUILTIN_REGIONS = [
     {"region_id": "cn-hongkong", "local_name": "中国香港", "endpoint": "ecs.cn-hongkong.aliyuncs.com"},
     {"region_id": "ap-southeast-1", "local_name": "新加坡", "endpoint": "ecs.ap-southeast-1.aliyuncs.com"},
@@ -374,7 +384,8 @@ class AliyunClient:
         total_bytes = sum(float(d.get("Traffic", 0) or 0) for d in details)
         return total_bytes / (1024 ** 3)
 
-    def get_billing(self) -> dict | None:
+    def get_billing(self, timezone: str = "Asia/Shanghai",
+                    force_refresh: bool = False) -> dict | None:
         """返回 {"cost": float, "currency": "USD"|"CNY", "cycle": "YYYY-MM",
         "balance": float|None, "balance_currency": str}，失败返回 None。
         余额单独调 QueryAccountBalance，查不到时 balance=None（财报显示 —，不造假）。
@@ -383,10 +394,23 @@ class AliyunClient:
         business.ap-southeast-1.aliyuncs.com，国内站先 business.aliyuncs.com），
         失败换另一站。DescribeInstanceBill 要求必填 BillingCycle（YYYY-MM，
         不传直接 400 MissingBillingCycle，费用永远读不到——旧 bug，
-        2026-11-22 线上日志证实），按面板时区（Asia/Shanghai）取当月。"""
+        2026-11-22 线上日志证实），按面板时区取当月。
+        P1-01：结果按（AK、站点、周期）缓存 6 小时，缓存期内不再调 BSS；
+        失败不缓存。B-08：周期按传入的 timezone 算，不再硬编码 Asia/Shanghai
+        （非法时区回退 Asia/Shanghai）。"""
         import json
-        cycle = dt.datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m")
+        try:
+            tz = ZoneInfo((timezone or "Asia/Shanghai").strip())
+        except Exception:
+            tz = ZoneInfo("Asia/Shanghai")
+        cycle = dt.datetime.now(tz).strftime("%Y-%m")
         currency = "CNY" if (self.account.get("site") == "cn") else "USD"
+        cache_key = (str(self.account.get("access_key_id") or ""),
+                     currency, cycle)
+        if not force_refresh:
+            hit = _BILLING_CACHE.get(cache_key)
+            if hit and hit[0] > time.time():
+                return dict(hit[1])
         domains = ([BSS_DOMAIN_INTL, BSS_DOMAIN] if currency == "USD"
                    else [BSS_DOMAIN, BSS_DOMAIN_INTL])
         cost = None
@@ -433,6 +457,8 @@ class AliyunClient:
             except Exception as exc:
                 log.warning("余额查询失败（%s，财报余额显示 —）: %s",
                             domain, brief_error(exc))
+        _BILLING_CACHE[cache_key] = (
+            time.time() + BILLING_CACHE_TTL_SECONDS, dict(result))
         return result
 
 

@@ -17,6 +17,7 @@ import http.client
 import logging
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from urllib.parse import urlparse
 
@@ -313,6 +314,9 @@ class Notifier:
         if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
             if self._webhook(title, text):
                 sent.append("webhook")
+            else:
+                # E-07：Webhook 失败以前不进 last_errors，调度器也看不到。
+                self.last_errors["webhook"] = "Webhook 发送失败（HTTP 非 2xx 或连接失败）"
         return sent
 
     def send_daily_report(self, accounts: list[dict], date_str: str,
@@ -355,7 +359,28 @@ class Notifier:
             if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
                 if self._webhook(title, ch["text"]):
                     sent.add("webhook")
+                else:
+                    self.last_errors["webhook"] = "Webhook 发送失败（HTTP 非 2xx 或连接失败）"
         return sorted(sent)
+
+    def _tg_post(self, url: str, payload: dict) -> "requests.Response":
+        """发一次 Telegram 请求；B-17：遇 429 按 Telegram 返回的
+        retry_after 退避重试一次（上限 60 秒），限流时日报不再直接丢掉。"""
+        r = requests.post(url, json=payload,
+                          proxies=self._proxies(), timeout=15)
+        if r.status_code != 429:
+            return r
+        retry_after = 0
+        try:
+            retry_after = int((r.json() or {}).get("parameters", {})
+                              .get("retry_after") or 0)
+        except Exception:
+            retry_after = 0
+        if retry_after > 0:
+            time.sleep(min(retry_after, 60))
+            return requests.post(url, json=payload,
+                                 proxies=self._proxies(), timeout=15)
+        return r
 
     def _telegram(self, text: str) -> tuple[bool, str]:
         """返回 (是否成功, 失败原因)。失败原因优先取 Telegram API 返回的
@@ -366,10 +391,9 @@ class Notifier:
         if not token or not chat_id:
             return False, "Token 或 Chat ID 未配置"
         try:
-            r = requests.post(
+            r = self._tg_post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": text},
-                proxies=self._proxies(), timeout=15)
+                {"chat_id": chat_id, "text": text})
             if r.status_code == 200:
                 return True, ""
             detail = _tg_error_detail(r)
@@ -377,7 +401,8 @@ class Notifier:
             return False, detail
         except Exception as exc:
             log.warning("Telegram 发送失败: %s", exc)
-            return False, _proxy_hint(str(exc)[:200])
+            return False, _proxy_hint(str(exc)[:200],
+                                      self.s.get("notify_proxy") or "")
 
     def _telegram_html(self, html_text: str) -> tuple[bool, str]:
         """Telegram HTML 模式：只用 <b> 加粗标题与关键数字，不用超大 emoji。"""
@@ -386,10 +411,9 @@ class Notifier:
         if not token or not chat_id:
             return False, "Token 或 Chat ID 未配置"
         try:
-            r = requests.post(
+            r = self._tg_post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": html_text, "parse_mode": "HTML"},
-                proxies=self._proxies(), timeout=15)
+                {"chat_id": chat_id, "text": html_text, "parse_mode": "HTML"})
             if r.status_code == 200:
                 return True, ""
             detail = _tg_error_detail(r)
@@ -397,7 +421,8 @@ class Notifier:
             return False, detail
         except Exception as exc:
             log.warning("Telegram 发送失败: %s", exc)
-            return False, _proxy_hint(str(exc)[:200])
+            return False, _proxy_hint(str(exc)[:200],
+                                      self.s.get("notify_proxy") or "")
 
     def _email(self, subject: str, text: str, html_body: str | None = None) -> tuple[bool, str]:
         """返回 (是否成功, 失败原因)。以前只返回 False，SMTP 登录失败、
@@ -475,12 +500,17 @@ def _tg_error_detail(resp) -> str:
     return f"Telegram API {resp.status_code}：{body}" if body else f"Telegram API {resp.status_code}"
 
 
-def _proxy_hint(exc_text: str) -> str:
-    """连接类异常的提示：代理连不上是最常见原因，点明检查代理。"""
+def _proxy_hint(exc_text: str, proxy: str = "") -> str:
+    """连接类异常的提示：代理连不上是最常见原因，点明检查代理。
+    E-08：提示里用当前实际配置的代理地址，不再硬编码 127.0.0.1:7070；
+    未配代理时明说“未配置代理”。"""
     low = exc_text.lower()
     if "proxy" in low or "connection" in low or "connect" in low or "timed out" in low:
-        return (f"连接失败（{exc_text}），请检查通知专用代理 "
-                "http://127.0.0.1:7070 是否在运行")
+        proxy = (proxy or "").strip()
+        if proxy:
+            return (f"连接失败（{exc_text}），请检查通知专用代理 "
+                    f"{proxy} 是否在运行")
+        return f"连接失败（{exc_text}），未配置通知专用代理，请检查网络"
     return exc_text
 
 
@@ -520,7 +550,7 @@ def check_telegram(settings: dict) -> dict:
                           "detail": _tg_error_detail(r) + "，请检查 Token 是否填错"})
             return {"ok": False, "steps": steps}
     except Exception as exc:
-        steps.append({"name": "Token", "ok": False, "detail": _proxy_hint(str(exc)[:150])})
+        steps.append({"name": "Token", "ok": False, "detail": _proxy_hint(str(exc)[:150], proxy)})
         return {"ok": False, "steps": steps}
     try:
         r = requests.get(f"https://api.telegram.org/bot{token}/getChat",
@@ -536,6 +566,6 @@ def check_telegram(settings: dict) -> dict:
                           "detail": _tg_error_detail(r) + "，请先给机器人发 /start 再试，或检查 Chat ID"})
             return {"ok": False, "steps": steps}
     except Exception as exc:
-        steps.append({"name": "Chat ID", "ok": False, "detail": _proxy_hint(str(exc)[:150])})
+        steps.append({"name": "Chat ID", "ok": False, "detail": _proxy_hint(str(exc)[:150], proxy)})
         return {"ok": False, "steps": steps}
     return {"ok": True, "steps": steps}
