@@ -714,15 +714,18 @@ def test_two_line_labels_with_two_char_indent():
     assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
     # API 刷新时间标签字体也与定时轮巡 h3 一样大（16px）
     assert '<label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>' in tsx
-    # 负载均衡切换模式（全局 3 处：主标签 + % + GB；分组 3 处同理；主标签已由
-    # “切换阀值 *”改名“切换模式”，% / GB 的值输入仍是切换阀值）
-    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
-    assert tsx.count('<TwoLineLabel parent="负载均衡" child="切换模式"') == 2
+    # 负载均衡切换模式（只剩全局 3 处：主标签 + % + GB；分组卡片里父级
+    # “负载均衡”字已取消，只留子标签，不再用 TwoLineLabel）
+    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 3
+    assert tsx.count('<TwoLineLabel parent="负载均衡" child="切换模式"') == 1
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' not in tsx
-    # 分组侧的主标签已改成“切换模式”（四选一：百分比（%）/固定流量（GB）/
-    # 动态模式/跟随系统），不再是裸的“切换阀值”
-    assert '<TwoLineLabel parent="负载均衡" child="切换模式"' in tsx
-    assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' not in tsx
+    # 分组侧不再用 TwoLineLabel（父级“负载均衡”字已取消），只留子标签：
+    # 切换模式与切换阀值（%）/（GB）都是单行缩进标签
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    assert '<TwoLineLabel parent="负载均衡"' not in group_card
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>' in group_card
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（%）")}</span></label>' in group_card
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label>' in group_card
     # 定时轮巡的轮巡周期也改成 TwoLineLabel（分组）/ plain label（全局），
     # 子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组轮巡周期/自定义间隔/开始时间）
     assert '<TwoLineLabel parent="定时轮巡" child="轮巡周期" />' in tsx
@@ -785,16 +788,25 @@ def test_ip_copy_only_no_full_reveal():
         assert key not in i18n, key
 
 
-def test_group_mode_seg_has_dynamic_option():
-    # 分组卡片顶层“切换模式”三选一：定时轮巡 / 负载均衡 / 动态模式（与新建分组表单、
-    # 全局设置的动态模式一致）。原来只有两项，动态分组在顶栏会被误显示成负载均衡；
-    # 后端与引擎早已支持 dynamic（test_optimize 的 test_dynamic_switch_*），只差前端入口
+def test_group_mode_seg_no_dynamic_option():
+    # 分组卡片顶层“切换模式”只两项：定时轮巡 / 负载均衡。动态模式不在顶层，
+    # 在下面的负载均衡切换方式（百分比/固定流量/动态模式/跟随系统）里选；
+    # 动态分组在顶栏显示负载均衡（动态是负载均衡的子模式），下面才显示动态模式。
+    # 后端与引擎仍支持 dynamic（test_optimize 的 test_dynamic_switch_*）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '<Seg value={(g.switch_mode as string) || "load_balance"}' in tsx
-    assert '{ value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") }' in tsx
-    # 旧的映射（dynamic 被当成 load_balance 显示）已删
-    assert '(g.switch_mode === "time" ? "time" : "load_balance")' not in tsx
-    # 实例列表与域名表格里的分组模式标签：动态分组显示“动态模式”，不再误标负载均衡
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 顶层 Seg 的值：time 显示定时轮巡，其它（含 dynamic）都显示负载均衡
+    assert '<Seg value={(g.switch_mode === "time" ? "time" : "load_balance")}' in group_card
+    # 顶层标签已由“切换模式”改名“运行模式”（只改分组卡片顶层这一处；新建分组表单
+    # 与负载均衡切换方式的“切换模式”标签不动）
+    assert '<label className="lbl">{t("运行模式")}</label>' in group_card
+    assert '<label className="lbl">{t("切换模式")}</label>' not in tsx
+    assert '{ value: "time", label: t("定时轮巡") }' in group_card
+    assert '{ value: "load_balance", label: t("负载均衡") }' in group_card
+    # 动态模式选项还在下面（负载均衡切换方式四选一里）、新建分组表单与全局设置里，
+    # 共 3 处；顶层已无动态模式选项
+    assert tsx.count('{ value: "dynamic", label: t("动态模式")') == 3
+    # 实例列表与域名表格里的分组模式标签：动态分组仍显示“动态模式”
     assert 'groupMode(a.group_id) === "dynamic" ? t("动态模式")' in tsx
     assert 'groupMode(d.group_id) === "dynamic" ? t("动态模式")' in tsx
 
@@ -945,14 +957,14 @@ def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
 
 
 def test_group_settings_follow_global_layout_indent():
-    # 分组卡片设置区跟随全局设置（参数设置）的父子栏布局：分组名称/切换模式/
+    # 分组卡片设置区跟随全局设置（参数设置）的父子栏布局：分组名称/运行模式/
     # 阈值动作/阈值恢复都缩进 2 字符（与全局设置的阈值动作/阈值恢复一致），
     # 切换参数本来就是缩进的
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 分组名称
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="req">{t("分组名称 *")}</label>' in tsx
-    # 切换模式
-    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("切换模式")}</label>' in tsx
+    # 运行模式（顶层标签已由“切换模式”改名）
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("运行模式")}</label>' in tsx
     # 阈值动作 / 阈值恢复（与全局设置一样，整个 label+Seg 区块缩进 2em）
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值动作")}</label>' in tsx
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值恢复")}</label>' in tsx
@@ -1085,13 +1097,24 @@ def test_group_dynamic_interval_shows_when_dynamic():
     # 三选一里的动态选项与说明文案仍在
     assert '{ value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") }' in tsx
     assert 't("每到间隔切到剩余流量最多的服务器，不看流量差值。")' in tsx
-    # 动态间隔五选一：跟随系统 / 30/60/90 分钟 / 自定义（与全局设置同一排版，
-    # 只多一个跟随系统）；选跟随系统即清空动态间隔参数（继承全局）
+    # 动态间隔两选一：跟随系统 / 自定义；选自定义弹对话框改分钟数（最少 30），
+    # 确认后保存，取消不改；30/60/90 预设已取消；选跟随系统即清空动态间隔参数（继承全局）
     assert '{ value: "follow", label: t("跟随系统"), title: t("动态切换间隔继承全局设置") }' in tsx
     assert 'g.dynamic_interval_minutes == null ? "follow"' in tsx
     assert 'savePatch({ dynamic_interval_minutes: null })' in tsx
+    # 分组卡片里 30/60/90 预设已取消，自定义是对话框（modal-overlay），确认后才保存
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    assert '{ value: "30", label: t("30 分钟") }' not in group_card
+    assert '{ value: "60", label: t("60 分钟") }' not in group_card
+    assert '{ value: "90", label: t("90 分钟") }' not in group_card
+    assert 't("自定义动态切换间隔")' in group_card
+    assert 'showDynCustom' in group_card
+    assert 'savePatch({ dynamic_interval_minutes: v })' in group_card
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
     assert "动态切换间隔继承全局设置" in i18n
+    assert "自定义动态切换间隔" in i18n
+    assert "间隔（分钟，最少 30）" in i18n
+    assert "确定" in i18n
 
 
 def test_group_lb_four_way_options():
@@ -1163,12 +1186,17 @@ def test_seg_custom_two_line_sub():
     assert '`${sRefreshCustVal} ${t("分钟")}`' in tsx
 
 
-def test_custom_values_inline_no_dialog():
-    # 所有自定义数值都在内联输入框里改，不弹对话框：全站没有任何 prompt()，
-    # 自定义入口（地域自定义输入、分组/全局自定义间隔、动态间隔、API 刷新）
-    # 都是页面里的 input，失焦即保存
+def test_custom_values_inline_except_group_dynamic_dialog():
+    # 自定义数值都在内联输入框里改，不用 prompt()；唯一例外是分组的动态切换
+    # 间隔：自定义弹对话框改值（用户要求）。其它自定义入口（地域自定义输入、
+    # 分组/全局自定义间隔、全局动态间隔、API 刷新）都是页面里的 input，失焦即保存
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "prompt(" not in tsx and "window.prompt" not in tsx
     assert 'placeholder={t("地域 ID，如 cn-hongkong")}' in tsx
     assert 't("自定义间隔")' in tsx and 't("自定义间隔（分钟，最少 30）")' in tsx
     assert 't("自定义刷新时间（分钟）")' in tsx
+    # 分组动态间隔的自定义是对话框（modal-overlay），分组卡片里不再有内联的
+    # 自定义间隔输入行；全局的动态间隔自定义仍是内联输入
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    assert 't("自定义动态切换间隔")' in group_card
+    assert 't("自定义间隔（分钟，最少 30）")' not in group_card

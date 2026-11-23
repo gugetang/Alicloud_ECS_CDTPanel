@@ -573,8 +573,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   // 动态切换间隔（分钟）：后端存分钟；30/60/90 为预设，0=自定义；未填默认 30。
   // 分组未填时显示全局值（跟随系统时面板里看到的就是实际生效值）。
   const _gdm = Number(g.dynamic_interval_minutes ?? (settings as Any)?.dynamic_interval_minutes ?? 0) || 0;
-  const [dynInterval, setDynInterval] = useState(g.dynamic_interval_minutes == null ? "follow" : _gdm > 0 && [30, 60, 90].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
-  const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90].includes(_gdm) ? _gdm : 30));
+  const [dynInterval, setDynInterval] = useState(g.dynamic_interval_minutes == null ? "follow" : "0");
+  const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 ? _gdm : 30));
+  const [showDynCustom, setShowDynCustom] = useState(false);
+  const [dynCustomVal, setDynCustomVal] = useState("");
   // 分组级阈值策略：空=跟随系统
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
@@ -637,11 +639,12 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         }} />
       </div>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-        <label className="lbl">{t("切换模式")}</label>
-        <Seg value={(g.switch_mode as string) || "load_balance"} options={[
+        <label className="lbl">{t("运行模式")}</label>
+        {/* 顶层只留定时轮巡 / 负载均衡两项；动态模式在下面的负载均衡切换方式里选，
+            动态分组顶栏显示负载均衡（动态是负载均衡的子模式）。 */}
+        <Seg value={(g.switch_mode === "time" ? "time" : "load_balance")} options={[
           { value: "time", label: t("定时轮巡") },
           { value: "load_balance", label: t("负载均衡") },
-          { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
       {g.switch_mode === "time" ? (
@@ -690,11 +693,11 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       ) : (
         <div style={{ marginTop: 12 }}>
           {/* 负载均衡的切换方式四选一：百分比（%） / 固定流量（GB） / 动态模式 /
-              跟随系统，与全局设置同一排版，只多一个跟随系统。选跟随系统即
-              清空负载均衡参数（继承全局），选其它三项即切到自定义。
-              从跟随系统切到百分比/固定流量时，把全局的差值填入；已是自定义
-              时只改模式，保留已填的差值。 */}
-          <TwoLineLabel parent="负载均衡" child="切换模式" />
+              跟随系统，与全局设置同一排版，只多一个跟随系统；父级“负载均衡”
+              字已取消，只留子标签。选跟随系统即清空负载均衡参数（继承全局），
+              选其它三项即切到自定义。从跟随系统切到百分比/固定流量时，把全局
+              的差值填入；已是自定义时只改模式，保留已填的差值。 */}
+          <label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>
           <div style={{ paddingLeft: "2em" }}><Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
             { value: "percent", label: t("百分比（%）"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
             { value: "gb", label: t("固定流量（GB）"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
@@ -714,34 +717,45 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
             <div>
               <div className="form2" style={{ marginTop: 12 }}>
                 {diffMode === "percent" ? (
-                  <div><TwoLineLabel parent="负载均衡" child="切换阀值（%）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div></div>
+                  <div><label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（%）")}</span></label><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffPct} onChange={(e) => setDiffPct(e.target.value)} onBlur={() => savePatch({ switch_diff_pct: Number(diffPct) || 10 })} /></div></div>
                 ) : (
-                  <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div></div>
+                  <div><label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div></div>
                 )}
               </div>
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
             </div>
           )}
-          {/* 动态模式的切换间隔五选一：跟随系统 / 30/60/90 分钟 / 自定义，
-              与全局设置同一排版，只多一个跟随系统。跟随系统时显示全局值，
-              改值后自动变成自定义。 */}
+          {/* 动态模式的切换间隔两选一：跟随系统 / 自定义。选自定义弹对话框改
+              分钟数（最少 30），确认后保存，取消不改；对话框打开时显示当前值。
+              30/60/90 预设已取消。 */}
           {g.switch_mode === "dynamic" && (
             <div style={{ marginTop: 12 }}>
               <div className="form2">
                 <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
                     { value: "follow", label: t("跟随系统"), title: t("动态切换间隔继承全局设置") },
-                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                    { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义"), sub: dynInterval === "0" && (Number(dynCustVal) || 0) > 0 ? `${dynCustVal} ${t("分钟")}` : undefined },
                   ]} onChange={(v) => {
                     if (v === "follow") { setDynInterval("follow"); savePatch({ dynamic_interval_minutes: null }); return; }
-                    setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) });
+                    setDynCustomVal(String(Math.max(30, Number(dynCustVal) || 30)));
+                    setShowDynCustom(true);
                   }} /></div></div>
               </div>
-              {dynInterval === "0" && (
-                <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+              {showDynCustom && (
+                <div className="modal-overlay" onClick={() => setShowDynCustom(false)}>
+                  <div className="modal" onClick={(e) => e.stopPropagation()}>
+                    <h3>{t("自定义动态切换间隔")}</h3>
+                    <div style={{ marginTop: 12 }}>
+                      <label className="lbl">{t("间隔（分钟，最少 30）")}</label>
+                      <input type="number" min={30} value={dynCustomVal} onChange={(e) => setDynCustomVal(e.target.value)} style={{ width: 120 }} />
+                    </div>
+                    <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+                      <button className="btn ghost" onClick={() => setShowDynCustom(false)}>{t("取消")}</button>
+                      <button className="btn" onClick={() => { const v = Math.max(30, Number(dynCustomVal) || 30); setDynCustVal(String(v)); setDynInterval("0"); savePatch({ dynamic_interval_minutes: v }); setShowDynCustom(false); }}>{t("确定")}</button>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
             </div>
           )}
