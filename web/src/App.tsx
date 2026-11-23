@@ -1399,7 +1399,7 @@ export default function App() {
   const IpView = ({ a, copy = true }: { a: Any; copy?: boolean }) => {
     const ip = (a.public_ip as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-      <span>{maskIp(a.public_ip)}</span>
+      <span className="mono">{maskIp(a.public_ip)}</span>
       {copy && ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
     </span>);
   };
@@ -1408,7 +1408,7 @@ export default function App() {
   const IdView = ({ a }: { a: Any }) => {
     const id = (a.instance_id as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-      <span>{maskInstanceId(id)}</span>
+      <span className="mono">{maskInstanceId(id)}</span>
       {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button> : null}
     </span>);
   };
@@ -1979,7 +1979,7 @@ export default function App() {
                     </div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
-                      <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
+                      <div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>
                       <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                       <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -1994,7 +1994,7 @@ export default function App() {
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
-                    <td>{a.region as string}</td>
+                    <td className="mono">{a.region as string}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
@@ -2037,7 +2037,7 @@ export default function App() {
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats">
                 <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
-                <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
+                <div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>
                 <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
                 <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -2061,7 +2061,7 @@ export default function App() {
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td><IdView a={a} /></td>
-                <td>{a.region as string}</td>
+                <td className="mono">{a.region as string}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                 <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
@@ -2251,6 +2251,9 @@ export default function App() {
                 { value: "load_balance", label: t("负载均衡") },
               ]} onChange={(v) => { setSRunMode(v); saveParamSettings({ switch_mode: v }); }} />
             </div>
+            {/* 运行模式=负载均衡时显示负载均衡段，=定时轮巡时隐藏（与分组卡片同款；
+                阈值动作/阈值恢复与 API 刷新时间不跟随，始终显示）。 */}
+            {sRunMode !== "time" && (<>
             {/* 负载均衡：切换模式在上，切换阀值在下（不再左右两列）；切换阀值
                 的父级“负载均衡”字已取消，只留单行缩进标签（与分组卡片同款）。 */}
             <div>
@@ -2283,6 +2286,7 @@ export default function App() {
             </div>
             )}
             {sMode !== "dynamic" && (<div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>)}
+            </>)}
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
@@ -2298,9 +2302,9 @@ export default function App() {
                 { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
               ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
             </div>
-            <h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>
+            {sRunMode === "time" && (<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>)}
             <div>
-            <div className="form2">
+            {sRunMode === "time" && (<div className="form2">
               <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
                 <div style={{ paddingLeft: "2em" }}><Seg value={sInterval} options={[
                   { value: "3", label: t("3 小时") },
@@ -2317,7 +2321,7 @@ export default function App() {
                     { value: "day", label: t("天") },
                   ]} onChange={changeCustUnit} />
                 </div></div></div>)}
-            </div>
+            </div>)}
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[

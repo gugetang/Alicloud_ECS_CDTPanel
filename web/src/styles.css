@@ -134,6 +134,10 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .stats { display:grid; grid-template-columns:repeat(3,auto); justify-content:space-between; gap:10px 16px; margin-top:12px; }
 .stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }
 .stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; white-space:nowrap; }
+/* 技术标识（地域 / IP / 实例 ID）：等宽字体，字母、数字、符号宽度一致，
+   cn-hongkong / 47.242.*.* / i-j6ccop*** 这类值在 Google Sans 里大小写
+   高度不一、看起来不协调，等宽字体才统一。 */
+.mono { font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace; }
 /* 服务器卡片状态详情行：单行显示不换行（手机端恢复换行，见媒体查询） */
 .status-detail { white-space:nowrap; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }

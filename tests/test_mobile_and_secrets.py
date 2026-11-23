@@ -1345,7 +1345,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     # IdView 里（卡片与列表共用，和 IpView 同款）
     assert 'return id.startsWith("i-") ? `${id.slice(0, 8)}***` : `${id.slice(0, 6)}***`;' in tsx
     assert 'const IdView = ({ a }: { a: Any }) => {' in tsx
-    assert '<span>{maskInstanceId(id)}</span>' in tsx
+    assert '<span className="mono">{maskInstanceId(id)}</span>' in tsx
     assert 'title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button>' in tsx
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
     # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
@@ -1357,7 +1357,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     i = tsx.index('<b><IdView a={a} /></b>')
     i_stats = tsx.rfind('<div className="stats">', 0, i)
     stats = tsx[i_stats:i_stats + 1400]
-    assert '<div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>' in stats
+    assert '<div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>' in stats
     assert '<div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>' in stats
     assert stats.index('<span>{t("实例")}</span>') < stats.index('<span>{t("地域")}</span>')
     assert stats.index('<span>{t("地域")}</span>') < stats.index('<span>IP</span>')
@@ -1391,7 +1391,7 @@ def test_accounts_list_column_order():
     assert header.index('<th>{t("阈值")}</th>') < header.index('<th>{t("操作")}</th>')
     # 行里的单元格顺序与表头一致：名称、IdView、地域、IpView、站点
     j = tsx.index('<td><IdView a={a} /></td>', i)
-    assert tsx.index('<td>{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
+    assert tsx.index('<td className="mono">{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
     assert tsx.index('<td><IpView a={a} /></td>', j) < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
@@ -1407,7 +1407,7 @@ def test_dash_list_column_order():
     assert header.index('<th>{t("已用 / 月度流量额度")}</th>') < header.index('<th>{t("实时费用")}</th>')
     # 行里的单元格顺序与表头一致：名称、地域、IpView（无复制）、站点
     j = tsx.index('<td><IpView a={a} copy={false} /></td>', i)
-    assert tsx.index('<td>{a.region as string}</td>', i) < j
+    assert tsx.index('<td className="mono">{a.region as string}</td>', i) < j
     assert j < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
@@ -1430,3 +1430,48 @@ def test_global_settings_run_mode_above_lb():
     assert 'setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");' in tsx
     # 负载均衡切换方式里仍有动态模式（未动）
     assert '{ value: "dynamic", label: t("动态模式")' in tsx
+
+
+def test_tech_values_monospace():
+    # 技术标识（地域 / IP / 实例 ID）用等宽字体：Google Sans 里小写字母
+    # 与数字/符号高度不一，cn-hongkong / 47.242.*.* / i-j6ccop*** 看起来
+    # 不协调；等宽字体下字母、数字、符号宽度一致。卡片与列表共用同一套。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert '.mono { font-family:ui-monospace,' in css
+    assert 'monospace' in css.split('.mono {')[1].split('}')[0]
+    # IpView / IdView 的值用 mono（卡片与列表共用，运行概览与实例管理都是）
+    assert '<span className="mono">{maskIp(a.public_ip)}</span>' in tsx
+    assert '<span className="mono">{maskInstanceId(id)}</span>' in tsx
+    # 地域值在卡片（运行概览与实例管理）与列表里都用 mono
+    assert tsx.count('<b className="mono">{a.region as string}</b>') == 2
+    assert tsx.count('<td className="mono">{a.region as string}</td>') == 2
+    # 站点/流量/费用/阈值不动（不是技术标识，仍用 Google Sans）
+    assert '<b>{a.site === "cn" ? t("中国站") : t("国际站")}</b>' in tsx
+
+
+def test_global_settings_sections_follow_run_mode():
+    # 全局设置按运行模式只显示对应段：选负载均衡时不显示下面的定时轮巡，
+    # 选定时轮巡时不显示负载均衡段；API 刷新时间与阈值动作/阈值恢复不跟随，
+    # 始终显示（与分组卡片同款：time 只显示定时轮巡段，load_balance/dynamic
+    # 只显示负载均衡段；sRunMode 是顶层 Seg 的值，dynamic/both 都映射成
+    # 负载均衡，所以条件直接用 sRunMode）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 只取全局设置参数卡片（运行模式 Seg 在全局设置里；分组卡片的 Seg 另有跟随系统）
+    g = tsx.split("运行模式（全局）")[1].split("subTab === \"other\"")[0]
+    # 负载均衡段包在 sRunMode !== "time" 里，切换模式在条件内，阈值动作在条件外
+    assert '{sRunMode !== "time" && (<>' in g
+    i_lb = g.index('{sRunMode !== "time" && (<>')
+    assert i_lb < g.index('child="切换模式"')
+    assert g.index('</>)}', i_lb) < g.index('{t("阈值动作")}')
+    # 定时轮巡段（标题 + 轮巡周期）只在 sRunMode === "time" 时显示
+    assert '{sRunMode === "time" && (<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>)}' in g
+    assert '{sRunMode === "time" && (<div className="form2">' in g
+    i_time = g.index('{sRunMode === "time" && (<h3')
+    assert i_time < g.index('{t("轮巡周期")}')
+    # API 刷新时间在定时轮巡段的条件之外：定时轮巡段的条件闭合在 API 之前
+    assert '{t("API 刷新时间 *（分钟）")}' in g
+    assert g.index('</div>)}', i_time) < g.index('{t("API 刷新时间 *（分钟）")}')
+    # 阈值动作/阈值恢复在两段条件之外（始终显示）
+    assert g.index('{t("阈值动作")}') > g.index('</>)}', i_lb)
+    assert g.index('{t("阈值恢复")}') > g.index('</>)}', i_lb)
