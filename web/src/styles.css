@@ -161,6 +161,10 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 .auth-wrap input, .auth-wrap select, .auth-wrap textarea { border-color:transparent; }
 .auth-wrap input:focus, .auth-wrap select:focus, .auth-wrap textarea:focus { border-color:var(--accent); outline:none; }
 .auth-wrap .btn { border-color:transparent; }
+/* 小按钮：比标准按钮小一号 */
+.btn-sm { padding:5px 10px; font-size:12px; }
+/* 登录页底部的工具按钮：默认边框（覆盖 .auth-wrap .btn 的透明边框） */
+.auth-wrap .btn.auth-util { border-color:var(--border); }
 .auth-wrap .btn:focus, .auth-wrap .btn:active { border-color:var(--accent); outline:none; }
 .auth-wrap .oauth-btn { border-color:transparent; }
 .auth-wrap .oauth-btn:focus, .auth-wrap .oauth-btn:active { border-color:var(--border); outline:none; }
