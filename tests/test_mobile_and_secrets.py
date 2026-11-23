@@ -405,6 +405,31 @@ def test_logs_title_same_size_bold_and_detail_numbers_accent():
     assert "{accentNums(e.detail as string)}" in tsx
 
 
+def test_dash_card_stats_site_before_traffic_traffic_cost_same_row():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 运行概览卡片指标顺序：地域、IP、站点、流量、费用（三列网格，第一行
+    # 地域/IP/站点，第二行流量/费用——站点排在流量前面，流量和费用同一行）
+    m = re.search(r'<div className="stats">\s*(.*?)\s*</div>\s*\{a\.status_detail', tsx, re.S)
+    assert m, "dash card .stats missing"
+    block = m.group(1)
+    labels = ['t("地域")', "IP", 't("站点")', 't("流量")', 't("费用")']
+    idx = [block.index(x) for x in labels]
+    assert idx == sorted(idx), idx
+    # 三列网格里第 4、5 项（流量、费用）落在同一行（第二行）
+    assert block.count('<div className="stat') == 5
+
+
+def test_modal_frosted_50_percent():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 对话框磨砂玻璃 50%：亮色白底 0.5、暗色灰底 0.5，不再用 --card（亮色只有 0.3，
+    # 太透明，后面的页面内容会透出来）；磨砂模糊 blur(18px) 保留
+    m = re.search(r"\.modal\s*\{[^}]*\}", css)
+    assert m, ".modal missing"
+    assert "background:rgba(255,255,255,0.5)" in m.group(0)
+    assert "backdrop-filter:blur(18px)" in m.group(0)
+    assert 'html[data-theme="dark"] .modal { background:rgba(71,85,105,0.5); }' in css
+
+
 def test_header_lang_toggle_and_logout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -415,12 +440,14 @@ def test_header_lang_toggle_and_logout():
     assert 'setLang(lang === "zh" ? "en" : "zh")' in tsx
     assert '>中</span>' in tsx and '>En</span>' in tsx
     assert 'langMenuOpen' not in tsx
-    assert ".lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
+    # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大
+    assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
     assert ".lang-on { color:var(--accent); }" in css and ".lang-off { color:var(--muted); }" in css
     # 主题键与退出键是 9px 小图标（页眉与登录页各一处，ThemeIcon size={9}）；
-    # .theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
+    # .btn.theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
     assert tsx.count("size={9}") == 2
-    assert ".theme-btn { padding:3px 4px;" in css
+    assert ".btn.theme-btn { padding:3px 4px;" in css
     assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
     # 登录页右上角同样是这排图标按钮（语言键 + 主题图标 + 退出图标，右对齐一行）
     assert '<div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>' in tsx
@@ -689,6 +716,43 @@ def test_controls_align_with_indented_labels():
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={interval}' in tsx
 
 
+def test_ip_show_full_and_copy():
+    # IP 显示：默认仍掩码（A.B.*.*），点 IP 文字切换显示全部/掩码，点 ⧉ 复制完整 IP；
+    # 运行概览与实例管理、卡片与列表四处共用 IpView；复制用 navigator.clipboard，
+    # 明文 HTTP 下回退 textarea + execCommand（clipboard 在非安全上下文不可用）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "const [showFullIp, setShowFullIp] = useState<Set<number>>(new Set());" in tsx
+    assert "const toggleFullIp = (id: number) => {" in tsx
+    assert "const copyIp = async (ip: string) => {" in tsx
+    assert "navigator.clipboard.writeText(ip)" in tsx
+    assert 'document.execCommand("copy")' in tsx
+    assert tsx.count("<IpView a={a} />") == 4
+    assert '{full ? ip : maskIp(a.public_ip)}' in tsx
+    assert 'title={ip ? (full ? t("点击隐藏 IP") : t("点击显示完整 IP")) : ""}' in tsx
+    assert 'title={t("复制 IP")}' in tsx
+    assert 'setMsg(t("IP 已复制"))' in tsx
+    # 分组成员按键的 IP 仍掩码（悬停提示里有完整 IP），不动
+    assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
+    # 新文案进英文表（t() 0 缺失由 i18n 测试覆盖，这里只点名）
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    for key in ("IP 已复制", "复制 IP", "点击显示完整 IP", "点击隐藏 IP"):
+        assert key in i18n, key
+
+
+def test_group_mode_seg_has_dynamic_option():
+    # 分组卡片顶层“切换模式”三选一：定时轮巡 / 负载均衡 / 动态模式（与新建分组表单、
+    # 全局设置的动态模式一致）。原来只有两项，动态分组在顶栏会被误显示成负载均衡；
+    # 后端与引擎早已支持 dynamic（test_optimize 的 test_dynamic_switch_*），只差前端入口
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<Seg value={(g.switch_mode as string) || "load_balance"}' in tsx
+    assert '{ value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") }' in tsx
+    # 旧的映射（dynamic 被当成 load_balance 显示）已删
+    assert '(g.switch_mode === "time" ? "time" : "load_balance")' not in tsx
+    # 实例列表与域名表格里的分组模式标签：动态分组显示“动态模式”，不再误标负载均衡
+    assert 'groupMode(a.group_id) === "dynamic" ? t("动态模式")' in tsx
+    assert 'groupMode(d.group_id) === "dynamic" ? t("动态模式")' in tsx
+
+
 def test_parent_child_hierarchy_global():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 父栏标题比子栏大一号：TwoLineLabel 父项 16px、子项 13px；h3 标题 16px
@@ -814,10 +878,11 @@ def test_dynamic_mode_heading_not_bold():
 
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
     # 页眉中/En 按钮与主题/退出图标按钮同大（3px 4px 内边距、9px 字/图标），
-    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off），分隔符也是灰色
+    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off），分隔符也是灰色；
+    # 必须是双类选择器 .btn.lang-btn/.btn.theme-btn，单类会被后写的 .btn 覆盖
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert ".theme-btn { padding:3px 4px; display:flex; align-items:center; }" in css
-    assert ".lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    assert ".btn.theme-btn { padding:3px 4px; display:flex; align-items:center; }" in css
+    assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
     assert ".lang-on { color:var(--accent); }" in css
     assert ".lang-off { color:var(--muted); }" in css
     assert ".lang-sep { color:var(--muted); }" in css
@@ -867,8 +932,10 @@ def test_cloud_backup_dialog_draggable_and_alist_layout():
     assert 't("* 密码")' in tsx
     assert 't("* 备份目录")' in tsx
     assert 'id="wd-dir"' in tsx
-    assert 'placeholder="/GoogleDrive/Backup/1panel"' in tsx
-    assert 'placeholder="https://oplist.alicloud.ru/dav"' in tsx
+    # 地址/备份目录输入框里的示例文字已删（用户 2026-11-23 19:37 要求）：
+    # 框里不再显示 https://oplist.alicloud.ru/dav 与 /GoogleDrive/Backup/1panel
+    assert 'placeholder="/GoogleDrive/Backup/1panel"' not in tsx
+    assert 'placeholder="https://oplist.alicloud.ru/dav"' not in tsx
     assert 't("WebDAV 连接 Alist 可参考官方文档")' in tsx
     assert "https://alist.nn.ci/zh/guide/webdav.html" in tsx
     assert 't("快速跳转")' in tsx
@@ -892,21 +959,26 @@ def test_buttons_gray_globally():
 
 
 def test_button_font_not_bold_by_default_bold_on_select_or_hover():
-    # 按钮框内字体默认不加粗，只在选中或悬停时加粗；选中/悬停时字不换主题色，默认灰色
+    # 按钮全局规则：默认框体默认色、字不加粗；悬停或选中时字加粗、框体变主题色，
+    # 字本身不换主题色，默认文字色
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     btn = re.search(r"\.btn\s*\{([^}]*)\}", css)
     assert btn is not None and "font-weight:400" in btn.group(1)
     assert "color:var(--text)" in btn.group(1)
     assert "var(--accent)" not in btn.group(1)
-    # 悬停加粗，不换色
-    assert ".btn:hover { font-weight:600; }" in css
-    # 选择器默认不加粗，选中/悬停加粗，不换色
+    # 悬停加粗 + 框体主题色，不换字色
+    assert ".btn:hover { font-weight:600; border-color:var(--accent); }" in css
+    # 选择器默认不加粗，选中/悬停加粗，不换字色，框体主题色
     seg = re.search(r"\.seg button\s*\{([^}]*)\}", css)
     assert seg is not None and "font-weight:400" in seg.group(1)
-    assert ".seg button:hover { font-weight:600; }" in css
+    assert ".seg button:hover { font-weight:600; border-color:var(--accent); }" in css
     seg_on = re.search(r"\.seg button\.seg-on\s*\{([^}]*)\}", css)
     assert seg_on is not None and "font-weight:600" in seg_on.group(1)
     assert "color:" not in seg_on.group(1)
-    # 导航/子标签：默认不加粗，选中加粗不换色，悬停加粗
-    assert "nav button:hover { font-weight:600; }" in css
-    assert ".subtabs button:hover { color:var(--text); font-weight:600; }" in css
+    assert "border:2px solid var(--accent)" in seg_on.group(1)
+    # 导航/子标签：默认不加粗，选中加粗不换色（框体主题色），悬停加粗 + 框体主题色
+    assert "nav button:hover { font-weight:600; border-color:var(--accent); }" in css
+    assert ".subtabs button:hover { color:var(--text); font-weight:600; border-color:var(--accent); }" in css
+    # 主题风格卡片与 OAuth 登录按钮：悬停框体同样变主题色
+    assert ".theme-card:hover { border-color:var(--accent); }" in css
+    assert ".oauth-btn:hover { font-weight:600; border-color:var(--accent); }" in css

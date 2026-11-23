@@ -622,9 +622,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="lbl">{t("切换模式")}</label>
-        <Seg value={(g.switch_mode === "time" ? "time" : "load_balance") as string} options={[
+        <Seg value={(g.switch_mode as string) || "load_balance"} options={[
           { value: "time", label: t("定时轮巡") },
           { value: "load_balance", label: t("负载均衡") },
+          { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
       <div style={{ marginTop: 12 }}>
@@ -1123,14 +1124,14 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
             <h3 onMouseDown={onWdDragStart} style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>
             <div style={{ marginTop: 12 }}>
               <div><label className="req" style={{ paddingLeft: "2em" }}>{t("* 地址")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://oplist.alicloud.ru/dav" style={{ width: "100%" }} onBlur={saveWd} /></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} style={{ width: "100%" }} onBlur={saveWd} /></div>
                 <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("WebDAV 连接 Alist 可参考官方文档")} <a href="https://alist.nn.ci/zh/guide/webdav.html" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>↗ {t("快速跳转")}</a></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 用户名")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 密码")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 备份目录")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} placeholder="/GoogleDrive/Backup/1panel" style={{ width: "100%" }} onBlur={saveWd} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} style={{ width: "100%" }} onBlur={saveWd} /></div></div>
             </div>
             <div className="row" style={{ paddingLeft: "2em", marginTop: 16 }}>
               <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
@@ -1267,6 +1268,42 @@ export default function App() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+  // IP 显示：默认只显示 A.B 段（C.D 用 * 代替）；点 IP 文字切换显示全部/掩码，
+  // 点旁边的 ⧉ 复制完整 IP。面板是明文 HTTP，navigator.clipboard 在非安全
+  // 上下文不可用，复制失败时回退到 textarea + execCommand。
+  const [showFullIp, setShowFullIp] = useState<Set<number>>(new Set());
+  const toggleFullIp = (id: number) => {
+    setShowFullIp((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const copyIp = async (ip: string) => {
+    try {
+      await navigator.clipboard.writeText(ip);
+      setMsg(t("IP 已复制"));
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = ip;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setMsg(t("IP 已复制"));
+      } catch { setMsg(ip); }
+    }
+  };
+  // IP 显示：掩码/完整切换 + 复制按钮（运行概览与实例管理，卡片与列表共用）
+  const IpView = ({ a }: { a: Any }) => {
+    const ip = (a.public_ip as string) || "";
+    const full = showFullIp.has(a.id as number);
+    return (<span style={{ whiteSpace: "nowrap" }}>
+      <span style={{ cursor: ip ? "pointer" : "default" }} title={ip ? (full ? t("点击隐藏 IP") : t("点击显示完整 IP")) : ""} onClick={() => { if (ip) toggleFullIp(a.id as number); }}>{full ? ip : maskIp(a.public_ip)}</span>
+      {ip ? <button className="btn ghost" style={{ padding: "1px 6px", marginLeft: 4, fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
+    </span>);
   };
   // 概览视图：卡片 / 列表
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
@@ -1785,10 +1822,10 @@ export default function App() {
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
                       <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
-                      <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
+                      <div className="stat"><span>IP</span><b><IpView a={a} /></b></div>
+                      <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
-                      <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
                     {a.status_detail ? <div className="muted" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
@@ -1801,7 +1838,7 @@ export default function App() {
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td>{a.region as string}</td>
-                    <td>{maskIp(a.public_ip)}</td>
+                    <td><IpView a={a} /></td>
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
@@ -1831,7 +1868,7 @@ export default function App() {
               style={{ marginTop: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
-                <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
+                <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : groupMode(a.group_id) === "dynamic" ? t("动态模式") : t("负载均衡")}）</span></div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
@@ -1840,7 +1877,7 @@ export default function App() {
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats five">
                 <div className="stat stat-detail"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
-                <div className="stat stat-detail"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
+                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
@@ -1862,7 +1899,7 @@ export default function App() {
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                 <td>{a.region as string}</td>
-                <td>{maskIp(a.public_ip)}</td>
+                <td><IpView a={a} /></td>
                 <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
@@ -1918,7 +1955,7 @@ export default function App() {
                       return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
                     })}
                   </select>
-                ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>) : null}</>)}</td>
+                ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : groupMode(d.group_id) === "dynamic" ? t("动态模式") : t("负载均衡")}</span></>) : null}</>)}</td>
                 <td>{d.zone as string || t("自动发现")}</td>
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
