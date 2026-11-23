@@ -1711,6 +1711,9 @@ export default function App() {
   const [sDiffMode, setSDiffMode] = useState("percent");
   // 切换阀值三选一的有效模式：percent / gb / dynamic（动态模式时全局 switch_mode 为 dynamic）
   const [sMode, setSMode] = useState("percent");
+  // 全局运行模式：time→定时轮巡，其余（load_balance/dynamic/both）→负载均衡
+  // （动态模式是负载均衡的子模式，顶层只分两项，与分组卡片顶层同款映射）。
+  const [sRunMode, setSRunMode] = useState("load_balance");
   const [sInterval, setSInterval] = useState("6");
   const [sCustVal, setSCustVal] = useState("0");
   const [sCustUnit, setSCustUnit] = useState("minute");
@@ -1724,6 +1727,7 @@ export default function App() {
     setSRecovery(settings.threshold_recovery_action ?? "start");
     setSDiffMode(settings.switch_diff_mode ?? "percent");
     setSMode(settings.switch_mode === "dynamic" ? "dynamic" : (settings.switch_diff_mode ?? "percent"));
+    setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");
     const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
     const ih0 = Number(settings.interval_hours ?? 6) || 6;
     // 轮巡周期只留 3/6/12/自定义：自定义分钟数>0 时选“自定义”，否则把
@@ -2234,6 +2238,16 @@ export default function App() {
             <div className="form2">
               <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
+            </div>
+            {/* 运行模式（全局）：在负载均衡上面；两项，定时轮巡 / 负载均衡。
+                动态模式仍在下面的负载均衡切换方式里选（选了动态模式后顶层
+                仍显示负载均衡，与分组卡片顶层同款映射）。 */}
+            <div style={{ marginTop: 12 }}>
+              <label className="lbl">{t("运行模式")}</label>
+              <Seg value={sRunMode} options={[
+                { value: "time", label: t("定时轮巡") },
+                { value: "load_balance", label: t("负载均衡") },
+              ]} onChange={(v) => { setSRunMode(v); saveParamSettings({ switch_mode: v }); }} />
             </div>
             {/* 负载均衡：切换模式在上，切换阀值在下（不再左右两列）；切换阀值
                 的父级“负载均衡”字已取消，只留单行缩进标签（与分组卡片同款）。 */}

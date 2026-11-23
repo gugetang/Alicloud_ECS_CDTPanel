@@ -1370,3 +1370,24 @@ def test_accounts_list_column_order():
     j = tsx.index('<td><IdView a={a} /></td>', i)
     assert tsx.index('<td>{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
     assert tsx.index('<td><IpView a={a} /></td>', j) < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
+
+
+def test_global_settings_run_mode_above_lb():
+    # 全局设置（参数设置卡片）：负载均衡上面新增运行模式按键（定时轮巡 /
+    # 负载均衡两项，动态模式仍在下面的负载均衡切换方式里选）；顶层只分
+    # 两项，动态/both 都归负载均衡（与分组卡片顶层同款映射）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 运行模式在月度流量额度/流量保护阈值之后、负载均衡 TwoLineLabel 之前
+    i_run = tsx.index('<label className="lbl">{t("运行模式")}</label>', tsx.index('id="s-prot"'))
+    i_lb = tsx.index('<TwoLineLabel parent="负载均衡"', i_run)
+    assert i_run < i_lb
+    run_seg = tsx[i_run:i_lb]
+    assert '<Seg value={sRunMode} options={' in run_seg
+    assert '{ value: "time", label: t("定时轮巡") }' in run_seg
+    assert '{ value: "load_balance", label: t("负载均衡") }' in run_seg
+    assert "动态模式" not in run_seg
+    assert 'saveParamSettings({ switch_mode: v })' in run_seg
+    # 值映射：time→定时轮巡，其余→负载均衡；改完即存 switch_mode
+    assert 'setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");' in tsx
+    # 负载均衡切换方式里仍有动态模式（未动）
+    assert '{ value: "dynamic", label: t("动态模式")' in tsx
