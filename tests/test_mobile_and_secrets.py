@@ -913,9 +913,11 @@ def test_group_mode_follow_global_effective_mode():
     assert '{effMode !== "time" && (' in group_card
     # 动态切换间隔段按有效模式显示（跟随系统且全局是 dynamic 时也要显示）
     assert '{effMode === "dynamic" && (' in group_card
-    # 模式标签：跟随系统时显示全局的有效模式（不是“跟随系统”），与实例/域名
-    # 列表的模式标签同一映射（dynamic→动态模式，time→定时轮巡，其余→负载均衡）
-    assert '{effMode === "dynamic" ? t("动态模式") : effMode === "time" ? t("定时轮巡") : t("负载均衡")}' in group_card
+    # 模式标签：跟随系统时显示全局的顶层运行模式（不是“跟随系统”），
+    # 与顶层 Seg 同款映射（time→定时轮巡，其余→负载均衡；动态是负载均衡
+    # 的子模式，顶栏显示负载均衡）。服务器卡片与域名表格的模式标签仍显示
+    # 具体模式（动态模式/百分比/固定流量），见 groupModeLabel。
+    assert '{effMode === "time" ? t("定时轮巡") : t("负载均衡")}' in group_card
     assert 'g.switch_mode == null ? t("跟随系统")' not in group_card
     # 切模式会重挂载卡片（key 含 switch_mode），新分支的本地状态重新初始化；
     # 设置展开状态在父级，不受重挂载影响（仍保持展开）

@@ -633,10 +633,12 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b>{g.name as string}</b>
-        {/* 模式标签显示有效模式：跟随系统时显示全局的运行模式（不是“跟随系统”），
-            与实例/域名列表的模式标签同一映射（dynamic→动态模式，time→定时轮巡，
-            其余→负载均衡，含 both）。 */}
-        <span className="pill">{effMode === "dynamic" ? t("动态模式") : effMode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
+        {/* 模式标签显示顶层模式：跟随系统时显示全局的运行模式（不是“跟随系统”），
+            动态是负载均衡的子模式，顶栏显示负载均衡（与顶层 Seg 同款映射：
+            time→定时轮巡，其余→负载均衡）；动态模式只在下面的负载均衡
+            切换方式里显示。服务器卡片与域名表格的模式标签仍显示具体模式
+            （动态模式/百分比/固定流量），见 groupModeLabel。 */}
+        <span className="pill">{effMode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
         <button className="icon-btn" title={t("分组设置")} onClick={onToggleSettings}><Ico label={t("分组设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
       </div>
