@@ -1346,12 +1346,15 @@ export default function App() {
       } catch { setMsg(ip); }
     }
   };
-  // IP 显示：掩码 + 复制按钮（运行概览与实例管理，卡片与列表共用；不提供显示完整 IP）
+  // IP 显示：掩码 + 复制按钮（运行概览与实例管理，卡片与列表共用；不提供显示完整 IP）。
+  // 复制按钮紧跟在 IP 后方同一行：外层 inline-flex（一行，不换行）+ gap，
+  // 不只靠 white-space:nowrap——窄卡片里 .stat b 的 overflow-wrap:anywhere
+  // 与手机端 white-space:normal 仍会把按钮挤到下一行。
   const IpView = ({ a }: { a: Any }) => {
     const ip = (a.public_ip as string) || "";
-    return (<span style={{ whiteSpace: "nowrap" }}>
+    return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
       <span>{maskIp(a.public_ip)}</span>
-      {ip ? <button className="btn ghost" style={{ padding: "1px 6px", marginLeft: 4, fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
+      {ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
     </span>);
   };
   // 概览视图：卡片 / 列表

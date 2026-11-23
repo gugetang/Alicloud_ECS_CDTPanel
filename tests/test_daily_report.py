@@ -44,30 +44,54 @@ def test_render_structure_title_date_seven_lines():
     first_block = parts[0].split("\n\n", 1)[1]
     assert len([ln for ln in first_block.strip().split("\n") if ln.strip()]) == 7
     assert len([ln for ln in parts[1].strip().split("\n") if ln.strip()]) == 7
-    # 有规格显示括号，无规格省略括号、不造假
-    assert "Demo-HK-1 (2C0.5G)" in text
-    assert "Demo-HK-2 (" not in text
-    assert "Demo-HK-2\n" in text
+    # 名称行只写服务器名，不带规格括号（(2C0.5G) 已取消）；每行图标 + 标签：
+    # 名称 👤 / 状态 💻 / IP 🌐 / 流量 📊 / 账单 💰 / 余额 💰 / 评价
+    assert "👤 名称：Demo-HK-1" in text
+    assert "Demo-HK-1 (" not in text
+    assert "💻 状态：在线（🟢）" in text
+    # 日报里的 IP 也只显示 A.B 段，C.D 用 * 代替，完整 IP 不出现在推送里
+    assert "🌐 IP：203.0.*.*" in text
+    assert "203.0.113.11" not in text
+    assert "📊 流量：37.77 GB (18.89%)" in text
+    assert "💰 账单：$0.47" in text
+    assert "💰 余额：$0.00" in text
+    assert "💬 评价：✅" in text
+    assert "本月费用" not in text and "评论：" not in text
+    assert "🌐 状态" not in text  # 🌐 已移到 IP 行，状态行改用 💻
+    # 评价行也有图标 💬；HTML 版每行冒号后面的值加粗（标签不加粗）
+    html = chunks[0]["html"]
+    assert "👤 名称：<b>Demo-HK-1</b>" in html
+    assert "💻 状态：<b>在线（🟢）</b>" in html
+    assert "🌐 IP：<b>203.0.*.*</b>" in html
+    assert "203.0.113.11" not in html
+    assert "📊 流量：<b>37.77 GB (18.89%)</b>" in html
+    assert "💰 账单：<b>$0.47</b>" in html
+    assert "💰 余额：<b>$0.00</b>" in html
+    assert "💬 评价：<b>✅</b>" in html
 
 
 def test_comment_ok_and_warnings():
     ok = build_daily_report([acc(1)], "2026-11-22")[0]["text"]
-    assert "评论：✅" in ok
+    assert "评价：✅" in ok
     evicted = build_daily_report(
         [acc(1, used=192.0, evicted=True, dot="gray", label="已跳出")],
         "2026-11-22")[0]["text"]
-    assert "评论：⚠️ 超阈值已跳出" in evicted
+    assert "评价：⚠️ 超阈值已跳出" in evicted
+    evicted_html = build_daily_report(
+        [acc(1, used=192.0, evicted=True, dot="gray", label="已跳出")],
+        "2026-11-22")[0]["html"]
+    assert "💬 评价：<b>⚠️ 超阈值已跳出" in evicted_html
     stopped = build_daily_report(
         [acc(1, status="Stopped", dot="red", label="已停机")], "2026-11-22")[0]["text"]
     assert "⚠️ 已停机" in stopped
     unknown = build_daily_report(
         [acc(1, used=None, dot="gray", label="未知")], "2026-11-22")[0]["text"]
-    assert "⚠️ 流量未知" in unknown and "流量：—（未知）" in unknown
+    assert "⚠️ 流量未知" in unknown and "📊 流量：—（未知）" in unknown
     bad_cost = build_daily_report([acc(1, cost=-1.0)], "2026-11-22")[0]["text"]
     assert "⚠️ 费用异常" in bad_cost
     # 无费用/余额数据时显示 —，不是 $0.00 假数据，也不算异常
     nodata = build_daily_report([acc(1, cost=None, balance=None)], "2026-11-22")[0]["text"]
-    assert "本月费用：—" in nodata and "余额：—" in nodata and "评论：✅" in nodata
+    assert "💰 账单：—" in nodata and "💰 余额：—" in nodata and "评价：✅" in nodata
 
 
 def test_chunking_six_accounts_two_messages_max_five():
@@ -194,8 +218,10 @@ def test_api_daily_preview_and_test(tmpdb):
     assert prev.status_code == 200
     body = prev.json()
     assert body["date"] == dt.datetime.now().strftime("%Y-%m-%d")
-    assert DAILY_TITLE in body["text"] and "Demo-HK-1 (2C0.5G)" in body["text"]
-    assert "评论：✅" in body["text"] and "评论：⚠️ 超阈值已跳出" in body["text"]
+    # 预览标题跟随站点名称（测试库默认站点名 CDT 面板），名称行不带规格括号
+    assert "[CDT 面板每日报告]" in body["text"] and "👤 名称：Demo-HK-1" in body["text"]
+    assert "Demo-HK-1 (" not in body["text"]
+    assert "评价：✅" in body["text"] and "评价：⚠️ 超阈值已跳出" in body["text"]
     # 无渠道启用时测试财报 sent 为空，但仍返回预览与条数
     r = client.post("/api/notify/test-daily")
     assert r.status_code == 200
@@ -204,13 +230,42 @@ def test_api_daily_preview_and_test(tmpdb):
 
 
 def test_daily_title_is_alicloud_report():
-    """日报标题统一为 [AliCloud每日报告]（Telegram 文本、邮件 HTML 均同标题）。"""
+    """没传站点名时日报标题沿用 [AliCloud每日报告]（Telegram 文本、邮件
+    HTML 均同标题）。"""
     assert DAILY_TITLE == "[AliCloud每日报告]"
     chunk = build_daily_report([acc(1)], "2026-11-22")[0]
     assert chunk["text"].startswith("[AliCloud每日报告]\n日期：2026-11-22")
     assert "[AliCloud每日报告]" in chunk["email_html"]
     assert "阿里云多账号·每日财报" not in chunk["text"]
     assert "阿里云多账号·每日财报" not in chunk["email_html"]
+
+
+def test_daily_report_ip_masked():
+    """日报 IP 只显示 A.B 段：完整 IP 不出现在文本、HTML、邮件 HTML 里；
+    无 IP 显示 —，非 IPv4 原样返回。"""
+    from app.notify import _mask_ip
+    assert _mask_ip("") == "—" and _mask_ip(None) == "—"
+    assert _mask_ip("203.0.113.10") == "203.0.*.*"
+    assert _mask_ip("2001:db8::1") == "2001:db8::1"
+    chunk = build_daily_report([acc(1)], "2026-11-22")[0]
+    for key in ("text", "html", "email_html"):
+        assert "203.0.*.*" in chunk[key] and "203.0.113.11" not in chunk[key]
+    noip = build_daily_report([dict(acc(1), public_ip="")], "2026-11-22")[0]
+    assert "🌐 IP：—" in noip["text"] and "🌐 IP：<b>—</b>" in noip["html"]
+
+
+def test_daily_title_follows_site_name():
+    """日报标题跟随站点名称：传了站点名就用 `[{站点名}每日报告]`，文本、
+    HTML、邮件 HTML 三处同标题；空站点名回落 AliCloud。"""
+    from app.notify import daily_title
+    assert daily_title("") == "[AliCloud每日报告]"
+    assert daily_title("  ") == "[AliCloud每日报告]"
+    assert daily_title("CDT 面板") == "[CDT 面板每日报告]"
+    chunk = build_daily_report([acc(1)], "2026-11-22", site_name="我的面板")[0]
+    assert chunk["text"].startswith("[我的面板每日报告]\n日期：2026-11-22")
+    assert "[我的面板每日报告]" in chunk["html"]
+    assert "[我的面板每日报告]" in chunk["email_html"]
+    assert "[AliCloud每日报告]" not in chunk["text"]
 
 
 def test_manual_push_does_not_consume_scheduled(tmpdb):
@@ -226,7 +281,7 @@ def test_manual_push_does_not_consume_scheduled(tmpdb):
     r = client.post("/api/notify/send-daily")
     assert r.status_code == 200
     assert r.json()["accounts"] == 1 and r.json()["sent"] == []
-    assert DAILY_TITLE in r.json()["preview"]["text"]
+    assert "[CDT 面板每日报告]" in r.json()["preview"]["text"]
     assert tmpdb.get_flag("daily_report_done:2026-11-22") == ""
     assert any(e["title"] == "手动推送日报" for e in tmpdb.list_events(10))
     # 定时时间到了：照常再推一次

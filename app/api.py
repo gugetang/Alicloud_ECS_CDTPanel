@@ -1107,9 +1107,10 @@ def daily_preview(_: bool = Depends(_admin_required)):
     全部账户跟随全局开关，与“发送测试财报”保持一致。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
+    settings = db.get_settings()
     accounts = filter_daily_report_accounts(
-        _daily_report_accounts(), db.get_settings(), force=True)
-    chunks = build_daily_report(accounts, today)
+        _daily_report_accounts(), settings, force=True)
+    chunks = build_daily_report(accounts, today, settings.get("site_name") or "")
     first = chunks[0] if chunks else {"html": "", "text": "", "email_html": ""}
     return {"date": today, "messages": len(chunks), "html": first["html"],
             "text": first["text"], "email_html": first["email_html"],
@@ -1123,10 +1124,11 @@ def test_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     全部账户跟随全局开关。body.channel 指定时只发该渠道。"""
     from .notify import build_daily_report, filter_daily_report_accounts
     today = scheduler._now().strftime("%Y-%m-%d")
+    settings = db.get_settings()
     accounts = filter_daily_report_accounts(
-        _daily_report_accounts(), db.get_settings(), force=True)
-    chunks = build_daily_report(accounts, today)
-    n = Notifier(db.get_settings())
+        _daily_report_accounts(), settings, force=True)
+    chunks = build_daily_report(accounts, today, settings.get("site_name") or "")
+    n = Notifier(settings)
     sent = n.send_daily_report(accounts, today, force=True,
                                channel=(body or {}).get("channel") or None)
     return {"sent": sent, "errors": n.last_errors, "messages": len(chunks),
@@ -1147,7 +1149,7 @@ def send_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     settings = db.get_settings()
     accounts = filter_daily_report_accounts(
         _daily_report_accounts(), settings)
-    chunks = build_daily_report(accounts, today)
+    chunks = build_daily_report(accounts, today, settings.get("site_name") or "")
     n = Notifier(settings)
     sent = n.send_daily_report(accounts, today, skip_global_switch=True,
                                channel=(body or {}).get("channel") or None)

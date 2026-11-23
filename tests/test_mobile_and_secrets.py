@@ -740,6 +740,9 @@ def test_ip_copy_only_no_full_reveal():
     assert '{maskIp(a.public_ip)}' in tsx
     assert 'title={t("复制 IP")}' in tsx
     assert 'setMsg(t("IP 已复制"))' in tsx
+    # 复制按钮紧跟 IP 后方同一行：IpView 外层是 inline-flex（一行不换行，
+    # 文字与按钮之间 gap 4px），运行概览与实例管理的卡片/列表四处共用
+    assert 'display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap"' in tsx
     # 分组成员按键的 IP 仍掩码（悬停提示里有完整 IP），不动
     assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
     # 点按显示/隐藏的文案已删（t() 0 缺失由 i18n 测试覆盖，这里只点名）
