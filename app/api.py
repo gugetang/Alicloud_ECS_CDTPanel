@@ -159,6 +159,11 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         out["traffic_used_gb"] = round(float(out["traffic_used_gb"]), 2)
     if settings is None:
         settings = db.get_settings()
+    # 原始值（NULL=跟随系统）：前端表单据此判断“跟随系统/自定义”；
+    # 下面 quota_gb / protection_threshold_pct 仍是生效值（实例级或全局），
+    # 卡片/列表/用量条直接用生效值，不用改。
+    out["quota_gb_raw"] = a.get("quota_gb")
+    out["protection_threshold_pct_raw"] = a.get("protection_threshold_pct")
     quota = a.get("quota_gb")
     if quota is None:
         try:

@@ -190,7 +190,19 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   const [region, setRegion] = useState((account?.region as string) || "cn-hongkong");
   const [regionCustom, setRegionCustom] = useState(false);
   const [regionCustomVal, setRegionCustomVal] = useState("");
-  const [quota, setQuota] = useState(String(account?.quota_gb ?? 200));
+  // 参数设置：跟随系统 / 自定义。初始模式按原始值判断：阈值不为空，
+  // 或额度与全局值不同时算自定义，否则算跟随系统（现有额度=200 且
+  // 全局也是 200 的实例不会无故变自定义，有效值不变）。公开接口的
+  // quota_gb / protection_threshold_pct 是生效值，原始值在 *_raw 里。
+  const _globalQuota = Number((settings as Any)?.quota_gb ?? 200) || 200;
+  const _globalThreshold = Number((settings as Any)?.protection_threshold_pct ?? 95) || 95;
+  const _rawQuota = (account as Any)?.quota_gb_raw;
+  const _rawThreshold = (account as Any)?.protection_threshold_pct_raw;
+  const _isCustom = _rawThreshold != null
+    || (_rawQuota != null && Number(_rawQuota) !== _globalQuota);
+  const [paramMode, setParamMode] = useState(_isCustom ? "custom" : "follow");
+  const [quota, setQuota] = useState(String(_rawQuota ?? _globalQuota));
+  const [threshold, setThreshold] = useState(String(_rawThreshold ?? _globalThreshold));
   const [schedEnabled, setSchedEnabled] = useState(Boolean(account?.daily_schedule_enabled));
   const [onTime, setOnTime] = useState((account?.daily_on_time as string) || "08:00");
   const [offTime, setOffTime] = useState((account?.daily_off_time as string) || "20:00");
@@ -251,18 +263,30 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
-  const saveAutoNow = async () => {
+  const saveAutoNow = async (ov?: { mode?: string; quota?: string; threshold?: string }) => {
     if (savingRef.current) { autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300); return; }
     if (!name.trim() || !akId.trim() || !instanceId.trim()) return;
-    const q = Number(quota);
-    if (!quota || !(q > 0)) return;
+    const mode = ov?.mode ?? paramMode;
+    const quotaVal = ov?.quota ?? quota;
+    const thresholdVal = ov?.threshold ?? threshold;
+    // 跟随系统时额度/阈值都不要求；自定义时额度必须 >0、阈值必须在 (0,100] 内，
+    // 否则显示中文错误、不保存。
+    if (mode === "custom") {
+      const q = Number(quotaVal);
+      if (!quotaVal || !(q > 0)) { setFormMsg(t("流量额度必须大于 0")); return; }
+      const th = Number(thresholdVal);
+      if (!thresholdVal || !(th > 0 && th <= 100)) { setFormMsg(t("流量保护阈值必须在 0 到 100 之间")); return; }
+    }
     if (schedEnabled && onTime === offTime) return;
     const finalRegion = regionCustom ? regionCustomVal.trim() : region;
     if (!finalRegion) return;
     savingRef.current = true;
     const payload: Any = {
       name: name.trim(), access_key_id: akId.trim(), instance_id: instanceId.trim(),
-      site, region: finalRegion, quota_gb: q,
+      site, region: finalRegion,
+      // 跟随系统存 NULL（后端按全局值生效）；自定义存填入的数值。
+      quota_gb: mode === "custom" ? Number(quotaVal) : null,
+      protection_threshold_pct: mode === "custom" ? Number(thresholdVal) : null,
       // 新建默认进第一个已建分组（不是硬编码 1）；编辑保持原分组。
       // 后端 create_account 对不存在的分组也会再兜底一次。
       group_id: account?.group_id ?? (groups[0]?.id ?? 1),
@@ -284,9 +308,20 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     }
     finally { savingRef.current = false; }
   };
-  const saveAuto = () => {
+  const saveAuto = (ov?: { mode?: string; quota?: string; threshold?: string }) => {
     if (autoTimer.current) clearTimeout(autoTimer.current);
-    autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300);
+    autoTimer.current = setTimeout(() => { void saveAutoNow(ov); }, 300);
+  };
+
+  // 参数模式切换：选跟随系统即存 NULL（两个输入框不显示）；从跟随系统
+  // 切到自定义时，先把全局值填入两个输入框再保存，不留空。
+  const changeParamMode = (v: string) => {
+    if (v === paramMode) return;
+    if (v === "follow") { setParamMode("follow"); saveAuto({ mode: "follow" }); return; }
+    const q = String(_globalQuota);
+    const th = String(_globalThreshold);
+    setQuota(q); setThreshold(th); setParamMode("custom");
+    saveAuto({ mode: "custom", quota: q, threshold: th });
   };
 
   const regionKnown = regions.some((r) => r.region_id === region);
@@ -296,17 +331,17 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   return (
     <div className="instance-form">
       <div className="form2">
-        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} onBlur={saveAuto} placeholder={t("如 AliCloud-HK-1")} /></div>
-        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} onBlur={saveAuto} placeholder="i-..." /></div>
-        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} onBlur={saveAuto} placeholder="LTAI..." /></div>
+        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => saveAuto()} placeholder={t("如 AliCloud-HK-1")} /></div>
+        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} onBlur={() => saveAuto()} placeholder="i-..." /></div>
+        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} onBlur={() => saveAuto()} placeholder="LTAI..." /></div>
         <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onFocus={() => { if (akSecret === SECRET_MASK) setAkSecret(""); }} onBlur={() => { if (!akSecret && account?.has_secret) setAkSecret(SECRET_MASK); saveAuto(); }} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
-        <div onBlur={saveAuto}><label className="req">{t("站点类型 *")}</label>
+        <div onBlur={() => saveAuto()}><label className="req">{t("站点类型 *")}</label>
           <Seg value={site} options={[
             { value: "global", label: t("国际站（USD）") },
             { value: "cn", label: t("国内站（CNY）") },
           ]} onChange={setSite} /></div>
         <div><label className="req">{t("地域 *")}</label>
-          <select value={regionCustom ? "__custom" : region} onBlur={saveAuto} onChange={(e) => {
+          <select value={regionCustom ? "__custom" : region} onBlur={() => saveAuto()} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
             else { setRegionCustom(false); setRegion(e.target.value); }
           }}>
@@ -321,19 +356,29 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
             {!regionKnown && !regionCustom && <option value={region}>{region}{t("（当前值）")}</option>}
             <option value="__custom">{t("自定义…")}</option>
           </select>
-          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={saveAuto} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
+          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={() => saveAuto()} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
           <div className="row">
             <button className="btn ghost" onClick={autoDiscover} disabled={formBusy} title={t("自动发现")}>{t("自动发现")}</button>
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
           </div></div>
-        <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={saveAuto} /></div>
+        <div onBlur={() => saveAuto()}><label>{t("参数设置")}</label>
+          <Seg value={paramMode} options={[
+            { value: "follow", label: t("跟随系统"), title: t("流量额度和阈值继承全局设置") },
+            { value: "custom", label: t("自定义") },
+          ]} onChange={changeParamMode} />
+          {paramMode === "follow" && <div className="muted" style={{ marginTop: 6 }}>{t("跟随系统：流量额度 {quota} GiB，流量保护阈值 {threshold}%。", { quota: _globalQuota, threshold: _globalThreshold })}</div>}
+        </div>
+        {paramMode === "custom" && (<>
+          <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={() => saveAuto()} /></div>
+          <div><label className="req">{t("流量保护阈值 *（%）")}</label><input type="number" min={1} max={100} value={threshold} onChange={(e) => setThreshold(e.target.value)} onBlur={() => saveAuto()} /></div>
+        </>)}
       </div>
       <div style={{ marginTop: 12 }}>
-        <label className="check" onBlur={saveAuto}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
+        <label className="check" onBlur={() => saveAuto()}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
         {schedEnabled && (
           <div className="form2">
-            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} onBlur={saveAuto} /></div>
-            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={saveAuto} /></div>
+            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} onBlur={() => saveAuto()} /></div>
+            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={() => saveAuto()} /></div>
           </div>
         )}
       </div>
