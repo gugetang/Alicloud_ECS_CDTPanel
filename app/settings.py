@@ -98,6 +98,10 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "notify_exclusion": "1",
     "notify_error": "1",
     "notify_recovery": "1",
+    # 新增推送事件（默认全部开启）：实例启动 / 实例停机 / 阈值报警（80%）
+    "notify_instance_start": "1",
+    "notify_instance_stop": "1",
+    "notify_threshold_alarm": "1",
     # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
     # 只推已启用的 Telegram/邮件/Webhook 渠道
     "daily_report_enabled": "1",
@@ -135,6 +139,9 @@ EVENT_TOGGLE_KEYS = {
     "exclusion": "notify_exclusion",
     "error": "notify_error",
     "recovery": "notify_recovery",
+    "instance_start": "notify_instance_start",
+    "instance_stop": "notify_instance_stop",
+    "threshold_alarm": "notify_threshold_alarm",
     "daily_report": "notify_daily_report",
 }
 

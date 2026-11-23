@@ -538,6 +538,9 @@ export const EN: Record<string, string> = {
   排除操作完成: "Exclusion completed",
   查询及操作异常: "Query / operation errors",
   故障恢复: "Failure recovery",
+  实例启动: "Instance started",
+  实例停机: "Instance stopped",
+  阈值报警: "Threshold alarm (80%)",
   "持续故障仅在首次发生和恢复时通知。测试使用已保存的配置，调度暂停时也可发送。": "Ongoing failures only notify on first occurrence and on recovery. Tests use the saved config and can be sent even while scheduling is paused.",
   // 备份与恢复
   "下载失败 {status}": "Download failed {status}",

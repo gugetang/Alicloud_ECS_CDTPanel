@@ -252,6 +252,51 @@ def _refresh_one_safe(a: dict, settings: dict) -> None:
         log.warning("刷新 %s 失败（已跳过）: %s", a.get("name"), exc)
 
 
+def _check_threshold_alarms(settings: dict, accounts: list[dict],
+                            notifier: Notifier) -> None:
+    """阈值报警（80% 警告线，固定值，不在设置里加新阈值项）：
+    用量首次达到 80% 且未到保护阈值时推送一次（事件 threshold_alarm，
+    可开关，默认开）；恢复到 80% 以下后清旗标，下次再跨越可再报。
+    已到保护阈值的不再发报警（踢出时走原有的 traffic_protection），
+    但要把旗标置上，避免从阈值回落到 80%+ 时立刻又报一次。
+    无论开关开还是关，都记一条 threshold_alarm 日志事件（与 _notify
+    对其它事件的做法一致：开关只决定是否推送，不决定是否记日志）。"""
+    for a in accounts:
+        used = a.get("traffic_used_gb")
+        quota = a.get("quota_gb") or settings.get("quota_gb") or 200
+        if used is None or not quota:
+            continue
+        rate = float(used) / float(quota) * 100.0
+        thr = a.get("protection_threshold_pct")
+        thr = float(thr) if thr is not None else float(settings.get("protection_threshold_pct") or 95)
+        key = f"threshold_alarm:{a['id']}"
+        if rate < THRESHOLD_ALARM_PCT:
+            if db.get_flag(key):
+                db.delete_flag(key)
+            continue
+        if rate >= thr:
+            # 已到保护阈值：不发报警，走 traffic_protection；置旗标防回落重报
+            db.set_flag(key, "1")
+            continue
+        if db.get_flag(key):
+            continue  # 已报过，未回落到 80% 以下：不再重复报
+        db.set_flag(key, "1")
+        title = "阈值报警"
+        body = (f"{a['name']} 使用率 {rate:.2f}% 已达到 80%，"
+                f"阈值 {thr:.0f}%（已用 {float(used):.2f} / {float(quota):.0f} GiB），"
+                "请注意流量余量")
+        sent = notifier.send("threshold_alarm", title, body)
+        if not sent and getattr(notifier, "last_errors", None):
+            db.add_event("error", "通知发送失败",
+                         f"{title}："
+                         + "; ".join(f"{k}：{v}" for k, v in
+                                     notifier.last_errors.items()))
+        db.add_event("threshold_alarm", title, body, account_id=a["id"])
+
+
+THRESHOLD_ALARM_PCT = 80.0
+
+
 class _CloudOps(engine.CloudOps):
     def __init__(self, settings: dict):
         self.settings = settings
@@ -398,6 +443,8 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                                    _to_domain_views(domains),
                                    _CloudOps(settings), _DnsOps(settings),
                                    notify_fn=_notify, dry_run=False)
+    # 阈值报警：刷新后的用量首次跨 80% 时推一次（见 _check_threshold_alarms）
+    _check_threshold_alarms(settings, accounts, notifier)
     # 落库：域名当前指向 / 备用标记 / 已停止分组的域名（指向 0.0.0.0）
     for d in domains:
         target = plan.assignments.get(d["id"])
@@ -440,7 +487,12 @@ def run_once(dry_run: bool = False, refresh: bool = True,
         elif plan.interval_anchor_at is not None:
             db.set_flag("last_time_switch_at", plan.interval_anchor_at.isoformat())
     if not quiet:
-        db.add_event("schedule", "调度完成", plan.summary)
+        # 日志：只写“调度完成，动作 N 条”查不到是哪台、做了什么、为什么。
+        # 把本轮实际执行的动作（启动/停机/DNS，含实例名与域名）写进同一条
+        # 事件的 detail，让人不用点开别处就能看懂；无动作时仍只写汇总。
+        _done = executed.get("executed") or []
+        _detail = plan.summary + (f"；动作：{'、'.join(_done)}" if _done else "")
+        db.add_event("schedule", "调度完成", _detail)
     daily_schedule = _apply_daily_schedule(settings, now)
     # 恢复持久化：清 evicted 旗标、记恢复事件、按需拉起（dry-run 不走到这里）
     started_by_plan = {a.account_id for a in plan.actions
@@ -545,9 +597,15 @@ def _apply_daily_schedule(settings: dict, now: dt.datetime,
                         client = (cloud_factory(a, secret) if cloud_factory
                                   else AliyunClient(a, secret))
                         client.start_instance()
-                        msg = f"{a['name']} 定时开机已执行"
+                        msg = (f"{a['name']} 定时开机已执行"
+                               f"（每日 {a.get('daily_on_time') or '08:00'}）")
                         done.append(msg)
                         db.add_event("schedule", "定时开机", msg)
+                        # 推送：实例启动，原因=定时开机（开关默认开）
+                        Notifier(settings).send(
+                            "instance_start", "实例启动",
+                            f"{a['name']} 已启动，原因：定时开机"
+                            f"（每日 {a.get('daily_on_time') or '08:00'}）")
                     except Exception as exc:
                         msg = f"{a['name']} 定时开机失败：{brief_error(exc)}"
                         done.append(msg)
@@ -561,9 +619,15 @@ def _apply_daily_schedule(settings: dict, now: dt.datetime,
                     client = (cloud_factory(a, secret) if cloud_factory
                               else AliyunClient(a, secret))
                     client.stop_instance(stop_charging=False)
-                    msg = f"{a['name']} 定时关机已执行"
+                    msg = (f"{a['name']} 定时关机已执行"
+                           f"（每日 {a.get('daily_off_time') or '20:00'}）")
                     done.append(msg)
                     db.add_event("schedule", "定时关机", msg)
+                    # 推送：实例停机，原因=定时关机（开关默认开）
+                    Notifier(settings).send(
+                        "instance_stop", "实例停机",
+                        f"{a['name']} 已停机（普通停机），原因：定时关机"
+                        f"（每日 {a.get('daily_off_time') or '20:00'}）")
                 except Exception as exc:
                     msg = f"{a['name']} 定时关机失败：{brief_error(exc)}"
                     done.append(msg)
@@ -721,6 +785,11 @@ def _persist_threshold_recovery(settings: dict, accounts: list[dict],
                     # 事件标题=重新加入 DDNS（保证性要求的可观测性），
                     # 详情=拉起文案（上一条“恢复默认拉起”的要求）：两者都留档。
                     db.add_event("recovery", title, msg)
+                    # 推送：实例启动，原因=阈值恢复（开关默认开）
+                    Notifier(settings).send(
+                        "instance_start", "实例启动",
+                        f"{a['name']} 已启动，原因：阈值恢复"
+                        f"（使用率 {rate:.1f}% < 恢复线 {line:.0f}%）")
                 except Exception as exc:
                     msg = f"{a['name']} 阈值恢复拉起失败：{brief_error(exc)}"
                     done.append(msg)
