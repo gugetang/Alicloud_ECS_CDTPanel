@@ -4,10 +4,16 @@ WebDAV 是标准 HTTP 扩展（Nextcloud、ownCloud、坚果云、群晖等都�
 用 PUT 上传、GET 下载、PROPFIND 查文件是否存在及大小/修改时间。
 认证用 HTTP Basic Auth（用户名 + 密码）。
 
-配置存在 settings 表里（webdav_url / webdav_username / webdav_password /
-webdav_enabled），密码与邮箱密码一样只存库里，API 读设置时不回显
-（见 api._mask）。备份文件本身含全部凭据（含主密钥），请只传到
+配置存在 settings 表里（webdav_url / webdav_backup_dir / webdav_username /
+webdav_password / webdav_enabled），密码与邮箱密码一样只存库里，API 读设置
+时不回显（见 api._mask）。备份文件本身含全部凭据（含主密钥），请只传到
 自己信任的 WebDAV 服务器。
+
+地址与目录：webdav_url 是 WebDAV 服务器地址（如 Alist 的
+https://oplist.alicloud.ru/dav），webdav_backup_dir 是备份目录
+（如 /GoogleDrive/Backup/1panel），备份文件名固定为 cdt-backup.json，
+完整地址 = 地址 + 目录 + 文件名。备份目录留空时，webdav_url 按旧方式
+直接当作完整文件地址，兼容旧配置。
 """
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ from requests.auth import HTTPBasicAuth
 
 TIMEOUT = 30
 DAV_NS = "{DAV:}"
+BACKUP_FILENAME = "cdt-backup.json"
 
 
 class WebDAVError(Exception):
@@ -31,9 +38,25 @@ def get_config(settings: dict) -> dict:
     return {
         "enabled": str(settings.get("webdav_enabled", "0")) == "1",
         "url": str(settings.get("webdav_url", "") or "").strip(),
+        "backup_dir": str(settings.get("webdav_backup_dir", "") or "").strip(),
         "username": str(settings.get("webdav_username", "") or "").strip(),
         "password": str(settings.get("webdav_password", "") or ""),
     }
+
+
+def file_url(url: str, backup_dir: str) -> str:
+    """拼备份文件的完整地址。
+
+    备份目录非空时：地址 + 目录 + 文件名（cdt-backup.json）。
+    备份目录为空时：地址本身就是完整文件地址（旧配置，兼容）。
+    """
+    url = (url or "").strip()
+    backup_dir = (backup_dir or "").strip()
+    if not backup_dir:
+        return url
+    base = url.rstrip("/")
+    d = "/" + backup_dir.strip("/")
+    return f"{base}{d}/{BACKUP_FILENAME}"
 
 
 def _check_url(url: str) -> str:
@@ -112,9 +135,10 @@ class WebDAVClient:
 def client_from_settings(settings: dict) -> WebDAVClient:
     """按 settings 建客户端；未配置时报可读错误。"""
     cfg = get_config(settings)
-    if not cfg["url"]:
+    url = file_url(cfg["url"], cfg["backup_dir"])
+    if not url:
         raise WebDAVError("未配置 WebDAV 地址，请先在备份设置里填写")
-    return WebDAVClient(cfg["url"], cfg["username"], cfg["password"])
+    return WebDAVClient(url, cfg["username"], cfg["password"])
 
 
 def build_backup_bytes() -> tuple[bytes, str]:

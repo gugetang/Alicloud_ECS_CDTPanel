@@ -12,9 +12,13 @@
 - 按钮/选中态：.btn 回到透明底 + 主题色边框（不再主题色填充）；导航与子标签
   选中回到主题色边框样式（不再填充）；Seg 选中仍是主题色边框（无填充、无写死
   蓝字）；主题 accent 回到 600 档（:root #2563eb），主题风格渐变色块仍用 500 档。
-- 用户新代码删掉的部分 CSS 规则（.toast/.modal/.member-btn/.member-ip/
-  .lang-on/.lang-off），对应元素仍在 App.tsx 里引用，但不再有样式规则——
-  本文件按“规则已删”的现状断言，不擅自恢复。
+- 保存提示框 .toast 已按用户 2026-11-23 19:26 要求恢复：右下角悬浮定位
+  （position:fixed; right:20px; bottom:20px），字体用主题色 var(--accent)，
+  磨砂底 + 细边框 + 阴影；5 秒自动隐藏的定时器仍在 App.tsx 里。
+  分组成员按键的 .member-btn/.member-ip 已按用户 2026-11-23 19:01 要求恢复：
+  圆点 + 两行文字（名称/IP），IP 单独一行居中，圆点垂直居中在两行中心。
+  .lang-on/.lang-off 已按用户 2026-11-23 19:08 要求恢复：当前语言主题色，
+  未选的灰色；中/En 按钮改小到与主题/退出图标按钮同大（3px 4px、9px）。
 - 主题风格 CSS 已恢复：html[data-accent] 五条规则（500 档 --accent）与
   .theme-grid/.theme-card/.theme-swatch/.theme-check/.theme-name/.theme-en
   卡片样式都在 styles.css 里；:root 的 --accent:#2563eb 只作 fallback。
@@ -263,13 +267,15 @@ def test_theme_styles_picker():
 def test_group_member_shows_masked_ip():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 分组成员按键：两行，上面状态点+名称，下面当前 IP（A.B 显示，C.D 用 * 代替）
+    # 分组成员按键：圆点 + 两行文字，上面名称、下面当前 IP（A.B 显示，C.D 用 * 代替），
+    # IP 单独一行居中，圆点用 flex 垂直居中，落在两行文字的中心高度
     assert 'className={(on ? "seg-on " : "") + "member-btn"}' in tsx
-    assert '<span className="member-top">' in tsx
+    assert '{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="member-text">' in tsx
+    assert '<span className="member-name">{a.name as string}</span>' in tsx
     assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
-    # 用户新代码删掉了成员按键的专用 CSS（.seg button.member-btn/.member-ip
-    # 的两列布局规则），按键仍是两行 span 结构，但按普通 seg 按钮渲染
-    assert ".seg button.member-btn" not in css and ".member-ip" not in css
+    assert ".member-btn { display:inline-flex; align-items:center;" in css
+    assert ".member-text { display:inline-flex; flex-direction:column; align-items:center; }" in css
+    assert ".member-ip { display:block;" in css
 
 
 def test_group_time_section_only_interval():
@@ -375,23 +381,42 @@ def test_save_toast_renders_and_autohides():
     assert '<div className="toast">{msg}</div>' in tsx
     assert '<div className="notice">{msg}</div>' not in tsx
     assert "setTimeout" in tsx and "5000" in tsx
-    # 用户新代码删掉了 .toast 的 CSS 规则（右下角悬浮定位 + 主题色字体），
-    # toast 目前按普通 div 渲染，不再固定在右下角
-    assert ".toast" not in css
+
+
+def test_save_toast_bottom_right_theme_color():
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 保存提示框：右下角悬浮（fixed + right/bottom），字体用主题色 var(--accent）
+    m = re.search(r"\.toast\s*\{[^}]*\}", css)
+    assert m, ".toast missing"
+    rule = m.group(0)
+    assert "position:fixed" in rule
+    assert "right:20px" in rule and "bottom:20px" in rule
+    assert "color:var(--accent)" in rule
+
+
+def test_logs_title_same_size_bold_and_detail_numbers_accent():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 日志行标题（如“调度完成”）与后面详情同大（详情 .muted 是 13px）并加粗
+    assert '<span style={{ fontSize: 13, fontWeight: 700 }}>{e.title as string}</span>' in tsx
+    # 详情里的数字用主题色：accentNums 按数字分段，数字段包主题色 span
+    assert "const accentNums" in tsx
+    assert '.split(/(\\d+)/g)' in tsx
+    assert 'style={{ color: "var(--accent)" }}' in tsx
+    assert "{accentNums(e.detail as string)}" in tsx
 
 
 def test_header_lang_toggle_and_logout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 语言切换：图标式 中/En 切换键，点一下切语言，不再是下拉菜单；
-    # 语言键是紧凑小按钮（padding 3px 7px，12px）；.lang-on/.lang-off 的
-    # 颜色规则已被用户新代码删掉，不再用 CSS 区分当前语言
+    # 语言键与主题/退出图标按钮同大（padding 3px 4px，9px 字/图标）；
+    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off）
     assert 'className="btn ghost lang-btn"' in tsx
     assert 'setLang(lang === "zh" ? "en" : "zh")' in tsx
     assert '>中</span>' in tsx and '>En</span>' in tsx
     assert 'langMenuOpen' not in tsx
-    assert ".lang-btn { padding:3px 7px; font-size:12px; }" in css
-    assert ".lang-on" not in css and ".lang-off" not in css
+    assert ".lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    assert ".lang-on { color:var(--accent); }" in css and ".lang-off { color:var(--muted); }" in css
     # 主题键与退出键是 9px 小图标（页眉与登录页各一处，ThemeIcon size={9}）；
     # .theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
     assert tsx.count("size={9}") == 2
@@ -516,11 +541,12 @@ def test_buttons_accent_border_not_filled():
     btn = re.search(r"\.btn\s*\{([^}]*)\}", css)
     assert btn is not None
     body = btn.group(1)
-    # 主按钮回到透明底 + 主题色边框 + 蓝字（主题色填充的版本已改回）
+    # 主按钮全局灰色：透明底 + 灰边框 + 正常文字（主题色边框 + 蓝字的版本已改回）
     assert "background:transparent" in body
-    assert "border:2px solid var(--accent)" in body
-    assert "color:#1d4ed8" in body
+    assert "border:2px solid var(--border)" in body
+    assert "color:var(--text)" in body
     assert "background:var(--accent)" not in body
+    assert "var(--accent)" not in body
     # 删除实例仍是红色实心（内联样式，不受 .btn 影响）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert 'background: "#EA4335"' in tsx
@@ -695,9 +721,9 @@ def test_settings_cards_use_parent_child_layout():
     # 备份与恢复、站点信息、货币结算、主题设置、通知事件、DDNS 设置都一样
     # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
-    # 通知渠道：字段区缩进；每日财报推送升为 h3 父标题、其控件缩进
+    # 通知渠道：字段区缩进；每日推送升为 h3 父标题、其控件缩进
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ margin: 0 }}>{t("每日财报推送")}</h3>' in tsx
+    assert '<h3 style={{ margin: 0 }}>{t("每日推送")}</h3>' in tsx
     # 备份与恢复：按钮行缩进
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
@@ -733,23 +759,154 @@ def test_backup_card_cloud_button_local_button_and_dialog():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
     # 云端备份是按钮（不是滑动开关），放在本地备份前面；选中（已启用）时
-    # 用 seg-on 样式（主题色边框 + 加粗），点一下切换 webdav_enabled
-    assert 'title={t("云端备份")}' in tsx
+    # 用 seg-on 样式（主题色边框 + 加粗），点一下切换 webdav_enabled；
+    # 悬停说明是功能描述（选中开启云端备份功能）
+    assert 'title={t("选中开启云端备份功能")}' in tsx
     assert 'className={wdEnabled ? "seg-on" : ""}' in tsx
     assert 'saveSettings({ webdav_enabled: wdEnabled ? "0" : "1" })' in tsx
     # 云端备份按钮在本地备份按钮前面
     assert tsx.index('t("云端备份")') < tsx.index('t("本地备份")')
-    # 下载备份改名本地备份，点一下下载
-    assert 'title={t("本地备份")}' in tsx
+    # 下载备份改名本地备份，点一下下载；悬停说明是点击下载到本地
+    assert 'title={t("点击下载到本地")}' in tsx
+    assert 'className="btn" onClick={download}' in tsx
     assert '本地备份: "Local backup"' in i18n
     # 卡片右上角有云端备份设置按钮（⚙），点一下弹出云端备份对话框
     assert 'title={t("云端备份设置")}' in tsx
     assert "showWdDialog" in tsx
     assert 'className="modal-overlay"' in tsx
-    # 对话框里是 WebDAV 配置（地址/用户名/密码）+ 测试/上传/从云端恢复 + 状态
+    # 对话框里是 WebDAV 配置（地址/用户名/密码/备份目录）+ 测试/上传/从云端恢复 + 状态
     assert 't("云端备份设置")' in tsx
-    assert 'id="wd-url"' in tsx and 'id="wd-user"' in tsx and 'id="wd-pass"' in tsx
+    assert 'id="wd-url"' in tsx and 'id="wd-user"' in tsx and 'id="wd-pass"' in tsx and 'id="wd-dir"' in tsx
     # 旧的 inline 开关与 inline 表单已取消：卡片里不再有启用云端备份的 Toggle
     assert 'label={t("启用云端备份")}' not in tsx
     # modal 样式存在（云端备份对话框与添加域名对话框共用）
     assert ".modal-overlay" in css and ".modal" in css
+
+
+def test_card_settings_gear_same_size_as_action_icons():
+    # 实例卡片右上角的设置齿轮与下面 4 个操作图标（刷新/启动/重启/停机）一样大：
+    # 都是 icon-btn（30×30 框）+ Ico 16×16 SVG，不再是 btn ghost + ⚙️ emoji
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    import re
+    gears = re.findall(r'<button className="([^"]*)" title=\{t\("卡片设置"\)\}.*?</button>', tsx)
+    assert len(gears) == 2, f"expected 2 card-settings gear buttons, got {len(gears)}"
+    assert all(c == "icon-btn" for c in gears), gears
+    # 两处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
+    for m in re.finditer(r'title=\{t\("卡片设置"\)\}.*?</button>', tsx):
+        assert '<Ico label={t("卡片设置")}>' in m.group(0)
+        assert '⚙️' not in m.group(0)
+
+
+def test_dynamic_mode_heading_not_bold():
+    # 全局设置里“动态切换间隔”紧跟在切换阀值三选一（百分比/固定流量/动态模式）
+    # 下面，只在选了动态模式时显示；底部的“动态模式”小节标题已取消
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<h3 style={{ marginTop: 20, fontWeight: 400 }}>{t("动态模式")}</h3>' not in tsx
+    # 全局三选一 Seg（value={sMode}）后就是动态间隔区（条件 sMode === "dynamic"），
+    # 在“不适用定时轮巡”与“阈值动作”前面
+    seg_idx = tsx.index('<Seg value={sMode} options={[')
+    dyn_idx = tsx.index('{sMode === "dynamic" && (', seg_idx)
+    note_idx = tsx.index('t("不适用定时轮巡。")', dyn_idx)
+    assert dyn_idx < note_idx
+    assert 't("动态切换间隔")' in tsx[seg_idx:note_idx]
+    assert tsx.index('t("动态切换间隔")', seg_idx) < tsx.index('t("阈值动作")', seg_idx)
+
+
+def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
+    # 页眉中/En 按钮与主题/退出图标按钮同大（3px 4px 内边距、9px 字/图标），
+    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off），分隔符也是灰色
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".theme-btn { padding:3px 4px; display:flex; align-items:center; }" in css
+    assert ".lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    assert ".lang-on { color:var(--accent); }" in css
+    assert ".lang-off { color:var(--muted); }" in css
+    assert ".lang-sep { color:var(--muted); }" in css
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert tsx.count('className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>') == 2
+    assert tsx.count('className={lang === "en" ? "lang-on" : "lang-off"}>En</span>') == 2
+
+
+def test_group_settings_follow_global_layout_indent():
+    # 分组卡片设置区跟随全局设置（参数设置）的父子栏布局：分组名称/切换模式/
+    # 阈值动作/阈值恢复都缩进 2 字符（与全局设置的阈值动作/阈值恢复一致），
+    # 切换参数本来就是缩进的
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 分组名称
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="req">{t("分组名称 *")}</label>' in tsx
+    # 切换模式
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("切换模式")}</label>' in tsx
+    # 阈值动作 / 阈值恢复（与全局设置一样，整个 label+Seg 区块缩进 2em）
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值动作")}</label>' in tsx
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值恢复")}</label>' in tsx
+    # 全局设置侧的阈值动作/阈值恢复同样缩进 2em（对照）
+    assert tsx.count('<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n              <label className="lbl">{t("阈值动作")}</label>') == 1
+
+
+def test_backup_cloud_and_local_buttons_same_height():
+    # 备份与恢复卡片里云端备份（.seg 按钮）与本地备份（.btn）同一行等高：
+    # .seg 自带 margin-top:6px 会把云端备份顶下去 6px，与旁边的 .btn 不对齐，
+    # 所以这行的 .seg 要把 margin-top 归零
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<div className="seg" style={{ marginTop: 0 }}>' in tsx
+    assert 'className={wdEnabled ? "seg-on" : ""}' in tsx
+
+
+def test_cloud_backup_dialog_draggable_and_alist_layout():
+    # 云端备份对话框：标题可拖动（onMouseDown 拖拽 + transform 位移 + 松手防误关），
+    # 字段按参考图重排：* 地址 / * 用户名 / * 密码 / * 备份目录，
+    # 地址下有 Alist 官方文档快速跳转，云端备份按钮悬停说明是功能描述
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 可拖动
+    assert "onWdDragStart" in tsx
+    assert 'onMouseDown={onWdDragStart}' in tsx
+    assert "translate(${wdPos.x}px, ${wdPos.y}px)" in tsx
+    assert "wdDragEndAt.current" in tsx
+    # 字段按参考图
+    assert 't("* 地址")' in tsx
+    assert 't("* 用户名")' in tsx
+    assert 't("* 密码")' in tsx
+    assert 't("* 备份目录")' in tsx
+    assert 'id="wd-dir"' in tsx
+    assert 'placeholder="/GoogleDrive/Backup/1panel"' in tsx
+    assert 'placeholder="https://oplist.alicloud.ru/dav"' in tsx
+    assert 't("WebDAV 连接 Alist 可参考官方文档")' in tsx
+    assert "https://alist.nn.ci/zh/guide/webdav.html" in tsx
+    assert 't("快速跳转")' in tsx
+    # 悬停说明
+    assert 'title={t("选中开启云端备份功能")}' in tsx
+
+
+def test_buttons_gray_globally():
+    # 全站主按钮默认灰色：.btn 用灰边框 + 正常文字（不再是主题色边框 + 蓝字），
+    # 本地备份/恢复备份/修改密码/注册指纹都用普通 .btn 即灰色
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".btn { background:transparent; color:var(--text); border:2px solid var(--border);" in css
+    assert "btn gray" not in tsx and ".btn.gray" not in css
+    assert 'className="btn" onClick={download}' in tsx
+    assert 'className="btn" onClick={restore}' in tsx
+    assert 'className="btn" onClick={changePw}' in tsx
+    assert 'className="btn" onClick={registerFingerprint}' in tsx
+    # 本地备份悬停说明是点击下载到本地
+    assert 'title={t("点击下载到本地")}' in tsx
+
+
+def test_button_font_not_bold_by_default_bold_on_select_or_hover():
+    # 按钮框内字体默认不加粗，只在选中或悬停时加粗；选中/悬停时字不换主题色，默认灰色
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    btn = re.search(r"\.btn\s*\{([^}]*)\}", css)
+    assert btn is not None and "font-weight:400" in btn.group(1)
+    assert "color:var(--text)" in btn.group(1)
+    assert "var(--accent)" not in btn.group(1)
+    # 悬停加粗，不换色
+    assert ".btn:hover { font-weight:600; }" in css
+    # 选择器默认不加粗，选中/悬停加粗，不换色
+    seg = re.search(r"\.seg button\s*\{([^}]*)\}", css)
+    assert seg is not None and "font-weight:400" in seg.group(1)
+    assert ".seg button:hover { font-weight:600; }" in css
+    seg_on = re.search(r"\.seg button\.seg-on\s*\{([^}]*)\}", css)
+    assert seg_on is not None and "font-weight:600" in seg_on.group(1)
+    assert "color:" not in seg_on.group(1)
+    # 导航/子标签：默认不加粗，选中加粗不换色，悬停加粗
+    assert "nav button:hover { font-weight:600; }" in css
+    assert ".subtabs button:hover { color:var(--text); font-weight:600; }" in css

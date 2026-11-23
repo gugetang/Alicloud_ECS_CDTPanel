@@ -1201,7 +1201,8 @@ def webdav_status(_: bool = Depends(_admin_required)):
         info = webdav.client_from_settings(settings).propfind()
     except webdav.WebDAVError as exc:
         raise HTTPException(400, str(exc))
-    return {"configured": True, "enabled": cfg["enabled"], "url": cfg["url"],
+    return {"configured": True, "enabled": cfg["enabled"],
+            "url": webdav.file_url(cfg["url"], cfg["backup_dir"]),
             **info}
 
 

@@ -52,12 +52,13 @@ header h1 { font-size:28px; margin:0 0 4px; }
 header p { color:var(--muted); margin:0 0 20px; }
 nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 nav button { background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+nav button:hover { font-weight:600; }
 nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px 13px; }
 /* 设置页子标签（浏览器标签页样式，从左到右：全局设置、域名管理、通知设置）：
    当前标签浅蓝底 + 蓝字 + 蓝边框，下边与分隔线贴合；未选灰字透明底。 */
 .subtabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:16px; }
 .subtabs button { background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0; padding:10px 20px; cursor:pointer; font-size:14px; margin-bottom:-1px; }
-.subtabs button:hover { color:var(--text); }
+.subtabs button:hover { color:var(--text); font-weight:600; }
 .subtabs button.active { border-color:var(--accent); border-bottom:1px solid transparent; font-weight:600; }
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); }
 .card h2 { margin:0 0 4px; font-size:18px; }
@@ -79,7 +80,7 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 .dot-pulse-red { animation: dotPulseRed 1.2s ease-in-out infinite; }
 @keyframes dotPulse { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(52,168,83,.7); } 50% { opacity:.55; box-shadow:0 0 0 3px rgba(52,168,83,0); } }
 @keyframes dotPulseRed { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(234,67,53,.7); } 50% { opacity:.55; box-shadow:0 0 0 3px rgba(234,67,53,0); } }
-/* 每日财报推送预览卡片：标题 16px / 正文 14px / 日期 12px，行高 1.6，手机端不溢出 */
+/* 每日推送预览卡片：标题 16px / 正文 14px / 日期 12px，行高 1.6，手机端不溢出 */
 .report-card { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; max-width:100%; overflow-wrap:break-word; }
 .report-title { font-size:16px; font-weight:700; line-height:1.5; }
 .report-date { font-size:12px; color:var(--muted); line-height:1.5; }
@@ -91,6 +92,9 @@ html[data-theme="light"] .pill.gray { background:#e2e8f0; color:#64748b; }
 .pill.blue { background:#172554; color:#93c5fd; }
 html[data-theme="light"] .pill.blue { background:#dbeafe; color:#1d4ed8; }
 .pill.red { background:#3f1d1d; color:#fca5a5; }
+/* 保存提示框：自动保存后右下角悬浮弹出，5 秒自动隐藏（App.tsx 里 setTimeout）；
+   字体用主题色（--accent，跟随 5 种主题风格切换），磨砂底 + 细边框 + 阴影。 */
+.toast { position:fixed; right:20px; bottom:20px; z-index:300; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px 16px; color:var(--accent); font-size:14px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); box-shadow:0 8px 24px rgba(0,0,0,.18); max-width:min(420px, calc(100vw - 40px)); }
 /* 对话框：遮罩 + 磨砂弹框，点遮罩关闭，点框内不关闭。 */
 .modal-overlay { position:fixed; inset:0; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; z-index:200; padding:20px; }
 .modal { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; width:min(560px,100%); max-height:calc(100vh - 40px); overflow:auto; backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4); }
@@ -137,8 +141,11 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 /* 主题菜单（页眉）：图标按钮 + 下拉菜单，选中项浅蓝底、右侧打勾。 */
 .theme-menu { position:relative; }
 .theme-btn { padding:3px 4px; display:flex; align-items:center; }
-/* 页眉语言按钮：与图标按钮同高，紧凑尺寸 */
-.lang-btn { padding:3px 7px; font-size:12px; }
+/* 页眉语言按钮：与图标按钮同高同宽，紧凑尺寸；当前语言用主题色，未选的用灰色 */
+.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }
+.lang-on { color:var(--accent); }
+.lang-off { color:var(--muted); }
+.lang-sep { color:var(--muted); }
 .menu-backdrop { position:fixed; inset:0; z-index:40; }
 .menu { position:absolute; right:0; top:calc(100% + 6px); z-index:41; min-width:180px; background:var(--card); backdrop-filter:blur(14px) saturate(1.2); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:6px; }
 .menu button { display:flex; align-items:center; gap:10px; width:100%; padding:8px 10px; background:none; border:none; border-radius:8px; color:var(--text); font-size:14px; cursor:pointer; text-align:left; }
@@ -146,9 +153,9 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 .menu button.sel { border:2px solid var(--accent); font-weight:600; padding:6px 8px; }
 .menu-ico { display:flex; color:inherit; }
 .menu-check { margin-left:auto; font-weight:700; }
-.btn { background:transparent; color:#1d4ed8; border:2px solid var(--accent); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:600; }
-html[data-theme="dark"] .btn { color:#93c5fd; }
-html[data-theme="dark"] .btn:hover { color:#1d4ed8; }
+.btn { background:transparent; color:var(--text); border:2px solid var(--border); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:400; }
+/* 按钮字默认不加粗，只在悬停时加粗；悬停时字不换主题色（仍是默认灰色文字） */
+.btn:hover { font-weight:600; }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
@@ -169,8 +176,16 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 /* 按键式选择（全站统一）：选中蓝框（2px 蓝边 + 蓝字，不用填充色），未选灰框灰字。
    选中态 padding 少 1px，抵掉边框多出的 1px，外形尺寸与未选态一致。 */
 .seg { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
-.seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted); border-radius:10px; padding:8px 16px; cursor:pointer; font-size:14px; }
+.seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted); border-radius:10px; padding:8px 16px; cursor:pointer; font-size:14px; font-weight:400; }
 .seg button.seg-on { border:2px solid var(--accent); padding:7px 15px; font-weight:600; }
+/* 选择器字默认不加粗，只在选中或悬停时加粗；选中/悬停时字不换主题色 */
+.seg button:hover { font-weight:600; }
+/* 分组成员按键：圆点 + 两行文字（上面名称，下面 IP），文字居中，
+   圆点用 flex 垂直居中，落在两行文字的中心高度。 */
+.member-btn { display:inline-flex; align-items:center; text-align:center; }
+.member-text { display:inline-flex; flex-direction:column; align-items:center; }
+.member-name { display:block; }
+.member-ip { display:block; font-size:12px; color:var(--muted); }
 /* 实例配置表单：与卡片同色，顶部留间距 */
 .instance-form { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 /* 登录 / 首次设置页：居中窄卡片 */

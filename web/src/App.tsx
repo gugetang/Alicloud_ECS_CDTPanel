@@ -113,6 +113,9 @@ const maskIp = (ip: string | null | undefined) => {
   const parts = String(ip).split(".");
   return parts.length === 4 ? `${parts[0]}.${parts[1]}.*.*` : String(ip);
 };
+// 日志详情里的数字用主题色显示：按数字分段，数字段包一层主题色 span，其余文字不动。
+const accentNums = (s: string) => String(s ?? "").split(/(\d+)/g).map((p, i) =>
+  /^\d+$/.test(p) ? <span key={i} style={{ color: "var(--accent)" }}>{p}</span> : <Fragment key={i}>{p}</Fragment>);
 
 // 滑动开关（通知设置等开关类按钮统一用滑动形式）：开=蓝底白圆点，关=灰底。
 function Toggle({ checked, onChange, label }: {
@@ -608,7 +611,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </button>
       </div>
       {showSettings && (<>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="req">{t("分组名称 *")}</label>
         <input value={gName} onChange={(e) => setGName(e.target.value)} onBlur={() => {
           const nm = gName.trim();
@@ -617,7 +620,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           savePatch({ name: nm }, t("已保存成功"));
         }} />
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="lbl">{t("切换模式")}</label>
         <Seg value={(g.switch_mode === "time" ? "time" : "load_balance") as string} options={[
           { value: "time", label: t("定时轮巡") },
@@ -697,7 +700,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           </>)}
         </div>
       )}
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="lbl">{t("阈值动作")}</label>
         <Seg value={gExcl} options={[
           { value: "", label: t("跟随系统") },
@@ -706,7 +709,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           { value: "stop", label: t("停机"), title: t("普通停机，停机后继续计费") },
         ]} onChange={(v) => { setGExcl(v); savePatch({ exclusion_action: v }); }} />
       </div>
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="lbl">{t("阈值恢复")}</label>
         <Seg value={gRecovery} options={[
           { value: "", label: t("跟随系统") },
@@ -726,8 +729,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
             <button key={a.id as number} className={(on ? "seg-on " : "") + "member-btn"}
               title={`${a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
               onClick={() => run(() => put(`/api/accounts/${a.id}`, { group_ids: next, ...(on ? {} : { ddns_enabled: 1 }) }), on ? t("已从分组移除 {name}", { name: a.name }) : t("{name} 已加入分组", { name: a.name }))}>
-              <span className="member-top">{dotEl(a.status_dot, a.status_detail || a.status_label || "")}{a.name as string}</span>
-              <span className="member-ip">{maskIp(a.public_ip)}</span>
+              {dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="member-text"><span className="member-name">{a.name as string}</span><span className="member-ip">{maskIp(a.public_ip)}</span></span>
             </button>
           );
         })}
@@ -826,10 +828,10 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         </div>
       )}
       <div style={{ marginTop: 12 }}>
-        <h3 style={{ margin: 0 }}>{t("每日财报推送")}</h3>
+        <h3 style={{ margin: 0 }}>{t("每日推送")}</h3>
         <div style={{ paddingLeft: "2em" }}>
-        <div className="row"><span>{t("启用每日财报推送")}</span><span className="spacer" />
-          <Toggle checked={drEnabled} label={t("启用每日财报推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
+        <div className="row"><span>{t("启用每日推送")}</span><span className="spacer" />
+          <Toggle checked={drEnabled} label={t("启用每日推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
         <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
         </div>
       </div>
@@ -969,6 +971,30 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const [fileName, setFileName] = useState("");
   const [wdStatus, setWdStatus] = useState<Any | null>(null);
   const [showWdDialog, setShowWdDialog] = useState(false);
+  // 云端备份对话框可拖动：按住标题拖，松手后位置保留；拖动结束 200ms 内
+  // 忽略遮罩的点击，避免拖到遮罩上松手时误关对话框
+  const [wdPos, setWdPos] = useState({ x: 0, y: 0 });
+  const wdDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const wdDragEndAt = useRef(0);
+  const onWdDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    wdDragRef.current = { startX: e.clientX, startY: e.clientY, origX: wdPos.x, origY: wdPos.y };
+    let moved = false;
+    const onMove = (ev: MouseEvent) => {
+      const d = wdDragRef.current;
+      if (!d) return;
+      if (Math.abs(ev.clientX - d.startX) > 3 || Math.abs(ev.clientY - d.startY) > 3) moved = true;
+      setWdPos({ x: d.origX + (ev.clientX - d.startX), y: d.origY + (ev.clientY - d.startY) });
+    };
+    const onUp = () => {
+      if (moved) wdDragEndAt.current = Date.now();
+      wdDragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const wdEnabled = settings?.webdav_enabled === "1";
   const wdConfigured = Boolean(settings?.webdav_configured);
@@ -991,6 +1017,7 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const saveWd = () => {
     const patch: Any = {
       webdav_url: (document.getElementById("wd-url") as HTMLInputElement)?.value?.trim() || "",
+      webdav_backup_dir: (document.getElementById("wd-dir") as HTMLInputElement)?.value?.trim() || "",
       webdav_username: (document.getElementById("wd-user") as HTMLInputElement)?.value?.trim() || "",
     };
     const pw = (document.getElementById("wd-pass") as HTMLInputElement)?.value || "";
@@ -1078,30 +1105,32 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
     <div className="card">
       <div className="row"><h2 style={{ margin: 0 }}>{t("备份与恢复")}</h2>
         <span className="spacer" />
-        <button className="btn ghost" title={t("云端备份设置")} onClick={() => setShowWdDialog(true)}>⚙️</button>
+        <button className="btn ghost" title={t("云端备份设置")} onClick={() => { setWdPos({ x: 0, y: 0 }); setShowWdDialog(true); }}>⚙️</button>
       </div>
       <div className="row" style={{ paddingLeft: "2em", marginTop: 12 }}>
-        <div className="seg">
-          <button type="button" className={wdEnabled ? "seg-on" : ""} title={t("云端备份")} onClick={() => saveSettings({ webdav_enabled: wdEnabled ? "0" : "1" })}>{t("云端备份")}</button>
+        <div className="seg" style={{ marginTop: 0 }}>
+          <button type="button" className={wdEnabled ? "seg-on" : ""} title={t("选中开启云端备份功能")} onClick={() => saveSettings({ webdav_enabled: wdEnabled ? "0" : "1" })}>{t("云端备份")}</button>
         </div>
-        <button className="btn" onClick={download} disabled={busy} title={t("本地备份")}>{t("本地备份")}</button>
+        <button className="btn" onClick={download} disabled={busy} title={t("点击下载到本地")}>{t("本地备份")}</button>
         <input type="file" id="backup-file" accept=".json,application/json"
           style={{ flex: 1 }} onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
         <button className="btn" onClick={restore} disabled={busy || !fileName} title={t("恢复备份")}>{t("恢复备份")}</button>
       </div>
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
       {showWdDialog && (
-        <div className="modal-overlay" onClick={() => setShowWdDialog(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{t("云端备份设置")}</h3>
+        <div className="modal-overlay" onClick={() => { if (Date.now() - wdDragEndAt.current < 200) return; setShowWdDialog(false); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={(wdPos.x || wdPos.y) ? { transform: `translate(${wdPos.x}px, ${wdPos.y}px)` } : undefined}>
+            <h3 onMouseDown={onWdDragStart} style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>
             <div style={{ marginTop: 12 }}>
-              <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("WebDAV 地址")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://…/backups/cdt-backup.json" style={{ width: "100%" }} onBlur={saveWd} /></div>
-                <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("填备份文件的完整地址，例如 Nextcloud / 坚果云 / 群晖的 WebDAV 文件地址。")}</div></div>
-              <div style={{ marginTop: 12 }}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("用户名")}</label>
+              <div><label className="req" style={{ paddingLeft: "2em" }}>{t("* 地址")}</label>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://oplist.alicloud.ru/dav" style={{ width: "100%" }} onBlur={saveWd} /></div>
+                <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("WebDAV 连接 Alist 可参考官方文档")} <a href="https://alist.nn.ci/zh/guide/webdav.html" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>↗ {t("快速跳转")}</a></div></div>
+              <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 用户名")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
-              <div style={{ marginTop: 12 }}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("密码")}</label>
+              <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 密码")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
+              <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 备份目录")}</label>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} placeholder="/GoogleDrive/Backup/1panel" style={{ width: "100%" }} onBlur={saveWd} /></div></div>
             </div>
             <div className="row" style={{ paddingLeft: "2em", marginTop: 16 }}>
               <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
@@ -1805,7 +1834,7 @@ export default function App() {
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
-                  <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                  <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                 </div>
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
@@ -1838,7 +1867,7 @@ export default function App() {
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                 <td><div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                  <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                  <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                   <ActionButtons a={a} />
                 </div></td>
               </tr>
@@ -2024,6 +2053,22 @@ export default function App() {
                 <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div></div>
               ) : null}
             </div>
+            {sMode === "dynamic" && (
+            <div style={{ marginTop: 12 }}>
+              <div className="form2">
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
+                  <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
+                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
+                    { value: "90", label: t("90 分钟") },
+                    { value: "0", label: t("自定义") },
+                  ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
+              </div>
+              {sDynInterval === "0" && (
+                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
+            </div>
+            )}
             {sMode !== "dynamic" && (<div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>)}
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值动作")}</label>
@@ -2060,23 +2105,6 @@ export default function App() {
                   ]} onChange={changeCustUnit} />
                 </div></div></div>)}
             </div>
-            {sMode === "dynamic" && (<>
-            <h3 style={{ marginTop: 20 }}>{t("动态模式")}</h3>
-            <div>
-              <div className="form2">
-                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
-                  <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
-                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                    { value: "90", label: t("90 分钟") },
-                    { value: "0", label: t("自定义") },
-                  ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
-              </div>
-              {sDynInterval === "0" && (
-                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
-              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
-            </div>
-            </>)}
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[
@@ -2188,7 +2216,7 @@ export default function App() {
           {logs.length === 0 && <p className="muted">{t("暂无日志。")}</p>}
           {logs.map((e) => (
             <div key={e.id as number} className="row" style={{ padding: "6px 0" }}>
-              <span>•</span><span>{e.title as string}</span><span className="muted">{e.detail as string}</span>
+              <span>•</span><span style={{ fontSize: 13, fontWeight: 700 }}>{e.title as string}</span><span className="muted">{accentNums(e.detail as string)}</span>
               <span className="spacer" />
               <span className="muted">{e.created_at ? new Date((e.created_at as number) * 1000).toLocaleString(lang === "zh" ? "zh-CN" : "en-US", { hour12: false }) : ""}</span>
             </div>
@@ -2197,11 +2225,11 @@ export default function App() {
       )}
       <footer style={{ marginTop: 24, padding: "12px 0", textAlign: "center" }}>
         <div className="row" style={{ justifyContent: "center", gap: 24 }}>
-          <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
             {t("项目地址")}
           </a>
-          <a href="mailto:alicloudadmin@gmail.com" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <a href="mailto:alicloudadmin@gmail.com" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="22,6 12,13 2,6" /></svg>
             {t("联系邮箱")} alicloudadmin@gmail.com
           </a>

@@ -150,3 +150,13 @@ def test_frontend_site_and_refresh_and_footer():
     for k in ("站点信息", "站点 logo", "上传 logo", "删除 logo", "站点简介",
               "上传失败", "删除失败"):
         assert k in i18n
+
+
+def test_footer_links_no_underline():
+    # 页脚两个超链（项目地址、联系邮箱）不带下划线
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    import re
+    for m in re.finditer(r'<a href="(?:https://github\.com/gugetang/Alicloud_ECS_CDTPanel|mailto:alicloudadmin@gmail\.com)"[^>]*>', tsx):
+        assert 'textDecoration: "none"' in m.group(0), m.group(0)

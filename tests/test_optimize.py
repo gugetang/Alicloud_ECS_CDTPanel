@@ -857,12 +857,41 @@ def test_webdav_client_from_settings_missing_url():
 
 
 def test_webdav_settings_defaults():
-    """DEFAULT_SETTINGS 有 4 个 WebDAV 键，默认关闭、地址为空。"""
+    """DEFAULT_SETTINGS 有 5 个 WebDAV 键，默认关闭、地址与目录为空。"""
     from app.settings import DEFAULT_SETTINGS
     assert DEFAULT_SETTINGS["webdav_enabled"] == "0"
     assert DEFAULT_SETTINGS["webdav_url"] == ""
+    assert DEFAULT_SETTINGS["webdav_backup_dir"] == ""
     assert DEFAULT_SETTINGS["webdav_username"] == ""
     assert DEFAULT_SETTINGS["webdav_password"] == ""
+
+
+def test_webdav_file_url_address_plus_dir():
+    """备份目录非空时：地址 + 目录 + cdt-backup.json；斜杠归一化。"""
+    import app.webdav as wv
+    assert wv.file_url("https://oplist.alicloud.ru/dav",
+                       "/GoogleDrive/Backup/1panel") == \
+        "https://oplist.alicloud.ru/dav/GoogleDrive/Backup/1panel/cdt-backup.json"
+    # 地址末尾斜杠、目录首尾斜杠都归一化，不产生双斜杠
+    assert wv.file_url("https://oplist.alicloud.ru/dav/",
+                       "GoogleDrive/Backup/1panel/") == \
+        "https://oplist.alicloud.ru/dav/GoogleDrive/Backup/1panel/cdt-backup.json"
+    # 目录为空时：地址本身就是完整文件地址（旧配置，兼容）
+    assert wv.file_url("https://dav.example.com/backups/cdt-backup.json", "") == \
+        "https://dav.example.com/backups/cdt-backup.json"
+
+
+def test_webdav_client_from_settings_uses_backup_dir():
+    """配了备份目录时，客户端用的就是拼出来的完整文件地址。"""
+    import app.webdav as wv
+    c = wv.client_from_settings({
+        "webdav_url": "https://oplist.alicloud.ru/dav",
+        "webdav_backup_dir": "/GoogleDrive/Backup/1panel",
+        "webdav_username": "ali", "webdav_password": "secret"})
+    assert c.url == "https://oplist.alicloud.ru/dav/GoogleDrive/Backup/1panel/cdt-backup.json"
+    # 目录为空时沿用旧行为：地址即完整文件地址
+    c2 = wv.client_from_settings({"webdav_url": "https://dav.example.com/backups/cdt-backup.json"})
+    assert c2.url == "https://dav.example.com/backups/cdt-backup.json"
 
 
 def test_webdav_password_masked():

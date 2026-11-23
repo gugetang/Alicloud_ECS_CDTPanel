@@ -426,7 +426,7 @@ class Notifier:
         doc = ("<html><body style=\"font-family:system-ui,sans-serif;color:#111;"
                "max-width:560px;margin:0 auto\">"
                f"{html_body}"
-               "<p style=\"font-size:12px;color:#666\">由 alicloud_ECS_CDT 每日财报推送</p>"
+               "<p style=\"font-size:12px;color:#666\">由 alicloud_ECS_CDT 每日推送</p>"
                "</body></html>")
         return self._email(subject, text, html_body=doc)
 

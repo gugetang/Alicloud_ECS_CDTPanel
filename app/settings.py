@@ -98,7 +98,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "notify_exclusion": "1",
     "notify_error": "1",
     "notify_recovery": "1",
-    # 每日财报推送：每天 daily_report_time（默认 00:00）推送一次，
+    # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
     # 只推已启用的 Telegram/邮件/Webhook 渠道
     "daily_report_enabled": "1",
     "daily_report_time": "00:00",
@@ -114,11 +114,16 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # 用户可在设置里改；日报仍按各账户币种显示，不换算。
     "settlement_currency": "USD",
     "exchange_rate_usd_cny": "6.6719",
-    # 云端备份（WebDAV）：webdav_url 填备份文件的完整地址，如
-    # https://nextcloud.example.com/remote.php/dav/files/ali/backups/cdt-backup.json；
+    # 云端备份（WebDAV）：webdav_url 填 WebDAV 服务器地址，如
+    # https://oplist.alicloud.ru/dav（Alist 的地址是 http[s]://域名:端口/dav）；
+    # webdav_backup_dir 填备份目录，如 /GoogleDrive/Backup/1panel；备份文件
+    # 名固定为 cdt-backup.json，完整地址 = 地址 + 目录 + 文件名。
+    # 备份目录留空时，webdav_url 按旧方式直接当作完整文件地址
+    # （如 https://…/backups/cdt-backup.json），兼容旧配置。
     # 密码与邮箱密码一样只存库里，API 读设置时不回显（见 api._mask）。
     "webdav_enabled": "0",
     "webdav_url": "",
+    "webdav_backup_dir": "",
     "webdav_username": "",
     "webdav_password": "",
 }
