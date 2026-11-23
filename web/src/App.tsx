@@ -1765,8 +1765,11 @@ export default function App() {
   // 参数设置自动保存：改动即存（按键改完即存、输入框失焦即存），不用点保存
   const saveParamSettings = (overrides: Any = {}) => {
     const patch: Any = {
-      quota_gb: (document.getElementById("s-quota") as HTMLInputElement).value,
-      protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement).value,
+      // s-quota / s-prot 只在全局设置子标签渲染时才在 DOM 里（设置页子标签按需渲染），
+      // 其它子标签（如其它设置里改结算货币）调用时取不到就回退已存值，绝不能抛错——
+      // 否则 PUT 发不出去，结算货币选了也存不上，费用统计就不生效。
+      quota_gb: (document.getElementById("s-quota") as HTMLInputElement)?.value || String(settings.quota_gb ?? 200),
+      protection_threshold_pct: (document.getElementById("s-prot") as HTMLInputElement)?.value || String(settings.protection_threshold_pct ?? 95),
       switch_diff_mode: sDiffMode,
       switch_diff_pct: (document.getElementById("s-diff") as HTMLInputElement)?.value || String(settings.switch_diff_pct ?? 10),
       switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
@@ -2352,7 +2355,7 @@ export default function App() {
             <Seg value={sCurrency} options={[
               { value: "USD", label: "USD" },
               { value: "CNY", label: "CNY" },
-            ]} onChange={(v) => { setSCurrency(v); saveParamSettings({ settlement_currency: v }); }} />
+            ]} onChange={(v) => { setSCurrency(v); setSettings((s) => ({ ...s, settlement_currency: v })); saveParamSettings({ settlement_currency: v }); }} />
             <div style={{ marginTop: 8 }}>
               <label className="lbl">{t("汇率")}</label>
               <div>1 USD = {String(settings.exchange_rate_usd_cny ?? "6.6719")} CNY</div>

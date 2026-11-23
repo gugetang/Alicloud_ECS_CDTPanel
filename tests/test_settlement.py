@@ -72,3 +72,26 @@ def test_put_settings_accepts_settlement(tmpdb):
     assert ei.value.status_code == 400
     # 非法值没写进去
     assert tmpdb.get_settings()["settlement_currency"] == "CNY"
+
+
+def test_frontend_settlement_save_does_not_throw_off_global_tab():
+    """结算货币在其它设置子标签里改，saveParamSettings 不能抛错：
+
+    全局设置的 s-quota / s-prot 输入框只在 subTab === "settings" 时才渲染，
+    其它设置子标签里没有这两个 DOM 节点。以前 saveParamSettings 直接读
+    getElementById("s-quota").value，节点不存在就抛 TypeError，PUT 发不出去，
+    结算货币选了也存不上，当前费用卡片（按 settings.settlement_currency 换算）
+    就不生效。现在读不到时回退已存值（与 s-diff / s-diffgb 同款写法）。
+    """
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # s-quota / s-prot 用 ?. 读，取不到回退已存值
+    assert '(document.getElementById("s-quota") as HTMLInputElement)?.value || String(settings.quota_gb ?? 200)' in tsx
+    assert '(document.getElementById("s-prot") as HTMLInputElement)?.value || String(settings.protection_threshold_pct ?? 95)' in tsx
+    assert '(document.getElementById("s-quota") as HTMLInputElement).value' not in tsx
+    assert '(document.getElementById("s-prot") as HTMLInputElement).value' not in tsx
+    # 结算货币选中即刻更新 settings（当前费用卡片按它换算），不用等后端返回
+    assert 'setSettings((s) => ({ ...s, settlement_currency: v }))' in tsx
+    # 结算货币 Seg 仍在其它设置卡片里，选中即保存
+    assert 'saveParamSettings({ settlement_currency: v })' in tsx
