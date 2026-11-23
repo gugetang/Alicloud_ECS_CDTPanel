@@ -1,6 +1,13 @@
 """阿里云 ECS / CDT / BSS 客户端（官方 SDK）。
 
 - ECS 状态/开关机：aliyun-python-sdk-ecs，DescribeInstances / StartInstance / StopInstance
+- 轻量应用服务器（SAS）：SWAS-OPEN（2020-06-01）ListInstances / StartInstance /
+  StopInstance / RebootInstance。ECS DescribeInstances 永远查不到轻量服务器
+  （它是独立产品，实例 ID 为 UUID 形如 3eeeb2fb…，不是 i-…），所以读状态、
+  找地域、开关机都要先 ECS、再 SWAS 兜底。SWAS 必须用地域端点
+  swas.<region>.aliyuncs.com（中心端点 swas.aliyuncs.com 不解析），
+  且 AK 须有 SWAS 权限（AliyunSWASOpenFullAccess / AliyunSWASFullAccess），
+  否则报 403 NoPermission——此时记日志并当作“SWAS 查不到”，不掩盖 ECS 结果。
 - CDT 流量：CommonRequest，cdt.aliyuncs.com，2021-08-13，ListCdtInternetTraffic，
   累加 TrafficDetails[].Traffic（字节）→ GiB。与参考项目同口径。
 - BSS 费用：DescribeInstanceBill（失败回退 QueryBillOverview）+ QueryAccountBalance，
@@ -48,6 +55,16 @@ BSS_DOMAIN_INTL = "business.ap-southeast-1.aliyuncs.com"
 BSS_VERSION = "2017-12-14"
 ECS_DOMAIN = "ecs.aliyuncs.com"
 ECS_VERSION = "2014-05-26"
+# 轻量应用服务器（SWAS-OPEN）：必须用地域端点，中心端点 swas.aliyuncs.com 不解析。
+SWAS_VERSION = "2020-06-01"
+
+
+def _swas_domain(region: str) -> str:
+    return f"swas.{region}.aliyuncs.com"
+
+
+# 轻量服务器实例 ID 是 UUID（32 位十六进制，可带连字符），ECS 实例 ID 是 i-…。
+_SWAS_ID_RE = re.compile(r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$", re.I)
 
 # 内置常用地域：DescribeRegions 接口失败时前端回退用（与 web/src/App.tsx 同步）。
 BUILTIN_REGIONS = [
@@ -97,6 +114,13 @@ def brief_error(exc) -> str:
     return text[:300].strip()
 
 
+def _is_not_found(exc) -> bool:
+    """ECS 报实例不存在（InvalidInstanceId.NotFound 等）：说明这台不是 ECS，
+    开关机应改走 SWAS。只认“实例不存在”类错误，其它错误（权限、限流）原样抛出。"""
+    low = str(exc).lower()
+    return "notfound" in low and "instance" in low
+
+
 def _require_sdk() -> None:
     if not _SDK_READY:
         raise AliyunError("阿里云 SDK 未安装（aliyun-python-sdk-core/ecs）", kind="other")
@@ -110,6 +134,8 @@ class AliyunClient:
         self.account = account
         self.secret = secret
         self.region = account.get("region") or "cn-hongkong"
+        # 本次调用里 SWAS 是否报过 403（AK 无 SWAS 权限），用于最终报错提示。
+        self._swas_denied = False
 
     def _client(self, region: str | None = None):
         return AcsClient(self.account["access_key_id"], self.secret,
@@ -131,47 +157,122 @@ class AliyunClient:
             req.add_query_param(k, v)
         return self._client(region).do_action_with_exception(req)
 
+    def _swas_list_instances(self, region: str, instance_id: str) -> dict | None:
+        """SWAS ListInstances 查一台轻量服务器，查到返回实例 dict，查不到返回 None。
+
+        轻量服务器（SAS）不在 ECS 里，ECS DescribeInstances 永远返回空。
+        SWAS 的 ListInstances 用 InstanceIds（JSON 数组字符串）过滤。
+        AK 无 SWAS 权限时报 403 NoPermission：记一条 warning 并返回 None，
+        让调用方继续走“查不到”流程，不把权限问题伪装成其它错误。
+        （调用方在最终报错里会提示去加 AliyunSWASOpenFullAccess。）
+        """
+        import json
+        try:
+            raw = self._common(_swas_domain(region), SWAS_VERSION,
+                               "ListInstances", region,
+                               {"RegionId": region,
+                                "InstanceIds": json.dumps([instance_id])})
+        except Exception as exc:
+            if "nopermission" in str(exc).lower() or "forbidden" in str(exc).lower():
+                log.warning("SWAS 权限不足（%s）：AK 需 AliyunSWASOpenFullAccess，"
+                            "轻量服务器查不到", region)
+                self._swas_denied = True
+                return None
+            raise
+        data = json.loads(raw)
+        items = data.get("Instances") or []
+        return items[0] if items else None
+
+    def _swas_action(self, action: str, region: str) -> None:
+        """SWAS 开关机/重启（StartInstance / StopInstance / RebootInstance）。
+        轻量服务器是包月订阅，StopInstance 没有 ECS 的 StoppedMode（节省停机）概念。"""
+        self._common(_swas_domain(region), SWAS_VERSION, action, region,
+                     {"RegionId": region,
+                      "InstanceId": self.account["instance_id"]})
+
+    def _describe_swas(self, region: str | None = None) -> dict | None:
+        """SWAS 读一台轻量服务器，统一成 describe_instance 的返回格式。"""
+        inst = self._swas_list_instances(region or self.region,
+                                         self.account["instance_id"])
+        if not inst:
+            return None
+        # SWAS 的 PublicIpAddress 是字符串（ECS 是 {IpAddress: [...]}），
+        # 套餐用 PlanName（无则 PlanId）当 instance_type。
+        return {"status": inst.get("Status", "") or "",
+                "public_ip": inst.get("PublicIpAddress", "") or "",
+                "instance_type": (inst.get("PlanName", "") or ""
+                                  or inst.get("PlanId", "") or "")}
+
     def describe_instance(self) -> dict:
         """返回 {"status": "Running"|"Stopped"|..., "public_ip": str,
         "instance_type": str}。instance_type 为 ECS 原始规格（如 ecs.t6-c1m1.large），
-        财报里只在有值时显示，绝不凭空编造 2C0.5G 这类友好规格。"""
+        财报里只在有值时显示，绝不凭空编造 2C0.5G 这类友好规格。
+        轻量服务器（SAS）不在 ECS 里：ECS 查不到时再查 SWAS，仍查不到才报错。"""
         import json
         req = DescribeInstancesRequest()
         req.set_InstanceIds([self.account["instance_id"]])
         raw = self._client().do_action_with_exception(req)
         data = json.loads(raw)
         items = (data.get("Instances") or {}).get("Instance") or []
-        if not items:
-            raise AliyunError(f"实例 {self.account['instance_id']} 查不到", kind="other")
-        inst = items[0]
-        # 公网 IP 取法（对齐参考项目 10000ge10000/aliyun_monitor）：
-        # 实例绑了弹性 IP 时，DescribeInstances 把 IP 放在 EipAddress 里，
-        # PublicIpAddress 是空的——只读后者会永远读不到（2026-11-22 线上证实：
-        # 两台实例的 IP 全是弹性 IP，刷新成功但 public_ip 恒为空）。
-        # 顺序：EipAddress 优先，PublicIpAddress[0] 兜底。
-        eip = (inst.get("EipAddress") or {}).get("IpAddress") or ""
-        ips = (inst.get("PublicIpAddress") or {}).get("IpAddress") or []
-        return {"status": inst.get("Status", ""), "public_ip": eip or (ips[0] if ips else ""),
-                "instance_type": inst.get("InstanceType", "") or ""}
+        if items:
+            inst = items[0]
+            # 公网 IP 取法（对齐参考项目 10000ge10000/aliyun_monitor）：
+            # 实例绑了弹性 IP 时，DescribeInstances 把 IP 放在 EipAddress 里，
+            # PublicIpAddress 是空的——只读后者会永远读不到（2026-11-22 线上证实：
+            # 两台实例的 IP 全是弹性 IP，刷新成功但 public_ip 恒为空）。
+            # 顺序：EipAddress 优先，PublicIpAddress[0] 兜底。
+            eip = (inst.get("EipAddress") or {}).get("IpAddress") or ""
+            ips = (inst.get("PublicIpAddress") or {}).get("IpAddress") or []
+            return {"status": inst.get("Status", ""), "public_ip": eip or (ips[0] if ips else ""),
+                    "instance_type": inst.get("InstanceType", "") or ""}
+        # ECS 查不到：可能是轻量服务器（SAS），再查 SWAS。
+        swas = self._describe_swas()
+        if swas:
+            return swas
+        if self._swas_denied and _SWAS_ID_RE.match(self.account["instance_id"] or ""):
+            raise AliyunError(
+                f"实例 {self.account['instance_id']} 查不到：它是轻量服务器，"
+                "但 AK 无 SWAS 权限（403），请给 AK 加 AliyunSWASOpenFullAccess",
+                kind="auth")
+        raise AliyunError(f"实例 {self.account['instance_id']} 查不到", kind="other")
 
     def start_instance(self) -> None:
-        req = StartInstanceRequest()
-        req.set_InstanceId(self.account["instance_id"])
-        self._client().do_action_with_exception(req)
+        try:
+            req = StartInstanceRequest()
+            req.set_InstanceId(self.account["instance_id"])
+            self._client().do_action_with_exception(req)
+        except Exception as exc:
+            if _is_not_found(exc):
+                self._swas_action("StartInstance", self.region)
+                return
+            raise
 
     def stop_instance(self, stop_charging: bool = False) -> None:
-        req = StopInstanceRequest()
-        req.set_InstanceId(self.account["instance_id"])
-        # 节省停机：StoppedMode=StopCharging；普通停机：KeepCharging
-        req.set_StoppedMode("StopCharging" if stop_charging else "KeepCharging")
-        req.set_Force(True)
-        self._client().do_action_with_exception(req)
+        try:
+            req = StopInstanceRequest()
+            req.set_InstanceId(self.account["instance_id"])
+            # 节省停机：StoppedMode=StopCharging；普通停机：KeepCharging
+            req.set_StoppedMode("StopCharging" if stop_charging else "KeepCharging")
+            req.set_Force(True)
+            self._client().do_action_with_exception(req)
+        except Exception as exc:
+            if _is_not_found(exc):
+                # 轻量服务器是包月订阅，没有 ECS 的节省停机概念，直接停机。
+                self._swas_action("StopInstance", self.region)
+                return
+            raise
 
     def reboot_instance(self) -> None:
-        req = RebootInstanceRequest()
-        req.set_InstanceId(self.account["instance_id"])
-        req.set_Force(True)
-        self._client().do_action_with_exception(req)
+        try:
+            req = RebootInstanceRequest()
+            req.set_InstanceId(self.account["instance_id"])
+            req.set_Force(True)
+            self._client().do_action_with_exception(req)
+        except Exception as exc:
+            if _is_not_found(exc):
+                self._swas_action("RebootInstance", self.region)
+                return
+            raise
 
     def describe_regions(self) -> list[dict]:
         """该站点下的可用地域列表（ECS DescribeRegions）。
@@ -225,7 +326,7 @@ class AliyunClient:
 
         DescribeInstances 在错误地域返回空列表而非报错，所以逐地域试；
         查不到抛 AliyunError（前端提示，不要静默填错）。
-        """
+        ECS 全地域查不到时再逐地域查 SWAS（轻量服务器不在 ECS 里）。"""
         import json
         regions = [self.region] + [r["region_id"] for r in self.describe_regions()
                                    if r["region_id"] != self.region]
@@ -243,6 +344,21 @@ class AliyunClient:
             items = (data.get("Instances") or {}).get("Instance") or []
             if items:
                 return items[0].get("RegionId") or rid
+        # ECS 全地域都没有：可能是轻量服务器，逐地域查 SWAS。
+        for rid in regions:
+            try:
+                if self._swas_list_instances(rid, instance_id):
+                    return rid
+            except Exception as exc:
+                # 首个地域就报错（如 AK 错）直接抛；其它地域失败只跳过。
+                if rid == regions[0]:
+                    raise AliyunError(f"实例 {instance_id} 查询失败：{brief_error(exc)}") from exc
+                continue
+        if self._swas_denied and _SWAS_ID_RE.match(instance_id or ""):
+            raise AliyunError(
+                f"实例 {instance_id} 在该账号下查不到：它是轻量服务器，"
+                "但 AK 无 SWAS 权限（403），请给 AK 加 AliyunSWASOpenFullAccess",
+                kind="auth")
         raise AliyunError(f"实例 {instance_id} 在该账号下查不到", kind="other")
 
     def get_traffic_gb(self) -> float:

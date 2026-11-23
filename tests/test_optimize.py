@@ -432,3 +432,118 @@ def test_daily_report_account_field_ignored_and_follows_global(tmpdb):
         accts, {"daily_report_enabled": "1"})] == [row["id"]]
     assert [a["id"] for a in filter_daily_report_accounts(
         accts, {"daily_report_enabled": "0"}, force=True)] == [row["id"]]
+
+
+# ---- 轻量应用服务器（SWAS）支持 ----
+# 轻量服务器不在 ECS 里（实例 ID 为 UUID，不是 i-…），ECS DescribeInstances
+# 永远返回空；必须走 SWAS-OPEN ListInstances（地域端点 swas.<region>.aliyuncs.com）。
+
+def _swas_client(monkeypatch, swas_instance=None, swas_error=None):
+    """ECS 返回空、SWAS 由假 _common 接管的客户端。swas_instance 为 SWAS
+    ListInstances 返回的单台实例 dict；swas_error 为 _common 要抛的异常。"""
+    import json
+    import app.aliyun as alimod
+    from app.aliyun import AliyunClient
+    c = object.__new__(AliyunClient)
+    c.account = {"access_key_id": "LTAI5t-demo-0001", "region": "cn-hongkong",
+                 "site": "global",
+                 "instance_id": "3eeeb2fb03b743c78617168126bf6c6f"}
+    c.secret = "fake-secret"
+    c.region = "cn-hongkong"
+    c._swas_denied = False
+    empty = {"Instances": {"Instance": []}}
+    monkeypatch.setattr(c, "_client", lambda *a, **k: _FakeAcs(empty))
+    monkeypatch.setattr(alimod, "DescribeInstancesRequest",
+                        _DummyDescribeInstancesRequest, raising=False)
+
+    def fake_common(domain, version, action, region, params=None):
+        if swas_error is not None:
+            raise swas_error
+        assert domain == "swas.cn-hongkong.aliyuncs.com", domain
+        assert version == "2020-06-01", version
+        assert action == "ListInstances", action
+        assert params and params.get("RegionId") == "cn-hongkong"
+        return json.dumps({"Instances": [swas_instance] if swas_instance else [],
+                           "TotalCount": 1 if swas_instance else 0}).encode()
+    monkeypatch.setattr(c, "_common", fake_common)
+    return c
+
+
+def test_swas_domain_is_region_specific():
+    """SWAS 必须用地域端点：中心端点 swas.aliyuncs.com 不解析（线上证实）。"""
+    from app.aliyun import _swas_domain
+    assert _swas_domain("cn-hongkong") == "swas.cn-hongkong.aliyuncs.com"
+    assert _swas_domain("cn-hangzhou") == "swas.cn-hangzhou.aliyuncs.com"
+
+
+def test_describe_instance_falls_back_to_swas(monkeypatch):
+    """ECS 查不到轻量服务器时走 SWAS：状态、公网 IP（字符串）、套餐名都读到。"""
+    c = _swas_client(monkeypatch, {
+        "InstanceId": "3eeeb2fb03b743c78617168126bf6c6f",
+        "InstanceName": "alicloud--hk2", "Status": "Running",
+        "PublicIpAddress": "47.242.211.200", "PlanName": "swas.s2.c2m2s40b40t",
+        "RegionId": "cn-hongkong"})
+    out = c.describe_instance()
+    assert out["status"] == "Running"
+    assert out["public_ip"] == "47.242.211.200"
+    assert out["instance_type"] == "swas.s2.c2m2s40b40t"
+
+
+def test_describe_instance_swas_denied_hint(monkeypatch):
+    """ECS 空 + SWAS 报 403 + 实例 ID 是 UUID：报错要明说缺 SWAS 权限
+    （kind=auth），而不是一句“查不到”让用户干瞪眼。"""
+    from app.aliyun import AliyunError
+    c = _swas_client(monkeypatch, swas_error=RuntimeError(
+        "HTTP Status: 403 Error:NoPermission User is not authorized"))
+    try:
+        c.describe_instance()
+    except AliyunError as exc:
+        assert exc.kind == "auth"
+        assert "AliyunSWASOpenFullAccess" in str(exc)
+    else:
+        raise AssertionError("应抛 AliyunError")
+
+
+def test_describe_instance_swas_empty_still_not_found(monkeypatch):
+    """ECS 和 SWAS 都查不到：仍报“查不到”，不编造。"""
+    from app.aliyun import AliyunError
+    c = _swas_client(monkeypatch, swas_instance=None)
+    try:
+        c.describe_instance()
+    except AliyunError as exc:
+        assert "查不到" in str(exc)
+    else:
+        raise AssertionError("应抛 AliyunError")
+
+
+def test_start_instance_falls_back_to_swas_on_not_found(monkeypatch):
+    """ECS 开机报实例不存在时改走 SWAS StartInstance（轻量服务器不在 ECS 里）。"""
+    import app.aliyun as alimod
+    from app.aliyun import AliyunClient
+    c = object.__new__(AliyunClient)
+    c.account = {"access_key_id": "LTAI5t-demo-0001", "region": "cn-hongkong",
+                 "site": "global",
+                 "instance_id": "3eeeb2fb03b743c78617168126bf6c6f"}
+    c.secret = "fake-secret"
+    c.region = "cn-hongkong"
+    c._swas_denied = False
+    calls = []
+
+    class _FakeStartReq:
+        def set_InstanceId(self, i):
+            self.i = i
+
+    class _BoomAcs:
+        def do_action_with_exception(self, req):
+            raise RuntimeError("InvalidInstanceId.NotFound: instance not found")
+
+    monkeypatch.setattr(c, "_client", lambda *a, **k: _BoomAcs())
+    monkeypatch.setattr(alimod, "StartInstanceRequest", _FakeStartReq, raising=False)
+
+    def fake_common(domain, version, action, region, params=None):
+        calls.append((domain, action, params))
+        return b"{}"
+    monkeypatch.setattr(c, "_common", fake_common)
+    c.start_instance()
+    assert calls and calls[0][0] == "swas.cn-hongkong.aliyuncs.com"
+    assert calls[0][1] == "StartInstance"
