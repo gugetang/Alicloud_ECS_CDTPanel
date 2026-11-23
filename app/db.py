@@ -1093,6 +1093,16 @@ def add_traffic_sample(account_id: int, used_gb: float, month: str) -> None:
         conn.commit()
 
 
+def get_latest_traffic_sample_at(account_id: int) -> int | None:
+    """该账户最新一条流量采样的 created_at（unix 秒），无采样返回 None。
+    B-04 用：24 小时兜底恢复只在流量数据新鲜时才触发。"""
+    conn = connect()
+    row = conn.execute(
+        "SELECT MAX(created_at) FROM traffic_samples WHERE account_id=?",
+        (account_id,)).fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
 def create_job(kind: str) -> int:
     conn = connect()
     with _lock:

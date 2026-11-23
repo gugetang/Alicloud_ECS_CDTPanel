@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -23,20 +24,35 @@ async def lifespan(app: FastAPI):
     if os.environ.get("CDT_NO_SCHEDULER") != "1":
         scheduler.start()
     yield
+    # P0-01：停机时等调度线程退出（带超时），避免打断正在执行的 Plan。
     scheduler.stop()
 
 
 def create_app() -> FastAPI:
     db.init_db()
     app = FastAPI(title="alicloud_ECS_CDT", version="0.1.0", lifespan=lifespan)
+    # P1-04：Gzip 压缩文本响应（JS/CSS/JSON）。
+    app.add_middleware(GZipMiddleware, minimum_size=500)
     app.include_router(router)
 
     if STATIC_DIR.exists():
-        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+        # P1-04：哈希命名的 /assets/* 资源长期缓存（文件名变了 URL 就变，
+        # 不会拿到旧版本）；index.html 与其它 SPA 文件不缓存，始终取最新。
+        # 子类覆写响应头（老版 Starlette 的 StaticFiles 不接受 headers 参数）。
+        class _CachedAssets(StaticFiles):
+            async def get_response(self, path, scope):
+                resp = await super().get_response(path, scope)
+                resp.headers["Cache-Control"] = (
+                    "public, max-age=31536000, immutable")
+                return resp
+
+        app.mount("/assets", _CachedAssets(directory=STATIC_DIR / "assets"),
+                  name="assets")
 
         @app.get("/")
         def index():
-            return FileResponse(STATIC_DIR / "index.html")
+            return FileResponse(STATIC_DIR / "index.html",
+                                headers={"Cache-Control": "no-cache"})
 
         @app.get("/{path:path}")
         def spa(path: str):
@@ -47,7 +63,8 @@ def create_app() -> FastAPI:
             candidate = STATIC_DIR / path
             if candidate.is_file():
                 return FileResponse(candidate)
-            return FileResponse(STATIC_DIR / "index.html")
+            return FileResponse(STATIC_DIR / "index.html",
+                                headers={"Cache-Control": "no-cache"})
 
     return app
 

@@ -31,6 +31,7 @@ _thread: threading.Thread | None = None
 _wake = threading.Event()
 _last_run: dict = {}
 _lock = threading.Lock()
+_thread_lock = threading.Lock()
 
 
 def _tz():
@@ -161,7 +162,9 @@ def _refresh_one(a: dict, settings: dict) -> None:
             # 由用户在 instance_spec 里填，程序不凭空编造
             updates["instance_type"] = inst["instance_type"]
         if settings.get("billing_enabled", "1") == "1":
-            bill = client.get_billing()
+            # B-08：账单周期按用户设置的调度时区算，不再硬编码 Asia/Shanghai。
+            tz_name = (settings.get("timezone") or "Asia/Shanghai").strip()
+            bill = client.get_billing(timezone=tz_name)
             if bill:
                 updates["billing_month_cost"] = bill["cost"]
                 updates["billing_currency"] = bill["currency"]
@@ -287,8 +290,18 @@ class _DnsOps(engine.DnsOps):
         # 后两段推算，二级/三级域名也能识别。
         zone = ((self.settings.get("cloudflare_zone") or "").strip()
                 or domain.zone or domain.name.split(".", 1)[-1])
+        # P1-02：先读库里已存的 zone_id/record_id，按 ID 直接取记录，
+        # 省掉每次的 Zone/Record 发现调用；取不到时 sync() 内部回退发现流程。
+        cached = None
+        try:
+            row = db.get_dns_record(domain.id)
+            if row and row.get("zone_id") and row.get("record_id"):
+                cached = {"zone_id": row["zone_id"],
+                          "record_id": row["record_id"]}
+        except Exception:
+            cached = None
         res = self.cf.sync(domain.name, zone, ip, domain.record_type,
-                           domain.ttl, domain.proxied)
+                           domain.ttl, domain.proxied, cached=cached)
         if res.changed:
             db.upsert_dns_record(domain.id, res.zone_id, res.record_id, ip)
             db.add_event("dns_change", "DNS 已同步",
@@ -348,7 +361,14 @@ def run_once(dry_run: bool = False, refresh: bool = True,
     notifier = Notifier(settings)
 
     def _notify(event, title, body):
-        notifier.send(event, title, body)
+        sent = notifier.send(event, title, body)
+        # E-07：通知失败不要只留在内存 last_errors——记一条 error 事件，
+        # 让失败在事件里看得到。开关关闭时 sent 与 last_errors 都为空，不记。
+        if not sent and getattr(notifier, "last_errors", None):
+            db.add_event("error", "通知发送失败",
+                         f"{title}："
+                         + "; ".join(f"{k}：{v}" for k, v in
+                                     notifier.last_errors.items()))
         db.add_event(event, title, body)
 
     if dry_run:
@@ -385,7 +405,13 @@ def run_once(dry_run: bool = False, refresh: bool = True,
             db.update_domain(d["id"], {"fallback_active": 0, "current_account_id": None,
                                        "current_ip": "0.0.0.0"})
         elif d["id"] in plan.fallback_domain_ids:
-            db.update_domain(d["id"], {"fallback_active": 1, "current_account_id": None})
+            # B-12：备用地址不是 IP 时 set_record 已返回失败并记事件，
+            # 但这里原来仍把 fallback_active 写成 1，界面会误显示“备用生效”。
+            # 备用地址无效时不写生效标记。
+            from .ddns import is_valid_ip
+            fallback_ip = (settings.get("fallback_address") or "").strip()
+            db.update_domain(d["id"], {"fallback_active": 1 if is_valid_ip(fallback_ip) else 0,
+                                       "current_account_id": None})
         elif target is not None:
             acc = next((a for a in accounts if a["id"] == target), None)
             db.update_domain(d["id"], {
@@ -502,27 +528,30 @@ def _apply_daily_schedule(settings: dict, now: dt.datetime,
         # --- 开机 ---
         on_key = f"daily_on_done:{a['id']}:{on_dt.strftime('%Y-%m-%d')}"
         if on_dt <= now < on_dt + window and not db.get_flag(on_key):
-            db.set_flag(on_key, now.isoformat())
             rate = v.usage_rate
             evicted = (rate is not None
                        and rate >= engine._eff_protection(v, cfg_obj))
             if evicted:
+                # B-03：被踢出而跳过时不写开机旗标，否则当天的开机机会
+                # 就被这次跳过消耗掉，恢复后当天也不再补开机。
                 msg = (f"{a['name']} 定时开机已跳过（已跳出：使用率 {rate:.1f}% "
                        f"≥ 阈值 {engine._eff_protection(v, cfg_obj):.0f}%）")
                 done.append(msg)
                 db.add_event("schedule", "定时开机已跳过", msg)
-            elif (v.status or "") == "Stopped":
-                try:
-                    client = (cloud_factory(a, secret) if cloud_factory
-                              else AliyunClient(a, secret))
-                    client.start_instance()
-                    msg = f"{a['name']} 定时开机已执行"
-                    done.append(msg)
-                    db.add_event("schedule", "定时开机", msg)
-                except Exception as exc:
-                    msg = f"{a['name']} 定时开机失败：{brief_error(exc)}"
-                    done.append(msg)
-                    db.add_event("error", "定时开机失败", msg)
+            else:
+                db.set_flag(on_key, now.isoformat())
+                if (v.status or "") == "Stopped":
+                    try:
+                        client = (cloud_factory(a, secret) if cloud_factory
+                                  else AliyunClient(a, secret))
+                        client.start_instance()
+                        msg = f"{a['name']} 定时开机已执行"
+                        done.append(msg)
+                        db.add_event("schedule", "定时开机", msg)
+                    except Exception as exc:
+                        msg = f"{a['name']} 定时开机失败：{brief_error(exc)}"
+                        done.append(msg)
+                        db.add_event("error", "定时开机失败", msg)
         # --- 关机 ---
         off_key = f"daily_off_done:{a['id']}:{off_dt.strftime('%Y-%m-%d')}"
         if off_dt <= now < off_dt + window and not db.get_flag(off_key):
@@ -592,7 +621,15 @@ def _evaluate_threshold_recovery(settings: dict, accounts: list[dict],
         elif rate < thr:
             since = _parse_flag_dt(evicted_since_raw, now)
             if since is not None and (now - since) >= dt.timedelta(hours=24):
-                fallback = True  # 超时兜底恢复
+                # B-04：24 小时兜底只在流量数据新鲜（1 小时内有采样）时触发；
+                # 若流量接口连续几天查不到，rate 是旧值，兜底会按旧数据误恢复。
+                # 无采样记录时无法判断新旧，沿用旧行为（不因此卡住恢复）。
+                latest = db.get_latest_traffic_sample_at(aid)
+                now_ts = int(now.timestamp())
+                if latest is None or now_ts - latest < 3600:
+                    fallback = True  # 超时兜底恢复
+                else:
+                    continue  # 采样太旧：不兜底，等下次刷新拿到新流量再说
             else:
                 continue  # 在恢复线与阈值之间且未满 24 小时：仍视为踢出
         else:
@@ -638,7 +675,10 @@ def _persist_threshold_recovery(settings: dict, accounts: list[dict],
         last = _parse_flag_dt(last_raw, now)
         within_hour = bool(last is not None
                            and (now - last) < dt.timedelta(hours=1))
-        db.set_flag(f"recovered_at:{aid}", now.isoformat())
+        # B-02：恢复旗标只在真正执行/记录恢复时才写。原来在判断之前就写成
+        # 现在，若本轮因定时关机窗口未拉起，下次会误认为“1 小时内已拉起过”。
+        if not within_hour:
+            db.set_flag(f"recovered_at:{aid}", now.isoformat())
         if fallback:
             title = "超时兜底恢复，已重新加入 DDNS"
             detail = (f"{a['name']} 被踢出已超 24 小时，使用率 {rate:.1f}% "
@@ -700,36 +740,50 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     """每天在 daily_report_time（默认 00:00，可配）推送一次每日财报。
 
     触发规则（用 flags 持久化，重启不丢）：
-    - 上次检查时刻记在 flags.daily_report_last_check，每次检查都更新；
+    - 上次检查时刻记在 flags.daily_report_last_check；B-09：只在跨过推送
+      时刻、暂停/关闭、或首次检查时才更新，不再每分钟写一次；
     - 只有当本次检查跨过了当日推送时刻（last_check < 当日时刻 <= now），
       且当天未推过（flags.daily_report_done:<YYYY-MM-DD> 未设置）时才推；
     - 改时间后若新时刻已过（last_check 已在新时刻之后），当天不补推，等明天；
     - 全新数据库第一次检查不补推（last_check 为空时只记下次检查起点）；
     - 调度暂停或财报开关关闭时不推，但仍更新 last_check，避免恢复/重开后立刻补推。
-    返回 True 表示当日财报已触发（渠道可能为空，仍记当天已推，避免每小时重试）。
+    返回 True 表示当日财报已触发。B-15：渠道全部失败（last_errors 非空）
+    时不记当天已推，并记一条 error 事件；未启用任何渠道时沿用旧行为
+    （记已推，避免每小时重复尝试）。
     """
     hh, mm = _parse_hhmm(settings.get("daily_report_time") or "00:00")
     due = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     today = now.strftime("%Y-%m-%d")
     last_raw = db.get_flag("daily_report_last_check")
-    db.set_flag("daily_report_last_check", now.isoformat())
+
+    def _touch_last_check() -> None:
+        db.set_flag("daily_report_last_check", now.isoformat())
+
     # 注意：这里不因全局 daily_report_enabled=0 而直接返回——过滤后无账户时
     # 再返回（全局关时过滤结果为空，自然不推）。
     # 调度暂停或不刷新（API 刷新时间=0）时不推。
     if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
+        _touch_last_check()
         return False
     if db.get_flag(f"daily_report_done:{today}"):
         return False
     if not last_raw:
+        _touch_last_check()
         return False  # 全新数据库第一次检查：不补推，等下一次到点
     try:
         last = dt.datetime.fromisoformat(last_raw)
     except ValueError:
+        _touch_last_check()
         return False
     if last.tzinfo is None:
         last = last.replace(tzinfo=now.tzinfo)
     if not (last < due <= now):
+        # 未到推送时刻不写旗标（B-09）；已过时刻但上次检查已在时刻之后
+        # （如改时间后），写一次以免下次误判为跨过。
+        if now >= due:
+            _touch_last_check()
         return False
+    _touch_last_check()
     accounts = db.list_accounts()
     if not accounts:
         return False
@@ -742,11 +796,19 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
         return False  # 全局关：不推，也不记当天已推
     notifier = Notifier(settings)
     sent = notifier.send_daily_report(pub, today, skip_global_switch=True)
-    db.set_flag(f"daily_report_done:{today}", now.isoformat())
     if sent:
+        db.set_flag(f"daily_report_done:{today}", now.isoformat())
         db.add_event("daily_report", "每日财报已推送",
                      f"{today} 共 {len(pub)} 个账户，渠道：{','.join(sent)}")
+    elif getattr(notifier, "last_errors", None):
+        # B-15：渠道已启用但全部发送失败：不记已推，并留一条 error 事件，
+        # 让失败在事件里看得到（原来只记“未推送”，且当天不再重试）。
+        db.add_event("error", "每日财报推送失败",
+                     f"{today} 通知渠道全部失败："
+                     + "; ".join(f"{k}：{v}" for k, v in
+                                 notifier.last_errors.items()))
     else:
+        db.set_flag(f"daily_report_done:{today}", now.isoformat())
         db.add_event("daily_report", "每日财报未推送",
                      f"{today} 已到推送时间，但未启用任何通知渠道")
     return True
@@ -833,17 +895,31 @@ def _loop() -> None:
 
 
 def start() -> None:
+    """启动调度线程。P0-01：先等旧线程真正退出再清 _stop、建新线程，
+    否则旧线程跑完即退出、新线程又没启动，调度会永久静默停掉。"""
     global _thread
-    if _thread is not None and _thread.is_alive():
-        return
-    _stop.clear()
-    _thread = threading.Thread(target=_loop, name="cdt-scheduler", daemon=True)
-    _thread.start()
+    with _thread_lock:
+        old = _thread
+        if old is not None and old.is_alive():
+            return
+        if old is not None:
+            # 已不在运行：join 立即返回，只是回收线程对象。
+            old.join(timeout=10)
+        _stop.clear()
+        _wake.clear()
+        _thread = threading.Thread(target=_loop, name="cdt-scheduler", daemon=True)
+        _thread.start()
 
 
-def stop() -> None:
+def stop(timeout: float = 30) -> None:
+    """停掉调度线程并等本轮结束（带超时 join，避免停机接口一直挂起）。
+    仍在跑一轮时 _loop 会在轮次结束、进入 _wake.wait 前退出。"""
     _stop.set()
     _wake.set()
+    with _thread_lock:
+        t = _thread
+    if t is not None:
+        t.join(timeout=timeout)
 
 
 def wake() -> None:

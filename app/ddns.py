@@ -80,14 +80,35 @@ class CloudflareClient:
             raise RuntimeError(f"同名存在多条 {rtype} 记录，请先手动整理: {name}")
         return results[0] if results else None
 
+    def get_record(self, zone_id: str, record_id: str) -> dict | None:
+        """按 ID 直接取一条 DNS 记录（P1-02：缓存的 Zone/Record ID 命中时
+        省掉 find_zone_id + find_record 两次发现调用）。查不到返回 None。"""
+        try:
+            data = self._get(f"/zones/{zone_id}/dns_records/{record_id}")
+        except Exception:
+            return None
+        rec = data.get("result") or {}
+        return rec if isinstance(rec, dict) and rec.get("id") else None
+
     def sync(self, domain: str, zone: str, new_ip: str, rtype: str = "A",
-             ttl: int = 1, proxied: bool = False) -> DDNSResult:
-        """把 domain 指到 new_ip。IP 不变 → unchanged 且不发 PUT。"""
+             ttl: int = 1, proxied: bool = False,
+             cached: dict | None = None) -> DDNSResult:
+        """把 domain 指到 new_ip。IP 不变 → unchanged 且不发 PUT。
+        cached={"zone_id": ..., "record_id": ...} 时先按 ID 直接取记录，
+        取不到/名字不符/失败时回退到原发现流程（find_zone_id + find_record）。"""
         if not is_valid_ip(new_ip):
             return DDNSResult(status="invalid_ip", ip=new_ip, detail="IP 无效，跳过")
         try:
-            zone_id = self.find_zone_id(zone or domain.split(".", 1)[-1])
-            rec = self.find_record(zone_id, domain, rtype)
+            zone_id = ""
+            rec = None
+            if cached and cached.get("zone_id") and cached.get("record_id"):
+                zone_id = str(cached["zone_id"])
+                got = self.get_record(zone_id, str(cached["record_id"]))
+                if got and got.get("name") == domain:
+                    rec = got
+            if rec is None:
+                zone_id = self.find_zone_id(zone or domain.split(".", 1)[-1])
+                rec = self.find_record(zone_id, domain, rtype)
             if rec is None:
                 return DDNSResult(status="no_record", ip=new_ip, zone_id=zone_id,
                                   detail="Cloudflare 上没有该记录，请先创建")
@@ -99,8 +120,10 @@ class CloudflareClient:
             self._put(f"/zones/{zone_id}/dns_records/{record_id}",
                       {"type": rtype, "name": domain, "content": new_ip,
                        "ttl": ttl, "proxied": proxied})
-            # verify：回读确认
-            after = self.find_record(zone_id, domain, rtype)
+            # verify：回读确认（优先按 ID 直接取，失败再回退发现流程）
+            after = self.get_record(zone_id, record_id)
+            if after is None:
+                after = self.find_record(zone_id, domain, rtype)
             if after and after.get("content") == new_ip:
                 return DDNSResult(status="synced", changed=True, ip=new_ip,
                                   previous=current, zone_id=zone_id, record_id=record_id)
