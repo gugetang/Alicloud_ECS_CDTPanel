@@ -69,7 +69,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL,
               switch_mode TEXT NOT NULL DEFAULT 'load_balance'
-                CHECK (switch_mode IN ('time', 'load_balance')),
+                CHECK (switch_mode IN ('time', 'load_balance', 'dynamic')),
               interval_hours INTEGER,
               custom_interval_minutes INTEGER,
               interval_start_time TEXT,
@@ -85,7 +85,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
               recovery_action TEXT,
               paused INTEGER NOT NULL DEFAULT 0,
               priority INTEGER NOT NULL DEFAULT 0,
-              created_at INTEGER NOT NULL
+              created_at INTEGER NOT NULL,
+              dynamic_interval_minutes INTEGER
             );
             CREATE TABLE IF NOT EXISTS account_groups(
               account_id INTEGER NOT NULL,
@@ -202,6 +203,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             "ALTER TABLE groups ADD COLUMN paused INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE groups ADD COLUMN exclusion_action TEXT",
             "ALTER TABLE groups ADD COLUMN recovery_action TEXT",
+            "ALTER TABLE groups ADD COLUMN dynamic_interval_minutes INTEGER",
             "CREATE TABLE IF NOT EXISTS account_groups(account_id INTEGER NOT NULL, group_id INTEGER NOT NULL, PRIMARY KEY(account_id, group_id))",
             "INSERT OR IGNORE INTO account_groups(account_id, group_id) SELECT id, group_id FROM accounts WHERE group_id IS NOT NULL",
         ):
@@ -213,6 +215,60 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_domains_group_id_unique "
             "ON domains(group_id) WHERE group_id IS NOT NULL")
+        # 动态切换模式（dynamic）：groups.switch_mode 的 CHECK 原先只允许
+        # time/load_balance，旧库需重建表才能存 dynamic（SQLite 的 ALTER
+        # TABLE 改不了 CHECK 约束）。新库建表时 CHECK 已含 dynamic，不会
+        # 走到这里。重建在事务内完成、数据按列名全量复制；若 CHECK 已含
+        # dynamic 则跳过。groups_new 残留表（上次重建失败时）先清掉。
+        _gsql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='groups'"
+        ).fetchone()
+        if _gsql and "'dynamic'" not in (_gsql[0] or ""):
+            _in_txn = conn.in_transaction
+            try:
+                if not _in_txn:
+                    conn.execute("BEGIN")
+                conn.execute("DROP TABLE IF EXISTS groups_new")
+                conn.execute(
+                    """CREATE TABLE groups_new(
+                      id INTEGER PRIMARY KEY,
+                      name TEXT NOT NULL,
+                      switch_mode TEXT NOT NULL DEFAULT 'load_balance'
+                        CHECK (switch_mode IN ('time', 'load_balance', 'dynamic')),
+                      interval_hours INTEGER,
+                      custom_interval_minutes INTEGER,
+                      interval_start_time TEXT,
+                      fixed_switch_time TEXT,
+                      night_window_start TEXT,
+                      night_window_end TEXT,
+                      night_optimize_enabled INTEGER,
+                      switch_diff_mode TEXT,
+                      switch_diff_gb REAL,
+                      switch_diff_pct REAL,
+                      time_switch_mode TEXT,
+                      exclusion_action TEXT,
+                      recovery_action TEXT,
+                      paused INTEGER NOT NULL DEFAULT 0,
+                      priority INTEGER NOT NULL DEFAULT 0,
+                      created_at INTEGER NOT NULL,
+                      dynamic_interval_minutes INTEGER
+                    )""")
+                _gcols = [r[1] for r in conn.execute("PRAGMA table_info(groups)")]
+                _collist = ", ".join(_gcols)
+                conn.execute(
+                    f"INSERT INTO groups_new({_collist}) "
+                    f"SELECT {_collist} FROM groups")
+                conn.execute("DROP TABLE groups")
+                conn.execute("ALTER TABLE groups_new RENAME TO groups")
+                if not _in_txn:
+                    conn.execute("COMMIT")
+            except Exception:
+                if not _in_txn:
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                raise
         # 默认分组（id=1，load_balance）：只有从未删过它、且库里一个分组都没有
         # 时才建立；用户删掉默认分组后不再自动重建（flags.default_group_removed
         # 记住这个选择，见 delete_group）。
@@ -418,9 +474,26 @@ def _resolve_group_id(gid) -> int | None:
 
 def _check_switch_mode(mode: str) -> str:
     m = (mode or "load_balance").strip().lower()
-    if m not in ("time", "load_balance"):
-        raise ValueError("分组切换模式只能是 time（定时轮巡）或 load_balance（负载均衡）")
+    if m not in ("time", "load_balance", "dynamic"):
+        raise ValueError(
+            "分组切换模式只能是 time（定时轮巡）/ load_balance（负载均衡）"
+            " / dynamic（动态切换）")
     return m
+
+
+def _norm_dynamic_interval(data: dict) -> dict:
+    """动态切换间隔（分钟）归一化：None/空/非法 = 不填（存 NULL，用默认 30）；
+    小于 30 的钳到 30（动态切换最少 30 分钟一切换）；否则存正整数分钟。"""
+    if "dynamic_interval_minutes" not in data:
+        return data
+    v = data.get("dynamic_interval_minutes")
+    if v is None or v == "":
+        return {**data, "dynamic_interval_minutes": None}
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return {**data, "dynamic_interval_minutes": None}
+    return {**data, "dynamic_interval_minutes": max(30, n) if n > 0 else None}
 
 
 def _check_group_exists(gid) -> None:
@@ -432,6 +505,7 @@ def _check_group_exists(gid) -> None:
 
 def create_group(data: dict) -> dict:
     data = _norm_group_threshold(data)
+    data = _norm_dynamic_interval(data)
     conn = connect()
     now = int(time.time())
     cols = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
@@ -439,7 +513,8 @@ def create_group(data: dict) -> dict:
             "fixed_switch_time", "night_window_start", "night_window_end",
             "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
             "switch_diff_pct", "time_switch_mode",
-            "exclusion_action", "recovery_action", "paused", "priority"]
+            "exclusion_action", "recovery_action", "paused", "priority",
+            "dynamic_interval_minutes"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
     vals[1] = _check_switch_mode(data.get("switch_mode"))
@@ -493,12 +568,14 @@ def _norm_start_time(value) -> str:
 def update_group(gid: int, data: dict) -> dict | None:
     conn = connect()
     data = _norm_group_threshold(data)
+    data = _norm_dynamic_interval(data)
     allowed = ["name", "switch_mode", "interval_hours", "custom_interval_minutes",
                "interval_start_time",
                "fixed_switch_time", "night_window_start", "night_window_end",
                "night_optimize_enabled", "switch_diff_mode", "switch_diff_gb",
                "switch_diff_pct", "time_switch_mode",
-               "exclusion_action", "recovery_action", "paused", "priority"]
+               "exclusion_action", "recovery_action", "paused", "priority",
+               "dynamic_interval_minutes"]
     sets = [(k, data[k]) for k in allowed if k in data]
     if any(k == "paused" for k, _ in sets):
         sets = [(k, (1 if v else 0) if k == "paused" else v) for k, v in sets]

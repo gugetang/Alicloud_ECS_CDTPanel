@@ -127,6 +127,7 @@ def _to_group_views(groups: list[dict]) -> list[engine.GroupView]:
         switch_diff_gb=g.get("switch_diff_gb"),
         switch_diff_pct=g.get("switch_diff_pct"),
         time_switch_mode=g.get("time_switch_mode"),
+        dynamic_interval_minutes=g.get("dynamic_interval_minutes"),
         exclusion_action=g.get("exclusion_action"),
         recovery_action=g.get("recovery_action"),
         paused=bool(g.get("paused"))) for g in groups]

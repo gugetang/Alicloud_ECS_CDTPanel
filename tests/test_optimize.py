@@ -579,3 +579,160 @@ def test_create_account_no_groups_ok(tmpdb):
     assert tmpdb.list_groups() == []
     row = tmpdb.create_account({"name": "Lone", "instance_id": "i-xyz"})
     assert row["group_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# 动态切换（dynamic）：按间隔切到剩余流量最多的服务器，不看差值阈值
+# ---------------------------------------------------------------------------
+
+def _dyn_acc(i, used, gid=1):
+    from app.engine import AccountView
+    return AccountView(id=i, name=f"IP{i}", quota_gb=200, used_gb=used,
+                       status="Running", public_ip=f"203.0.113.{i}", group_id=gid)
+
+
+def _dyn_dom(i, current=None, gid=1):
+    from app.engine import DomainView
+    return DomainView(id=i, name=f"www{i}.example.xyz", priority=i - 1,
+                      current_account_id=current, current_ip="", group_id=gid)
+
+
+def _dyn_group(interval=30):
+    from app.engine import GroupView
+    return GroupView(id=1, name="动态组", switch_mode="dynamic",
+                     dynamic_interval_minutes=interval)
+
+
+def _dyn_noon():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    return dt.datetime(2026, 11, 23, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+def test_dynamic_interval_minimum_30():
+    """动态间隔默认 30 分钟，最少 30 分钟：小于 30 的按 30 算。"""
+    from app.engine import Config, effective_dynamic_interval_minutes
+    assert effective_dynamic_interval_minutes(Config()) == 30
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=15)) == 30
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=29)) == 30
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=30)) == 30
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=60)) == 60
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=90)) == 90
+    assert effective_dynamic_interval_minutes(Config(dynamic_interval_minutes=120)) == 120
+
+
+def test_dynamic_switch_mode_accepted():
+    """dynamic 是合法的切换模式：Config、GroupView、db 校验都接受。"""
+    import app.db as dbmod
+    from app.engine import Config, GroupView
+    assert Config.from_settings({"switch_mode": "dynamic"}).switch_mode == "dynamic"
+    assert GroupView(id=1, name="D", switch_mode="dynamic").switch_mode == "dynamic"
+    assert dbmod._check_switch_mode("dynamic") == "dynamic"
+    with pytest.raises(ValueError):
+        dbmod._check_switch_mode("bogus")
+
+
+def test_dynamic_switches_to_most_remaining_at_interval():
+    """dynamic：间隔到点即切到剩余流量最多（用量最低）的服务器，不看差值。"""
+    import datetime as dt
+    from app.engine import Config, plan_reconcile
+    now = _dyn_noon()
+    cfg = Config(night_optimize_enabled=False)
+    accts = [_dyn_acc(1, 100), _dyn_acc(2, 20)]  # A1 用 50%，A2 用 10%
+    d = [_dyn_dom(1, current=1)]
+    # 锚点 31 分钟前：已超过 30 分钟间隔，应切到 A2
+    plan = plan_reconcile(accts, d, cfg, now, groups=[_dyn_group(30)],
+                          last_switch_by_group={1: now - dt.timedelta(minutes=31)})
+    assert any(a.kind == "dns" and a.account_id == 2
+               and a.reason == "dynamic_switch" for a in plan.actions)
+    assert plan.time_switch_by_group.get(1) == now  # 锚点更新为本轮
+
+
+def test_dynamic_no_switch_before_interval():
+    """dynamic：间隔未到不切，即使另一台剩余流量多得多。"""
+    import datetime as dt
+    from app.engine import Config, plan_reconcile
+    now = _dyn_noon()
+    cfg = Config(night_optimize_enabled=False)
+    accts = [_dyn_acc(1, 100), _dyn_acc(2, 20)]
+    d = [_dyn_dom(1, current=1)]
+    # 锚点 10 分钟前：未到 30 分钟间隔，不切
+    plan = plan_reconcile(accts, d, cfg, now, groups=[_dyn_group(30)],
+                          last_switch_by_group={1: now - dt.timedelta(minutes=10)})
+    assert not [a for a in plan.actions if a.kind == "dns"]
+
+
+def test_dynamic_custom_interval_60():
+    """dynamic 间隔可配：60 分钟时 31 分钟前不切，61 分钟前才切。"""
+    import datetime as dt
+    from app.engine import Config, plan_reconcile
+    now = _dyn_noon()
+    cfg = Config(night_optimize_enabled=False)
+    accts = [_dyn_acc(1, 100), _dyn_acc(2, 20)]
+    d = [_dyn_dom(1, current=1)]
+    p1 = plan_reconcile(accts, d, cfg, now, groups=[_dyn_group(60)],
+                        last_switch_by_group={1: now - dt.timedelta(minutes=31)})
+    assert not [a for a in p1.actions if a.kind == "dns"]
+    p2 = plan_reconcile(accts, d, cfg, now, groups=[_dyn_group(60)],
+                        last_switch_by_group={1: now - dt.timedelta(minutes=61)})
+    assert any(a.kind == "dns" and a.reason == "dynamic_switch"
+               for a in p2.actions)
+
+
+def test_dynamic_group_db_roundtrip(tmpdb):
+    """db：新建/改分组可用 dynamic 模式；动态间隔小于 30 钳到 30。"""
+    g = tmpdb.create_group({"name": "Dyn", "switch_mode": "dynamic",
+                            "dynamic_interval_minutes": 15})
+    assert g["switch_mode"] == "dynamic"
+    assert g["dynamic_interval_minutes"] == 30  # 15 钳到 30
+    g2 = tmpdb.update_group(g["id"], {"dynamic_interval_minutes": 90})
+    assert g2["dynamic_interval_minutes"] == 90
+    g3 = tmpdb.update_group(g["id"], {"switch_mode": "load_balance"})
+    assert g3["switch_mode"] == "load_balance"
+
+
+def test_dynamic_mode_migration_recreates_old_groups_table(tmp_path):
+    """旧库迁移：groups 表 CHECK 不含 dynamic 时，init_db 重建表并保留数据。"""
+    import sqlite3
+    from pathlib import Path
+    import app.db as dbmod
+    p = Path(tmp_path) / "old.db"
+    con = sqlite3.connect(p)
+    con.execute("""CREATE TABLE groups(
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      switch_mode TEXT NOT NULL DEFAULT 'load_balance'
+        CHECK (switch_mode IN ('time', 'load_balance')),
+      interval_hours INTEGER,
+      custom_interval_minutes INTEGER,
+      interval_start_time TEXT,
+      fixed_switch_time TEXT,
+      night_window_start TEXT,
+      night_window_end TEXT,
+      night_optimize_enabled INTEGER,
+      switch_diff_mode TEXT,
+      switch_diff_gb REAL,
+      switch_diff_pct REAL,
+      time_switch_mode TEXT,
+      exclusion_action TEXT,
+      recovery_action TEXT,
+      paused INTEGER NOT NULL DEFAULT 0,
+      priority INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )""")
+    con.execute("INSERT INTO groups(id, name, switch_mode, created_at) "
+                "VALUES(2, 'Premium', 'load_balance', 1700000000)")
+    con.commit()
+    con.close()
+    dbmod.close()
+    dbmod.init_db(db_path=p)
+    try:
+        rows = dbmod.list_groups()
+        assert [r["id"] for r in rows] == [2]
+        assert rows[0]["name"] == "Premium"
+        g = dbmod.create_group({"name": "Dyn", "switch_mode": "dynamic",
+                                "dynamic_interval_minutes": 60})
+        assert g["switch_mode"] == "dynamic"
+        assert g["dynamic_interval_minutes"] == 60
+    finally:
+        dbmod.close()

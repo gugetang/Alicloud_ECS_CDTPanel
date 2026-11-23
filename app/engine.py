@@ -11,11 +11,13 @@
    exclusion=stop → 普通停机；stop_charging → 节省停机。
    全池超阈值 → 域名指到备用地址，通知「备用地址启用」。
    踢出不是持久状态：每轮按当前用量重算，低于阈值即自动恢复可分配。
-0. 切换模式按分组（一个分组只选一种模式，time | load_balance，分组层无 both）：
-   分组 A（IP1–IP4）只能选定时轮巡或负载均衡其中一种，不同分组可以选
-   不同模式。time=仅定时轮巡（规则 5），差值切换关闭；load_balance=仅
-   负载均衡（规则 4），定时轮巡关闭。旧的全局 switch_mode（time |
-   load_balance | both，默认 both）只作为无分组 legacy 调用与新建分组的
+0. 切换模式按分组（一个分组只选一种模式，time | load_balance | dynamic，
+   分组层无 both）：
+   分组 A（IP1–IP4）只能选定时轮巡、负载均衡、动态切换其中一种，不同分组
+   可以选不同模式。time=仅定时轮巡（规则 5），差值切换关闭；load_balance=
+   仅负载均衡（规则 4），定时轮巡关闭；dynamic=仅动态切换（规则 4b），
+   定时轮巡与差值切换都关闭。旧的全局 switch_mode（time | load_balance |
+   dynamic | both，默认 both）只作为无分组 legacy 调用与新建分组的
    默认模式，不再是分组账户的有效控制。
    阈值踢出（规则 3）、保活（规则 2）、首次分配、备用地址（规则 6）是
    保护与核心行为，不受切换模式影响，在各分组、各模式下都生效。
@@ -26,6 +28,10 @@
    （默认 10%）→ 切 DNS；gb 模式时当班已用 GB - 候选已用 GB >= 切换阀值
    （默认 10 GB）→ 切 DNS，与百分比无关。仅在 switch_mode 为
    load_balance 或 both 时评估。
+4b. 动态切换：仅在 switch_mode 为 dynamic 时评估。按动态间隔（分钟，
+   默认 30，最少 30，可选 30/60/90/120/自定义）切到剩余流量最多的
+   服务器（池内用量最低），不看差值阈值；间隔按上次切换锚点计时，
+   首次检查建锚点、本轮不切，重启后按持久化的锚点继续，不重复切。
 5. 定时轮巡（模式 time_switch_mode，""=自动），仅在 switch_mode 为
    time 或 both 时评估：
    夜间窗口（默认 00:00–04:00）内每晚第一次有效检查，不论差值直接切到最低
@@ -55,7 +61,7 @@ class GroupView:
     """一个分组：IP 池 + 最多 1 个域名 + 只选一种切换模式（无 both）。"""
     id: int
     name: str = ""
-    switch_mode: str = "load_balance"  # time | load_balance（分组层无 both）
+    switch_mode: str = "load_balance"  # time | load_balance | dynamic（分组层无 both）
     # 以下全部可空 = 继承全局设置
     interval_hours: int | None = None
     custom_interval_minutes: int | None = None
@@ -68,6 +74,8 @@ class GroupView:
     switch_diff_gb: float | None = None
     switch_diff_pct: float | None = None
     time_switch_mode: str | None = None
+    # 动态切换间隔（分钟）：仅 dynamic 模式用；None=用默认 30，最少 30
+    dynamic_interval_minutes: int | None = None
     # 阈值策略（分组级）：None/""=继承全局设置；exclusion_action=none/stop/
     # stop_charging，recovery_action=start/keep_stopped
     exclusion_action: str | None = None
@@ -76,7 +84,7 @@ class GroupView:
 
     def __post_init__(self):
         m = (self.switch_mode or "load_balance").strip().lower()
-        self.switch_mode = m if m in ("time", "load_balance") else "load_balance"
+        self.switch_mode = m if m in ("time", "load_balance", "dynamic") else "load_balance"
 
 
 @dataclass
@@ -133,7 +141,7 @@ class DomainView:
 
 @dataclass
 class Config:
-    switch_mode: str = "both"  # time | load_balance | both（默认 both）
+    switch_mode: str = "both"  # time | load_balance | dynamic | both（默认 both）
     quota_gb: float = 200.0
     protection_threshold_pct: float = 95.0
     switch_diff_pct: float = 10.0
@@ -150,6 +158,8 @@ class Config:
     interval_hours: int = 6               # 1/2/3/4/6/12/24；0=用自定义分钟数
     custom_interval_minutes: int = 0
     interval_start_time: str = "00:00:00"  # 间隔切换的开始时间（锚点）：切换时刻=开始时间+k*间隔
+    # 动态切换间隔（分钟）：仅 dynamic 模式用；默认 30，最少 30
+    dynamic_interval_minutes: int = 30
     fallback_address: str = "fallback.example.xyz"
 
     @classmethod
@@ -160,7 +170,7 @@ class Config:
             except (TypeError, ValueError):
                 return float(default)
         _mode = (s.get("switch_mode") or "both").strip().lower()
-        if _mode not in ("time", "load_balance", "both"):
+        if _mode not in ("time", "load_balance", "dynamic", "both"):
             _mode = "both"
         return cls(
             switch_mode=_mode,
@@ -182,6 +192,7 @@ class Config:
             interval_hours=int(f("interval_hours", 6)),
             custom_interval_minutes=int(f("custom_interval_minutes", 0)),
             interval_start_time=(s.get("interval_start_time") or "00:00:00").strip() or "00:00:00",
+            dynamic_interval_minutes=max(30, int(f("dynamic_interval_minutes", 30))),
             fallback_address=(s.get("fallback_address") or "fallback.example.xyz").strip(),
         )
 
@@ -264,7 +275,7 @@ def _eff_diff_gb(a: AccountView, cfg: Config) -> float:
 
 def _group_config(group: GroupView | None, cfg: Config) -> Config:
     """分组的有效配置：分组字段非空时覆盖全局，否则继承全局。
-    分组 switch_mode 只取 time/load_balance；group 为 None 时沿用全局
+    分组 switch_mode 只取 time/load_balance/dynamic；group 为 None 时沿用全局
     switch_mode（legacy 路径，both 仍合法）。time 模式的分组未显式设置
     time_switch_mode 时默认按 interval 走——分组界面只剩间隔周期这一项，
     间隔就是分组定时轮巡的机制；否则默认 auto 下间隔永不触发，间隔周期
@@ -297,11 +308,25 @@ def _group_config(group: GroupView | None, cfg: Config) -> Config:
         g.time_switch_mode = group.time_switch_mode
     elif group.switch_mode == "time":
         g.time_switch_mode = "interval"
+    if group.dynamic_interval_minutes is not None:
+        g.dynamic_interval_minutes = group.dynamic_interval_minutes
     return g
 
 
+def effective_dynamic_interval_minutes(cfg: Config) -> int:
+    """动态切换的有效间隔（分钟）：默认 30，最少 30（小于 30 按 30 算）。"""
+    try:
+        n = int(cfg.dynamic_interval_minutes) if cfg.dynamic_interval_minutes is not None else 30
+    except (TypeError, ValueError):
+        n = 30
+    return max(30, n)
+
+
 def effective_interval_minutes(cfg: Config) -> int:
-    """间隔切换的有效间隔（分钟）：自定义分钟数优先，否则 interval_hours 小时。"""
+    """间隔切换的有效间隔（分钟）：dynamic 模式用动态间隔；否则自定义分钟数
+    优先，再 interval_hours 小时。"""
+    if (cfg.switch_mode or "").strip().lower() == "dynamic":
+        return effective_dynamic_interval_minutes(cfg)
     if cfg.custom_interval_minutes and cfg.custom_interval_minutes > 0:
         return int(cfg.custom_interval_minutes)
     if cfg.interval_hours and cfg.interval_hours > 0:
@@ -520,9 +545,12 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
     pool_ids = {a.id for a in pool}
 
     # 顶层切换模式门控：时间触发只在 time/both 下评估，差值触发只在
-    # load_balance/both 下评估。阈值踢出/保活/首次分配/备用地址不受影响。
+    # load_balance/both 下评估，动态触发只在 dynamic 下评估（分组层无 both，
+    # dynamic 不进 legacy both，避免改动旧行为）。阈值踢出/保活/首次分配/
+    # 备用地址不受影响。
     time_enabled = cfg.switch_mode in ("time", "both")
     diff_enabled = cfg.switch_mode in ("load_balance", "both")
+    dynamic_enabled = cfg.switch_mode == "dynamic"
     mode = (cfg.time_switch_mode or "").strip().lower() or "auto"
     night_active = (time_enabled
                     and mode in ("auto", "night_only")
@@ -542,6 +570,16 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
             # 下轮从这里开始按开始时间+k*间隔计时，不漂移
             plan.interval_anchor_at = interval_anchor_for(now, cfg) or now
 
+    # 动态切换（dynamic）：按动态间隔切到剩余流量最多的服务器（池首位），
+    # 不看差值阈值。间隔取动态间隔（默认 30 分钟，最少 30 分钟），与 time
+    # 的间隔共用 last_time_switch 锚点；首次检查建锚点，本轮不切。
+    dynamic_due_flag = False
+    if dynamic_enabled:
+        if interval_due(now, last_time_switch_at, cfg):
+            dynamic_due_flag = True
+        elif last_time_switch_at is None:
+            plan.interval_anchor_at = interval_anchor_for(now, cfg) or now
+
     if grouped:
         # 1 分组=1 域名：只取优先级最高的 1 个启用域名，分给池内最低 IP。
         # 同组若误配第 2 个域名，本轮不调度它（DB/API 层已禁止这种情况）。
@@ -556,6 +594,7 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
     night_triggered = False
     fixed_triggered = False
     interval_triggered = False
+    dynamic_triggered = False
     stopped_ids: set[int] = set()   # 同一账户多域名只停一次
     started_ids: set[int] = set()   # 同一账户多域名只拉起一次
 
@@ -644,6 +683,12 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
         elif interval_due_flag:
             reason = "interval_switch"
             interval_triggered = True
+        elif dynamic_due_flag:
+            # 动态切换：间隔到点即切到剩余流量最多的服务器，不看差值阈值。
+            # 目标已是池首位（用量最低）；当前已是目标时上方的“已是目标”分支
+            # 早已 continue，不会走到这里重复切。
+            reason = "dynamic_switch"
+            dynamic_triggered = True
         elif (diff_enabled and current is not None
               and current.usage_rate is not None and target.usage_rate is not None):
             if _eff_diff_mode(current, cfg) == "gb":
@@ -691,7 +736,8 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                     if excl == "none" else "")))
             _maybe_stop_evicted(plan, current, cfg, stopped_ids, d)
         elif reason in ("traffic_diff", "traffic_diff_gb", "night_optimize",
-                        "fixed_time", "interval_switch", "daily_window"):
+                        "fixed_time", "interval_switch", "dynamic_switch",
+                        "daily_window"):
             if reason == "daily_window":
                 detail = (f"{d.name} → {target.name}（当前账户 {current.name} "
                           f"不在每日开机窗口内）")
@@ -704,6 +750,10 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                 detail = (f"{d.name} → {target.name}（间隔切换："
                           f"每 {effective_interval_minutes(cfg)} 分钟，"
                           "不论差值切到用量最低）")
+            elif reason == "dynamic_switch":
+                detail = (f"{d.name} → {target.name}（动态切换："
+                          f"每 {effective_dynamic_interval_minutes(cfg)} 分钟，"
+                          "切到剩余流量最多）")
             else:
                 detail = f"{d.name} → {target.name}（{reason}）"
             plan.notifications.append(("dns_change", "DNS 指向变化", detail))
@@ -712,7 +762,7 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
         plan.night_done_date = today
     if fixed_triggered:
         plan.fixed_done_date = today
-    if interval_triggered:
+    if interval_triggered or dynamic_triggered:
         plan.time_switch_at = now
     plan.summary = (f"域名 {len([d for d in domains if d.enabled])} 个，"
                     f"可分配账户 {len(pool)} 个，踢出 {len(plan.evicted_account_ids)} 个，"
@@ -741,7 +791,8 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
     """排班入口（保持向后兼容）。
     groups=None：legacy 单组全量路径，使用全局 switch_mode（含 both），
       多域名循环分配保留，旗标用标量参数。
-    groups 给出：按组独立调度。每组只用自己的模式（time 或 load_balance，
+    groups 给出：按组独立调度。每组只用自己的模式（time、load_balance 或
+    dynamic，
       无 both），旗标按组命名空间（调用方用 night_done_by_group 等传入，
       也可用旧的 set/标量参数——此时各组共用同一份 legacy 旗标，仅用于
       兼容测试）。group_id 为 None 的账户/域名归默认分组（id=1）。

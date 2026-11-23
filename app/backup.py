@@ -29,7 +29,7 @@ COLUMNS: dict[str, list[str]] = {
                "night_optimize_enabled", "switch_diff_mode",
                "switch_diff_gb", "switch_diff_pct", "time_switch_mode",
                "exclusion_action", "recovery_action",
-               "priority", "created_at"],
+               "priority", "created_at", "dynamic_interval_minutes"],
     "accounts": ["id", "name", "site", "region", "access_key_id",
                  "access_key_secret_enc", "instance_id", "quota_gb",
                  "protection_threshold_pct", "switch_diff_pct",

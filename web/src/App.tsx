@@ -483,6 +483,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
+  // 动态切换间隔（分钟）：后端存分钟；30/60/90/120 为预设，0=自定义；未填默认 30
+  const _gdm = Number(g.dynamic_interval_minutes ?? 0) || 0;
+  const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90, 120].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
+  const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90, 120].includes(_gdm) ? _gdm : 30));
   // 分组级阈值策略：空=跟随全局
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
@@ -505,7 +509,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b>{g.name as string}</b>
-        <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
+        <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态切换") : t("负载均衡")}</span>
         <span className="spacer" />
         <button className="btn ghost" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
         <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
@@ -527,9 +531,25 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         <Seg value={g.switch_mode as string} options={[
           { value: "time", label: t("定时轮巡") },
           { value: "load_balance", label: t("负载均衡") },
+          { value: "dynamic", label: t("动态切换") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
-      {g.switch_mode === "time" ? (
+      {g.switch_mode === "dynamic" ? (
+        <div style={{ marginTop: 12 }}>
+          <div className="form2">
+            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
+              <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
+                { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
+                { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
+                { value: "0", label: t("自定义") },
+              ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
+          </div>
+          {dynInterval === "0" && (
+            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
+              <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+          <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
+        </div>
+      ) : g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
           <div className="form2">
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
@@ -1629,6 +1649,7 @@ export default function App() {
               <Seg value={newGroupMode} options={[
                 { value: "time", label: t("定时轮巡") },
                 { value: "load_balance", label: t("负载均衡") },
+                { value: "dynamic", label: t("动态切换") },
               ]} onChange={setNewGroupMode} />
               <label className="lbl" style={{ marginTop: 12 }}>{t("选择域名")}</label>
               <select value={newGroupDomain} onChange={(e) => setNewGroupDomain(e.target.value)} style={{ width: "100%" }}>
