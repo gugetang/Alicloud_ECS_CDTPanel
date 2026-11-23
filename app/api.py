@@ -811,6 +811,9 @@ def start_account(aid: int, _: bool = Depends(_admin_required)):
     except AliyunError as exc:
         raise HTTPException(400, f"启动失败：{exc}")
     db.add_event("info", "手动启动", f"{a['name']} 已发送启动指令", account_id=aid)
+    # 推送：实例启动，原因=手动操作（开关默认开）
+    Notifier(db.get_settings()).send(
+        "instance_start", "实例启动", f"{a['name']} 已启动，原因：手动操作")
     return _public_row(scheduler.refresh_one_account(aid))
 
 
@@ -833,6 +836,10 @@ def stop_account(aid: int, _: bool = Depends(_admin_required)):
     except AliyunError as exc:
         raise HTTPException(400, f"停机失败：{exc}")
     db.add_event("info", "手动停机", f"{a['name']} 已发送停机指令", account_id=aid)
+    # 推送：实例停机，原因=手动操作（开关默认开）
+    Notifier(db.get_settings()).send(
+        "instance_stop", "实例停机",
+        f"{a['name']} 已停机（普通停机），原因：手动操作")
     return _public_row(scheduler.refresh_one_account(aid))
 
 
@@ -1052,7 +1059,10 @@ def get_notify(_: bool = Depends(_admin_required)):
                         "fallback": "notify_fallback",
                         "exclusion": "notify_exclusion",
                         "error": "notify_error",
-                        "recovery": "notify_recovery"}.items()}}
+                        "recovery": "notify_recovery",
+                        "instance_start": "notify_instance_start",
+                        "instance_stop": "notify_instance_stop",
+                        "threshold_alarm": "notify_threshold_alarm"}.items()}}
 
 
 @router.post("/notify/test")

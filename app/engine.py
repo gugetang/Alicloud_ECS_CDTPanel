@@ -907,12 +907,30 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
         if act.kind == "start" and act.account_id in by_acc:
             cloud.start(by_acc[act.account_id])
             executed.append(f"start:{by_acc[act.account_id].name}")
+            # 推送：实例启动（可开关，默认开）。原因用 Action 已有的
+            # reason/detail，不编造新分类；域名写清楚是为哪个域名拉起。
+            dom = by_dom.get(act.domain_id) if act.domain_id else None
+            plan.notifications.append(
+                ("instance_start", "实例启动",
+                 f"{by_acc[act.account_id].name} 已启动"
+                 + (f"（{act.detail}）" if act.detail else "")
+                 + (f"，域名：{dom.name}" if dom else "")
+                 + f"，原因：{act.reason or '保活拉起'}"))
     # 2) DNS 切换 / 备用地址
     for act in plan.actions:
         if act.kind in ("dns", "dns_fallback") and act.domain_id in by_dom:
             changed = dns.set_record(by_dom[act.domain_id], act.target_ip)
             executed.append(f"{act.kind}:{by_dom[act.domain_id].name}->{act.target_ip}"
                             f"{' changed' if changed else ' unchanged'}")
+            # 日志缺口：IP 变化后重新同步、分组暂停指向 0.0.0.0 这两类
+            # DNS 动作原来没有通知/日志，调度完成里只剩“动作 1 条”。
+            # 在这里补一条 dns_change 通知（_notify 会同时记日志事件），
+            # 原因用 Action 已有的 reason/detail。
+            if act.kind == "dns" and act.reason in ("ip_changed", "group_paused"):
+                plan.notifications.append(
+                    ("dns_change", "DNS 指向变化",
+                     act.detail or f"{by_dom[act.domain_id].name} → {act.target_ip}"
+                     f"（{act.reason}）"))
     # 3) 排除停机（最后，且仅当 Plan 里有 stop 动作，即排除操作 != none）
     for act in plan.actions:
         if act.kind == "stop" and act.account_id in by_acc:
@@ -920,6 +938,16 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
             stop_charging = act.stop_charging
             cloud.stop(acc, stop_charging=stop_charging)
             executed.append(f"stop:{acc.name}")
+            # 推送：实例停机（可开关，默认开）。原因用 Action 已有的
+            # reason/detail：节省停机/普通停机按 stop_charging 区分，
+            # 不再按中文文案判断（见 B-07）。
+            dom = by_dom.get(act.domain_id) if act.domain_id else None
+            plan.notifications.append(
+                ("instance_stop", "实例停机",
+                 f"{acc.name} 已停机（{'节省停机' if stop_charging else '普通停机'}"
+                 + (f"：{act.detail}" if act.detail else "")
+                 + (f"，域名：{dom.name}" if dom else "")
+                 + f"，原因：{act.reason or '排除操作'}"))
     if notify_fn:
         for event, title, body in plan.notifications:
             notify_fn(event, title, body)
