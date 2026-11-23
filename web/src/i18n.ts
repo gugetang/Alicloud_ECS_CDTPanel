@@ -260,6 +260,9 @@ export const EN: Record<string, string> = {
   "请填写 AccessKey ID": "Please fill in the AccessKey ID",
   "请填写实例 ID": "Please fill in the instance ID",
   "流量额度必须大于 0": "Traffic quota must be greater than 0",
+  "流量保护阈值必须在 0 到 100 之间": "Traffic protection threshold must be between 0 and 100",
+  "流量额度和阈值继承全局设置": "Quota and threshold inherit the global settings",
+  "跟随系统：流量额度 {quota} GiB，流量保护阈值 {threshold}%。": "Follow system: quota {quota} GiB, traffic protection threshold {threshold}%.",
   每日开机时间与关机时间不能相同: "Daily power-on and power-off times must not be the same",
   请选择地域或填写自定义地域: "Please select a region or fill in a custom region",
   // 登录 / 首次设置

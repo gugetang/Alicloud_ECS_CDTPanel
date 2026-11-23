@@ -876,6 +876,13 @@ def _check_daily_fields(data: dict, cur: dict | None = None) -> None:
                 raise ValueError("流量额度必须大于 0")
         except (TypeError, ValueError):
             raise ValueError("流量额度必须大于 0")
+    th = val("protection_threshold_pct")
+    if th is not None:
+        try:
+            if not (0 < float(th) <= 100):
+                raise ValueError("流量保护阈值必须在 0 到 100 之间")
+        except (TypeError, ValueError):
+            raise ValueError("流量保护阈值必须在 0 到 100 之间")
     if val("daily_schedule_enabled"):
         on, off = val("daily_on_time"), val("daily_off_time")
         if not (_HHMM.match(str(on or "")) and _HHMM.match(str(off or ""))):
