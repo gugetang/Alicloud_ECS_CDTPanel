@@ -1011,11 +1011,13 @@ def _mask(s: dict) -> dict:
     out["telegram_configured"] = bool(s.get("telegram_token"))
     out["google_oauth_configured"] = _oauth_configured(s, "google")
     out["github_oauth_configured"] = _oauth_configured(s, "github")
+    out["webdav_configured"] = bool(s.get("webdav_password"))
     out.pop("cloudflare_token", None)
     out.pop("telegram_token", None)
     out.pop("email_password", None)
     out.pop("google_oauth_client_secret", None)
     out.pop("github_oauth_client_secret", None)
+    out.pop("webdav_password", None)
     return out
 
 
@@ -1164,6 +1166,62 @@ def backup_restore(body: dict, _: bool = Depends(_admin_required)):
         raise HTTPException(400, f"备份无效：{exc}")
     db.add_event("info", "恢复备份",
                  "已从备份恢复："
+                 + "、".join(f"{k} {v} 条" for k, v in counts.items()))
+    return {"ok": True, "counts": counts}
+
+
+@router.get("/backup/webdav/status")
+def webdav_status(_: bool = Depends(_admin_required)):
+    """云端备份状态：是否配置、云端文件是否存在及大小/修改时间。"""
+    from . import webdav
+    settings = db.get_settings()
+    cfg = webdav.get_config(settings)
+    if not cfg["url"]:
+        return {"configured": False, "enabled": False, "url": "",
+                "exists": False, "size": None, "modified": None}
+    try:
+        info = webdav.client_from_settings(settings).propfind()
+    except webdav.WebDAVError as exc:
+        raise HTTPException(400, str(exc))
+    return {"configured": True, "enabled": cfg["enabled"], "url": cfg["url"],
+            **info}
+
+
+@router.post("/backup/webdav/test")
+def webdav_test(_: bool = Depends(_admin_required)):
+    """测试 WebDAV 连接：服务器通 + 认证通过即成功；文件不存在也算成功
+    （只是还没传过备份）。"""
+    from . import webdav
+    try:
+        info = webdav.client_from_settings(db.get_settings()).propfind()
+    except webdav.WebDAVError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, **info}
+
+
+@router.post("/backup/webdav/upload")
+def webdav_upload(_: bool = Depends(_admin_required)):
+    """把当前整库备份上传到 WebDAV。"""
+    from . import webdav
+    try:
+        info = webdav.upload_backup(db.get_settings())
+    except webdav.WebDAVError as exc:
+        raise HTTPException(400, str(exc))
+    db.add_event("info", "云端备份",
+                 f"已上传备份到 WebDAV（{info['size']} 字节）")
+    return {"ok": True, **info}
+
+
+@router.post("/backup/webdav/download")
+def webdav_download(_: bool = Depends(_admin_required)):
+    """从 WebDAV 下载备份并整体恢复（与本地恢复一样替换全部数据）。"""
+    from . import webdav
+    try:
+        counts = webdav.download_backup(db.get_settings())
+    except webdav.WebDAVError as exc:
+        raise HTTPException(400, str(exc))
+    db.add_event("info", "云端恢复",
+                 "已从 WebDAV 恢复备份："
                  + "、".join(f"{k} {v} 条" for k, v in counts.items()))
     return {"ok": True, "counts": counts}
 

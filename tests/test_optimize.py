@@ -736,3 +736,141 @@ def test_dynamic_mode_migration_recreates_old_groups_table(tmp_path):
         assert g["dynamic_interval_minutes"] == 60
     finally:
         dbmod.close()
+
+
+# ---------------------------------------------------------------------------
+# 云端备份（WebDAV）：PUT 上传 / GET 下载 / PROPFIND 查状态
+# ---------------------------------------------------------------------------
+
+class _FakeResp:
+    def __init__(self, status_code, content=b""):
+        self.status_code = status_code
+        self.content = content
+
+
+def _fake_dav(monkeypatch, mapping):
+    """把 requests.request 换成按 (method, url) 查表的假实现。
+
+    mapping: {(method, url): _FakeResp}，未命中返回 404。
+    返回一个记录调用的列表。
+    """
+    import app.webdav as wv
+    calls = []
+
+    def fake(method, url, auth=None, headers=None, data=None, timeout=None):
+        calls.append({"method": method, "url": url, "data": data,
+                      "auth": auth, "headers": headers})
+        return mapping.get((method, url), _FakeResp(404))
+
+    monkeypatch.setattr(wv.requests, "request", fake)
+    return calls
+
+
+def test_webdav_url_validation():
+    """WebDAV 地址必须是 http(s):// 完整地址，空地址报错。"""
+    import app.webdav as wv
+    with pytest.raises(wv.WebDAVError):
+        wv.WebDAVClient("")
+    with pytest.raises(wv.WebDAVError):
+        wv.WebDAVClient("ftp://example.com/backup.json")
+    with pytest.raises(wv.WebDAVError):
+        wv.WebDAVClient("not-a-url")
+    c = wv.WebDAVClient("https://dav.example.com/backups/cdt-backup.json",
+                        "ali", "secret")
+    assert c.url == "https://dav.example.com/backups/cdt-backup.json"
+    assert c.auth is not None
+    c2 = wv.WebDAVClient("https://dav.example.com/backups/cdt-backup.json")
+    assert c2.auth is None  # 无用户名时不发认证头
+
+
+def test_webdav_propfind_exists(monkeypatch):
+    """PROPFIND 207：解析出文件存在、大小与修改时间。"""
+    import app.webdav as wv
+    xml = (b'<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">'
+           b'<d:response><d:propstat><d:prop>'
+           b'<d:getcontentlength>12345</d:getcontentlength>'
+           b'<d:getlastmodified>Wed, 22 Nov 2026 12:00:00 GMT</d:getlastmodified>'
+           b'</d:prop></d:propstat></d:response></d:multistatus>')
+    url = "https://dav.example.com/backups/cdt-backup.json"
+    _fake_dav(monkeypatch, {("PROPFIND", url): _FakeResp(207, xml)})
+    info = wv.WebDAVClient(url).propfind()
+    assert info["exists"] is True
+    assert info["size"] == 12345
+    assert info["modified"] == "Wed, 22 Nov 2026 12:00:00 GMT"
+
+
+def test_webdav_propfind_not_found(monkeypatch):
+    """PROPFIND 404：服务器通、认证通过，只是文件还没传过。"""
+    import app.webdav as wv
+    url = "https://dav.example.com/backups/cdt-backup.json"
+    _fake_dav(monkeypatch, {("PROPFIND", url): _FakeResp(404)})
+    info = wv.WebDAVClient(url).propfind()
+    assert info == {"exists": False, "size": None, "modified": None}
+
+
+def test_webdav_propfind_auth_error(monkeypatch):
+    """PROPFIND 401：报认证失败（用户名或密码不对）。"""
+    import app.webdav as wv
+    url = "https://dav.example.com/backups/cdt-backup.json"
+    _fake_dav(monkeypatch, {("PROPFIND", url): _FakeResp(401)})
+    with pytest.raises(wv.WebDAVError, match="认证失败"):
+        wv.WebDAVClient(url, "ali", "wrong").propfind()
+
+
+def test_webdav_put_and_get(monkeypatch):
+    """PUT 上传成功返回字节数；GET 下载返回内容；GET 404 报云端无备份。"""
+    import app.webdav as wv
+    url = "https://dav.example.com/backups/cdt-backup.json"
+    payload = b'{"version": 1}'
+    calls = _fake_dav(monkeypatch, {
+        ("PUT", url): _FakeResp(201),
+        ("GET", url): _FakeResp(200, payload),
+    })
+    client = wv.WebDAVClient(url, "ali", "secret")
+    assert client.put(payload) == len(payload)
+    assert calls[0]["method"] == "PUT"
+    assert calls[0]["data"] == payload
+    assert client.get() == payload
+    # 换一个 URL 模拟 GET 404
+    calls2 = _fake_dav(monkeypatch, {("GET", url): _FakeResp(404)})
+    with pytest.raises(wv.WebDAVError, match="云端没有备份"):
+        wv.WebDAVClient(url).get()
+    assert calls2[0]["method"] == "GET"
+
+
+def test_webdav_put_forbidden(monkeypatch):
+    """PUT 403：报认证失败。"""
+    import app.webdav as wv
+    url = "https://dav.example.com/backups/cdt-backup.json"
+    _fake_dav(monkeypatch, {("PUT", url): _FakeResp(403)})
+    with pytest.raises(wv.WebDAVError, match="认证失败"):
+        wv.WebDAVClient(url, "ali", "wrong").put(b"{}")
+
+
+def test_webdav_client_from_settings_missing_url():
+    """未配置地址时建客户端报错（可读提示）。"""
+    import app.webdav as wv
+    with pytest.raises(wv.WebDAVError, match="未配置 WebDAV 地址"):
+        wv.client_from_settings({})
+    with pytest.raises(wv.WebDAVError, match="未配置 WebDAV 地址"):
+        wv.client_from_settings({"webdav_url": ""})
+
+
+def test_webdav_settings_defaults():
+    """DEFAULT_SETTINGS 有 4 个 WebDAV 键，默认关闭、地址为空。"""
+    from app.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["webdav_enabled"] == "0"
+    assert DEFAULT_SETTINGS["webdav_url"] == ""
+    assert DEFAULT_SETTINGS["webdav_username"] == ""
+    assert DEFAULT_SETTINGS["webdav_password"] == ""
+
+
+def test_webdav_password_masked():
+    """_mask 不回显 WebDAV 密码，只给 webdav_configured 标记。"""
+    from app.api import _mask
+    masked = _mask({"webdav_password": "secret", "webdav_url": "https://x/y.json",
+                    "email_password": "p"})
+    assert "webdav_password" not in masked
+    assert masked["webdav_configured"] is True
+    assert masked["webdav_url"] == "https://x/y.json"
+    assert _mask({})["webdav_configured"] is False

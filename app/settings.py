@@ -106,6 +106,13 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # 用户可在设置里改；日报仍按各账户币种显示，不换算。
     "settlement_currency": "USD",
     "exchange_rate_usd_cny": "6.6719",
+    # 云端备份（WebDAV）：webdav_url 填备份文件的完整地址，如
+    # https://nextcloud.example.com/remote.php/dav/files/ali/backups/cdt-backup.json；
+    # 密码与邮箱密码一样只存库里，API 读设置时不回显（见 api._mask）。
+    "webdav_enabled": "0",
+    "webdav_url": "",
+    "webdav_username": "",
+    "webdav_password": "",
 }
 
 EVENT_TOGGLE_KEYS = {

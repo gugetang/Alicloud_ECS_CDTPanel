@@ -857,10 +857,79 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
 }
 
 // ---------------- 备份与恢复卡片（全局设置页） ----------------
-function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () => Promise<void> }) {
+function BackupCard({ settings, saveSettings, setMsg, load }: {
+  settings: Any;
+  saveSettings: (patch: Any) => Promise<void>;
+  setMsg: (s: string) => void;
+  load: () => Promise<void>;
+}) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [wdStatus, setWdStatus] = useState<Any>(null);
+
+  const wdEnabled = settings?.webdav_enabled === "1";
+  const wdConfigured = Boolean(settings?.webdav_configured);
+
+  const refreshWdStatus = async () => {
+    try {
+      const s = await get("/api/backup/webdav/status") as Any;
+      setWdStatus(s);
+    } catch { setWdStatus(null); }
+  };
+  useEffect(() => { refreshWdStatus(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const fmtSize = (n: number) => {
+    if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${n} B`;
+  };
+
+  // WebDAV 配置随改随存（失焦保存）；密码只有填了新值才提交，掩码/留空保持不变。
+  const saveWd = () => {
+    const patch: Any = {
+      webdav_url: (document.getElementById("wd-url") as HTMLInputElement)?.value?.trim() || "",
+      webdav_username: (document.getElementById("wd-user") as HTMLInputElement)?.value?.trim() || "",
+    };
+    const pw = (document.getElementById("wd-pass") as HTMLInputElement)?.value || "";
+    if (pw && pw !== SECRET_MASK) patch.webdav_password = pw;
+    return saveSettings(patch);
+  };
+
+  const wdTest = async () => {
+    setBusy(true);
+    try {
+      await saveWd();
+      const r = await post("/api/backup/webdav/test") as Any;
+      setMsg(r.exists ? t("WebDAV 连接正常，云端已有备份") : t("WebDAV 连接正常，云端暂无备份"));
+      await refreshWdStatus();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const wdUpload = async () => {
+    setBusy(true);
+    try {
+      await saveWd();
+      const r = await post("/api/backup/webdav/upload") as Any;
+      setMsg(t("已上传到云端备份（{size}）", { size: fmtSize(r.size ?? 0) }));
+      await refreshWdStatus();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
+  const wdDownload = async () => {
+    if (!confirm(t("从云端恢复会整体替换当前全部数据（账户、域名、分组、设置、管理员密码都会回到备份时的状态），确定继续吗？"))) return;
+    setBusy(true);
+    try {
+      const r = await post("/api/backup/webdav/download") as Any;
+      const counts = r.counts || {};
+      setMsg(t("已从云端恢复备份：账户 {accounts} 个、域名 {domains} 个、分组 {groups} 个", { accounts: counts.accounts ?? 0, domains: counts.domains ?? 0, groups: counts.groups ?? 0 }));
+      await load();
+      await refreshWdStatus();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
 
   const download = async () => {
     setBusy(true);
@@ -912,6 +981,32 @@ function BackupCard({ setMsg, load }: { setMsg: (s: string) => void; load: () =>
         <button className="btn" onClick={restore} disabled={busy || !fileName}>{t("恢复备份")}</button>
       </div>
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
+      <div style={{ marginTop: 16 }}>
+        <div className="row" style={{ paddingLeft: "2em", alignItems: "center" }}>
+          <b>{t("云端备份（WebDAV）")}</b>
+          <Toggle checked={wdEnabled} label={t("启用云端备份")} onChange={(v) => saveSettings({ webdav_enabled: v ? "1" : "0" })} />
+          <span className="muted">{t("启用云端备份")}</span>
+        </div>
+        {wdEnabled && (<>
+          <div className="form2" style={{ marginTop: 8 }}>
+            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("WebDAV 地址")}</label>
+              <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://…/backups/cdt-backup.json" style={{ width: "100%" }} onBlur={saveWd} /></div>
+              <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("填备份文件的完整地址，例如 Nextcloud / 坚果云 / 群晖的 WebDAV 文件地址。")}</div></div>
+            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("用户名")}</label>
+              <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
+            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("密码")}</label>
+              <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
+          </div>
+          <div className="row" style={{ paddingLeft: "2em", marginTop: 12 }}>
+            <button className="btn" onClick={wdTest} disabled={busy}>{t("测试连接")}</button>
+            <button className="btn" onClick={wdUpload} disabled={busy}>{t("上传到云端")}</button>
+            <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists}>{t("从云端恢复")}</button>
+          </div>
+          <p className="muted" style={{ paddingLeft: "2em" }}>
+            {!wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
+          </p>
+        </>)}
+      </div>
     </div>
   );
 }
@@ -1799,7 +1894,7 @@ export default function App() {
       {tab === "config" && subTab === "account" && (
         <>
           <LoginSecurity settings={settings} saveSettings={saveSettings} setMsg={setMsg} />
-          <BackupCard setMsg={setMsg} load={load} />
+          <BackupCard settings={settings} saveSettings={saveSettings} setMsg={setMsg} load={load} />
         </>
       )}
 
