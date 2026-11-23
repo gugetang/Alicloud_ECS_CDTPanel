@@ -160,11 +160,12 @@ const credentialToJSON = (cred: any) => {
   };
 };
 
-// 实例配置表单：服务器名排在最上面；分组不出现（新建默认进默认分组，
-// 编辑保持原分组）；必填项标签加粗（label.req）。站点/阈值动作/恢复方式/
-// 日报参与都用按键式选择。
-function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved }: {
-  account: Any | null; settings: Any; count: number;
+// 实例配置表单：服务器名排在最上面；分组不出现（新建默认进第一个已建分组，
+// 编辑保持原分组；不要再把 1 硬编码为默认分组——库里未必有 id=1 的分组，
+// 新建发 group_id=1 会直接 400“分组 1 不存在”）；必填项标签加粗（label.req）。
+// 站点/阈值动作/恢复方式/日报参与都用按键式选择。
+function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAutoSaved }: {
+  account: Any | null; settings: Any; count: number; groups: Any[];
   onDone: () => void; onCancel: () => void; onAutoSaved?: () => void;
 }) {
   const { t } = useI18n();
@@ -250,7 +251,9 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
     const payload: Any = {
       name: name.trim(), access_key_id: akId.trim(), instance_id: instanceId.trim(),
       site, region: finalRegion, quota_gb: q,
-      group_id: account?.group_id ?? 1,
+      // 新建默认进第一个已建分组（不是硬编码 1）；编辑保持原分组。
+      // 后端 create_account 对不存在的分组也会再兜底一次。
+      group_id: account?.group_id ?? (groups[0]?.id ?? 1),
       daily_schedule_enabled: schedEnabled ? 1 : 0, daily_on_time: onTime,
       daily_off_time: offTime,
       // 阈值动作/恢复已移到分组卡片：实例级不再保存这两个字段。
@@ -262,7 +265,11 @@ function InstanceForm({ account, settings, count, onDone, onCancel, onAutoSaved 
     try {
       if (isNew) { payload.priority = count; await post("/api/accounts", payload); onDone(); }
       else { await put(`/api/accounts/${account.id}`, payload); onAutoSaved?.(); }
-    } catch { /* 自动保存失败不打扰，等用户改完再说 */ }
+    } catch (e) {
+      // 自动保存失败要让用户看见（之前静默吞掉，400“分组不存在”这类错
+      // 表单看着像没反应，用户无从得知）。后端 detail 已是中文提示。
+      setFormMsg(String((e as Error).message || t("保存失败")));
+    }
     finally { savingRef.current = false; }
   };
   const saveAuto = () => {
@@ -1198,7 +1205,7 @@ export default function App() {
   // ---------- 卡片设置面板：右上角 ⚙ 打开；配置表单 + 复制 + 删除实例（最下面） ----------
   const CardSettings = ({ a }: { a: Any }) => (
     <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-      <InstanceForm account={a} settings={settings} count={accounts.length}
+      <InstanceForm account={a} settings={settings} count={accounts.length} groups={groups}
         onDone={() => { setCardSettingsId(null); load(); setMsg(t("已保存成功")); }}
         onCancel={() => setCardSettingsId(null)}
         onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
@@ -1472,7 +1479,7 @@ export default function App() {
       {tab === "accounts" && (
         <>
           {editingId === "new" && (
-            <InstanceForm account={null} settings={settings} count={accounts.length}
+            <InstanceForm account={null} settings={settings} count={accounts.length} groups={groups}
               onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
               onCancel={() => setEditingId(null)}
               onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />

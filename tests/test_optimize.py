@@ -547,3 +547,35 @@ def test_start_instance_falls_back_to_swas_on_not_found(monkeypatch):
     c.start_instance()
     assert calls and calls[0][0] == "swas.cn-hongkong.aliyuncs.com"
     assert calls[0][1] == "StartInstance"
+
+
+def test_create_account_falls_back_to_first_group_when_group_missing(tmpdb):
+    """新建账户发了一个不存在的分组 id 时不再直接 400，改落到第一个已建分组。
+
+    复现线上 bug：面板只剩 Premium(id=2)，添加表单默认发 group_id=1，
+    后端报“分组 1 不存在”，前端自动保存还静默吞错，表单看着像没反应。
+    """
+    # 只剩 Premium(id=2)：先建 Premium，再删默认分组 1
+    g = tmpdb.create_group({"name": "Premium", "switch_mode": "load_balance"})
+    assert g["id"] == 2
+    tmpdb.delete_group(1)
+    assert [x["id"] for x in tmpdb.list_groups()] == [2]
+    # 前端旧默认值 group_id=1：不再 400，落到 Premium
+    row = tmpdb.create_account({"name": "SWAS-KR", "group_id": 1,
+                                "instance_id": "3eeeb2fb03b743c78617168126bf6c6f"})
+    assert row["group_id"] == 2
+    # 不传 group_id：同样落到第一个已建分组
+    row2 = tmpdb.create_account({"name": "ECS-A", "instance_id": "i-abc"})
+    assert row2["group_id"] == 2
+    # 存在的分组照常用，不被改写
+    row3 = tmpdb.create_account({"name": "ECS-B", "group_id": 2,
+                                 "instance_id": "i-def"})
+    assert row3["group_id"] == 2
+
+
+def test_create_account_no_groups_ok(tmpdb):
+    """一个分组都没有时，新建账户不绑分组也不报错（group_id 存 NULL）。"""
+    tmpdb.delete_group(1)
+    assert tmpdb.list_groups() == []
+    row = tmpdb.create_account({"name": "Lone", "instance_id": "i-xyz"})
+    assert row["group_id"] is None

@@ -393,6 +393,29 @@ def get_group(gid: int) -> dict | None:
     return _row(conn.execute("SELECT * FROM groups WHERE id=?", (gid,)).fetchone())
 
 
+def _default_group_id() -> int | None:
+    """默认分组 id：第一个已建分组（按 priority/id 排序）；没有分组时返回 None。
+
+    注意：不要再把 1 硬编码为默认分组——用户可能删了 id=1 的默认分组
+    （如只剩 Premium id=2），新建账户发 group_id=1 会直接 400
+    “分组 1 不存在”，且前端自动保存静默吞错，用户看不到任何提示。
+    """
+    groups = list_groups()
+    return groups[0]["id"] if groups else None
+
+
+def _resolve_group_id(gid) -> int | None:
+    """新建账户用的分组解析：给定的分组存在就用它；没给或不存在时落到
+    第一个已建分组；一个分组都没有时返回 None（不绑分组，不报错）。"""
+    if gid is not None:
+        try:
+            if get_group(int(gid)) is not None:
+                return int(gid)
+        except (TypeError, ValueError):
+            pass
+    return _default_group_id()
+
+
 def _check_switch_mode(mode: str) -> str:
     m = (mode or "load_balance").strip().lower()
     if m not in ("time", "load_balance"):
@@ -675,6 +698,10 @@ def _norm_refresh_minutes(data: dict) -> dict:
 
 def create_account(data: dict) -> dict:
     data = _norm_refresh_minutes(data)
+    # 新建时分组先解析再校验：前端新建默认发 group_id=1，但库里未必有
+    # id=1 的分组（删过默认分组时只剩 Premium 之类），不存在的分组不再
+    # 直接 400，改落到第一个已建分组；解析后再做重名与存在性校验。
+    data = {**data, "group_id": _resolve_group_id(data.get("group_id"))}
     data = {**data, "name": _check_account_name(
         data.get("name"), data.get("group_id"))}
     _check_group_exists(data.get("group_id"))
