@@ -54,6 +54,8 @@ nav button.active { border:2px solid var(--accent); color:#1d4ed8; font-weight:6
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); }
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
+/* 手机端卡片折叠的展开按钮：桌面端不显示，窄屏才出现 */
+.card-expand { display:none; }
 .muted { color:var(--muted); font-size:13px; }
 .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
@@ -172,6 +174,11 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   nav { margin-bottom:14px; }
   nav button { padding:10px 14px; }
   .card { padding:14px; margin-bottom:12px; }
+  /* 手机端实例卡片默认折叠：只留名字/状态/流量/费用，实例 ID、IP、阈值、
+     操作按钮隐藏；点右上角 ▾ 展开（卡片带 .expanded 时全部显示）。 */
+  .card-expand { display:inline-flex; }
+  .card:not(.expanded) .stat-detail { display:none; }
+  .card:not(.expanded) .card-actions { display:none; }
   .grid3 { gap:12px; }
   .stats, .stats.five { grid-template-columns:repeat(2,1fr); gap:8px 12px; }
   .stat b { font-size:16px; }

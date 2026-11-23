@@ -395,6 +395,8 @@ export const EN: Record<string, string> = {
   "切换模式按分组设置，请到「分组管理」选择。": "Switch modes are set per group. Choose one in Group Management.",
   "一个分组只选一种模式（定时轮巡 / 负载均衡 / 动态模式），不同分组可以选不同模式。这里的时间/差值参数是": "Each group uses exactly one mode (scheduled rotation / load balancing / dynamic mode); different groups can use different modes. The time / difference parameters here are",
   "每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。": "Switch to the server with the most remaining traffic at each interval, regardless of traffic difference. Groups without their own interval inherit this one.",
+  展开全部: "Expand all",
+  收起: "Collapse",
   新建分组的默认值: "the defaults for new groups",
   "，分组里未填的项继承这里的值。旧的全局切换模式只作默认值与无分组 legacy 回退，不再直接控制分组。": ", and unfilled items in a group inherit these values. The old global switch mode only serves as a default and as a legacy fallback for accounts without a group; it no longer controls groups directly.",
   去分组管理: "Go to Group Management",

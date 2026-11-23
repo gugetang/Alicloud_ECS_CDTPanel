@@ -1102,6 +1102,16 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
   const [cardSettingsId, setCardSettingsId] = useState<number | null>(null);
+  // 手机端卡片折叠：默认只显示名字/状态/流量/费用，实例 ID、IP、阈值、
+  // 操作按钮默认隐藏，点卡片右上角的 ▾ 展开显示全部（仅窄屏生效）。
+  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
+  const toggleCardExpand = (id: number) => {
+    setExpandedCards((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
   // 概览视图：卡片 / 列表
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   // 域名管理页 DDNS 设置卡片是否展开（右上角 ⚙ 开关）
@@ -1610,25 +1620,28 @@ export default function App() {
               onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
           )}
           {accounts.map((a) => (
-            <div className="card" key={a.id as number}
+            <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number}
               style={{ marginTop: 0, display: "flex", flexDirection: "column", cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
               {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
-                <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
+                  <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                </div>
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats five">
-                <div className="stat"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
-                <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
+                <div className="stat stat-detail"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
+                <div className="stat stat-detail"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
-                <div className="stat"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
+                <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 12 }}>
                 {a.status_detail ? <div className="muted" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span />}
-                <ActionButtons a={a} />
+                <div className="card-actions"><ActionButtons a={a} /></div>
               </div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
