@@ -660,8 +660,12 @@ def create_group(data: dict) -> dict:
             "dynamic_interval_minutes"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
-    # 新建未填模式默认负载均衡（跟随系统只能在已有分组上改，不能新建时留空）
-    vals[1] = _check_switch_mode(data.get("switch_mode")) or "load_balance"
+    # 新建未填模式默认负载均衡；显式传 switch_mode=null 时保留 NULL
+    # （跟随系统），只有未传/空串时才默认负载均衡
+    if "switch_mode" not in data or data.get("switch_mode") == "":
+        vals[1] = "load_balance"
+    else:
+        vals[1] = _check_switch_mode(data.get("switch_mode"))
     # 停止状态归一化（新建默认运行中）
     vals[cols.index("paused")] = 1 if data.get("paused") else 0
     # 开始时间归一化（非法回退 00:00:00）
