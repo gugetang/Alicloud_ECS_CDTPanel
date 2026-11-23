@@ -814,7 +814,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
       </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>
-      <div className="seg" style={{ paddingLeft: "2em" }}>
+      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
         {accounts.map((a) => {
           // 多对多：同一台实例可同时选进多个分组；选中=属于本分组，参与本组 DDNS
           const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
