@@ -456,7 +456,6 @@ export const EN: Record<string, string> = {
   开始时间: "Start time",
   小时: "hr",
   天: "day",
-  简体中文: "Simplified Chinese",
   // 货币结算
   货币结算: "Settlement currency",
   结算货币: "Settlement currency",

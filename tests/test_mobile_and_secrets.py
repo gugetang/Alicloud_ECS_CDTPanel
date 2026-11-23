@@ -518,7 +518,11 @@ def test_header_lang_dropdown_and_logout():
     assert tsx.count('const [langMenuOpen, setLangMenuOpen] = useState(false);') == 2  # 页眉与登录页各一处
     assert tsx.count('<span className="lang-on">{lang === "zh" ? "中" : "En"}</span>') == 2
     assert 'setLang("zh")' in tsx and 'setLang("en")' in tsx
-    assert 't("简体中文")' in tsx
+    # 语言选项显示各自的母语名，不走 t() 翻译（否则英文界面下“简体中文”会被
+    # 翻成 Simplified Chinese）；页眉与登录页各一处
+    assert 't("简体中文")' not in tsx
+    assert tsx.count('<span>简体中文</span>') == 2
+    assert tsx.count('<span>English</span>') == 2
     assert ".lang-off" not in css and ".lang-sep" not in css
     assert "lang-off" not in tsx and "lang-sep" not in tsx
     # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
@@ -1330,12 +1334,17 @@ def test_server_card_groups_modes_and_masked_instance_id():
     # 并有复制按钮（复制完整 ID，和 IP 复制一样）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 多分组的模式：用 accountGroupIds（group_ids 多对多，回退单 group_id），
-    # accountModeLabels 去重后显示在服务器名后面（蓝色）
+    # accountModeLabels 去重后显示在状态标签（在线）后面，蓝色 pill 标签
+    # （动态模式后面可能还有其它模式，都排在状态标签后面）
     assert 'const accountGroupIds = (a: Any): number[] => {' in tsx
     assert 'const accountModeLabels = (a: Any): string[] => {' in tsx
     assert 'if (!labels.includes(l)) labels.push(l);' in tsx
     assert 'accountModeLabels(a).map((m) => (' in tsx
-    assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>' in tsx
+    assert '<span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>' in tsx
+    # 状态标签（在线）排在模式标签前面：卡片名称行里 statusPillClass
+    # 先出现，accountModeLabels 的 map 在后面
+    name_line = [l for l in tsx.splitlines() if 'accountModeLabels(a).map((m) => (' in l][0]
+    assert name_line.index('statusPillClass(a.status_dot)') < name_line.index('accountModeLabels(a).map((m) => (')
     assert '（{m}）' not in tsx
     # 名称下面不再有分组行（分组名不显示在卡片上）
     assert ' · {a.region as string} · {groupName(a.group_id)}' not in tsx
@@ -1471,8 +1480,8 @@ def test_status_pill_follows_dot_and_mode_label_no_parens():
     assert ".pill.st-yellow { color:#FBBC04;" in css
     assert ".pill.st-red { color:#EA4335;" in css
     assert ".pill.st-gray { color:#9AA0A6;" in css
-    # 模式标签不要括号（实例管理卡片名称后面）
-    assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>' in tsx
+    # 模式标签不要括号：蓝色 pill 标签，排在状态标签（在线）后面
+    assert '<span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>' in tsx
     assert '（{m}）' not in tsx
 
 
