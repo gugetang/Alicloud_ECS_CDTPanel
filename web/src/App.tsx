@@ -1889,7 +1889,10 @@ export default function App() {
   // 被重置（设置自动收起）；放父级则保存后仍保持展开。
   const [openGroupSettings, setOpenGroupSettings] = useState<Record<number, boolean>>({});
   const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupMode, setNewGroupMode] = useState("");
+  // 新建分组运行模式：time=定时轮巡 / load_balance=负载均衡 / follow=跟随系统（默认）
+  const [newGroupRunMode, setNewGroupRunMode] = useState("follow");
+  // 负载均衡下的切换模式：percent=百分比 / gb=固定流量 / dynamic=动态模式 / follow=跟随系统（默认）
+  const [newGroupSwitchMode, setNewGroupSwitchMode] = useState("follow");
   // 新建分组时选一个已添加的域名（可选；一个域名只能被选取一次，已被选取的不可选）
   const [newGroupDomain, setNewGroupDomain] = useState("");
 
@@ -2297,12 +2300,21 @@ export default function App() {
             <div className="instance-form" style={{ marginBottom: 12 }}>
               <label className="req">{t("分组名 *")}</label>
               <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder={t("如 分组C")} />
-              <label className="lbl" style={{ marginTop: 12 }}>{t("切换模式")}</label>
-              <Seg value={newGroupMode} options={[
+              <label className="lbl" style={{ marginTop: 12 }}>{t("运行模式")}</label>
+              <Seg value={newGroupRunMode} options={[
                 { value: "time", label: t("定时轮巡") },
                 { value: "load_balance", label: t("负载均衡") },
-                { value: "dynamic", label: t("动态模式") },
-              ]} onChange={setNewGroupMode} />
+                { value: "follow", label: t("跟随系统"), title: t("运行模式继承全局设置") },
+              ]} onChange={setNewGroupRunMode} />
+              {newGroupRunMode === "load_balance" && (<>
+                <label className="lbl" style={{ marginTop: 12 }}>{t("切换模式")}</label>
+                <Seg value={newGroupSwitchMode} options={[
+                  { value: "percent", label: t("百分比（%）"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
+                  { value: "gb", label: t("固定流量（GB）"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
+                  { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
+                  { value: "follow", label: t("跟随系统"), title: t("负载均衡参数继承全局设置") },
+                ]} onChange={setNewGroupSwitchMode} />
+              </>)}
               <label className="lbl" style={{ marginTop: 12 }}>{t("选择域名")}</label>
               <select value={newGroupDomain} onChange={(e) => setNewGroupDomain(e.target.value)} style={{ width: "100%" }}>
                 <option value="">{t("暂不选择域名")}</option>
@@ -2311,13 +2323,31 @@ export default function App() {
                   return <option key={d.id as number} value={d.id as number} disabled={Boolean(boundGroup)}>{d.name as string}{boundGroup ? t("（已被 {group} 选取）", { group: boundGroup.name }) : ""}</option>;
                 })}
               </select>
+              {domains.filter((d) => !d.group_id).length === 0 && (
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="muted">{t("请先创建域名")}</span><span className="spacer" />
+                  <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupRunMode("follow"); setNewGroupSwitchMode("follow"); setNewGroupDomain(""); setTab("domains"); setAddDomName(""); setShowAddDom(true); }}>{t("去创建域名")}</button>
+                </div>
+              )}
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-                <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); setNewGroupDomain(""); }}>{t("取消")}</button>
+                <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupRunMode("follow"); setNewGroupSwitchMode("follow"); setNewGroupDomain(""); }}>{t("取消")}</button>
                 <button className="btn" title={t("创建分组")} onClick={() => {
                   if (!newGroupName.trim()) { setMsg(t("请填写分组名")); return; }
-                  if (!newGroupMode) { setMsg(t("请选择切换模式")); return; }
-                  run(() => post("/api/groups", { name: newGroupName.trim(), switch_mode: newGroupMode, ...(newGroupDomain ? { domain_id: Number(newGroupDomain) } : {}) }), t("分组已创建"));
-                  setShowNewGroup(false); setNewGroupName(""); setNewGroupMode(""); setNewGroupDomain("");
+                  const payload: Any = { name: newGroupName.trim(),
+                    switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null,
+                    ...(newGroupDomain ? { domain_id: Number(newGroupDomain) } : {}) };
+                  if (newGroupRunMode === "follow") payload.switch_mode = null;
+                  else if (newGroupRunMode === "time") payload.switch_mode = "time";
+                  else if (newGroupSwitchMode === "dynamic") payload.switch_mode = "dynamic";
+                  else if (newGroupSwitchMode === "percent" || newGroupSwitchMode === "gb") {
+                    payload.switch_mode = "load_balance";
+                    payload.switch_diff_mode = newGroupSwitchMode;
+                    // 百分比/固定流量：带上全局差值作初始值（与分组卡片从跟随系统切出来时同款）
+                    payload.switch_diff_pct = Number(settings.switch_diff_pct ?? 10) || 10;
+                    payload.switch_diff_gb = Number(settings.switch_diff_gb ?? 10) || 10;
+                  } else payload.switch_mode = "load_balance";
+                  run(() => post("/api/groups", payload), t("分组已创建"));
+                  setShowNewGroup(false); setNewGroupName(""); setNewGroupRunMode("follow"); setNewGroupSwitchMode("follow"); setNewGroupDomain("");
                 }}>{t("创建分组")}</button>
               </div>
             </div>

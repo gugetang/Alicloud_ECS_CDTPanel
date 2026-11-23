@@ -258,7 +258,7 @@ def test_group_switch_mode_follow_global(tmpdb, tmp_path):
     row = tmpdb.update_group(g["id"], {"switch_mode": None})
     assert row["switch_mode"] is None
     assert tmpdb.get_group(g["id"])["switch_mode"] is None
-    # 新建未填模式默认负载均衡（跟随系统只能在已有分组上改）
+    # 新建未填模式默认负载均衡；显式传 switch_mode=null 时保留 NULL（跟随系统）
     g2 = tmpdb.create_group({"name": "默认组"})
     assert g2["switch_mode"] == "load_balance"
     with pytest.raises(ValueError, match="只能是 time"):
