@@ -57,7 +57,9 @@ const TZ_FALLBACK = [
 // value 为 "" 时表示“未选/跟随系统”，所有按钮都是灰框（分组新建时无默认选中）。
 function Seg({ value, options, onChange }: {
   value: string;
-  options: { value: string; label: string; title?: string }[];
+  // sub：选项的第二行小字（如“自定义”按钮下面显示已填数值“5 分钟”）；
+  // 只在该选项被选中且有值时传，平时不显示
+  options: { value: string; label: string; title?: string; sub?: string }[];
   onChange: (v: string) => void;
 }) {
   return (
@@ -65,6 +67,7 @@ function Seg({ value, options, onChange }: {
       {options.map((o) => (
         <button key={o.value} type="button" className={value === o.value ? "seg-on" : ""} title={o.title} onClick={() => onChange(o.value)}>
           {o.label}
+          {o.sub ? <span className="seg-sub">{o.sub}</span> : null}
         </button>
       ))}
     </div>
@@ -406,6 +409,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   const [msg, setMsg] = useState(oauthMsg || "");
   const [busy, setBusy] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
   const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
   // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
   // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
@@ -466,13 +470,28 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   return (
     <>
       <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-        <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
-          <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
-          <span className="lang-sep">/</span>
-          <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
-        </button>
         <div className="theme-menu">
-          <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
+          <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
+            <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
+          </button>
+          {langMenuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setLangMenuOpen(false)} />
+              <div className="menu">
+                <button className={lang === "zh" ? "sel" : ""} onClick={() => { setLang("zh"); setLangMenuOpen(false); }}>
+                  <span>{t("简体中文")}</span>
+                  <span className="menu-check">{lang === "zh" ? "✓" : ""}</span>
+                </button>
+                <button className={lang === "en" ? "sel" : ""} onClick={() => { setLang("en"); setLangMenuOpen(false); }}>
+                  <span>English</span>
+                  <span className="menu-check">{lang === "en" ? "✓" : ""}</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="theme-menu">
+          <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
             <ThemeIcon theme={theme} size={9} />
           </button>
           {themeMenuOpen && (
@@ -549,8 +568,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
-  // 动态切换间隔（分钟）：后端存分钟；30/60/90 为预设，0=自定义；未填默认 30
-  const _gdm = Number(g.dynamic_interval_minutes ?? 0) || 0;
+  // 动态切换间隔（分钟）：后端存分钟；30/60/90 为预设，0=自定义；未填默认 30。
+  // 分组未填时显示全局值（跟随系统时面板里看到的就是实际生效值）。
+  const _gdm = Number(g.dynamic_interval_minutes ?? (settings as Any)?.dynamic_interval_minutes ?? 0) || 0;
   const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
   const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90].includes(_gdm) ? _gdm : 30));
   // 分组级阈值策略：空=跟随系统
@@ -637,13 +657,34 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
-          {!switchFollowGlobal && (<>
+          {/* 定时轮巡的切换参数：跟随系统 / 自定义。跟随系统时也显示（选中
+              跟随系统），不再藏在共用的“切换参数”开关后面；选自定义后下面的
+              间隔与开始时间出现，可直接在内联输入框里改，不弹对话框。 */}
+          <TwoLineLabel parent="定时轮巡" child="切换参数" />
+          <div style={{ paddingLeft: "2em" }}><Seg value={timeFollowGlobal ? "global" : "custom"} options={[
+            { value: "global", label: t("跟随系统") },
+            { value: "custom", label: t("自定义") },
+          ]} onChange={(v) => {
+            if (v === "global") { savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null }); }
+            else {
+              const hrs = Number(settings.interval_hours ?? 6) || 6;
+              const cmins = Number(settings.custom_interval_minutes ?? 0) || 0;
+              const st = (settings.interval_start_time as string) || "00:00:00";
+              setInterval(cmins > 0 ? "0" : [3, 6, 12].includes(hrs) ? String(hrs) : hrs <= 2 ? "3" : hrs <= 4 ? "6" : "12");
+              const u = cmins > 0 && cmins % 1440 === 0 ? "day" : cmins > 0 && cmins % 60 === 0 ? "hour" : "minute";
+              setCustUnit(u);
+              setCustVal(String(u === "day" ? cmins / 1440 : u === "hour" ? cmins / 60 : cmins));
+              setStartTime(st);
+              savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st });
+            }
+          }} /></div>
+          {!timeFollowGlobal && (<>
           <div className="form2" style={{ marginTop: 12 }}>
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
                 { value: "3", label: t("3 小时") },
                 { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                { value: "0", label: t("自定义") },
+                { value: "0", label: t("自定义"), sub: interval === "0" && (parseFloat(custVal) || 0) > 0 ? `${custVal} ${custUnit === "day" ? t("天") : custUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
               ]} onChange={(v) => { setInterval(v); savePatch(v === "0" ? { interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) } : { interval_hours: Number(v) || 6, custom_interval_minutes: 0 }); }} /></div></div>
           </div>
           {interval === "0" && (
@@ -664,29 +705,28 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          {!switchFollowGlobal && (<>
+          {/* 负载均衡的切换方式四选一：百分比 / 固定流量 / 动态模式 / 跟随系统。
+              跟随系统时也显示（选中跟随系统），不再藏在“切换参数=自定义”后面；
+              选跟随系统即清空负载均衡参数（继承全局），选其它三项即切到自定义。
+              从跟随系统切到百分比/固定流量时，把全局的差值填入（与“切换参数=
+              自定义”一致）；已是自定义时只改模式，保留已填的差值。 */}
           <TwoLineLabel parent="负载均衡" child="切换模式" />
-          <div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
+          <div style={{ paddingLeft: "2em" }}><Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
             { value: "percent", label: t("百分比模式"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
-            { value: "gb", label: t("流量模式"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
+            { value: "gb", label: t("固定流量（GB）"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
             { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
-          ]} onChange={(m) => { if (m === "dynamic") { savePatch({ switch_mode: "dynamic" }); } else { setDiffMode(m); savePatch({ switch_mode: "load_balance", switch_diff_mode: m }); } }} /></div>
-          {g.switch_mode === "dynamic" ? (
-            <div style={{ marginTop: 12 }}>
-              <div className="form2">
-                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
-                  <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
-                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                    { value: "90", label: t("90 分钟") },
-                    { value: "0", label: t("自定义") },
-                  ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
-              </div>
-              {dynInterval === "0" && (
-                <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
-              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
-            </div>
-          ) : (
+            { value: "follow", label: t("跟随系统"), title: t("负载均衡参数继承全局设置") },
+          ]} onChange={(m) => {
+            if (m === "follow") { savePatch({ switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null }); }
+            else if (m === "dynamic") { savePatch({ switch_mode: "dynamic" }); }
+            else {
+              setDiffMode(m);
+              const patch: Any = { switch_mode: "load_balance", switch_diff_mode: m };
+              if (lbFollowGlobal) { patch.switch_diff_pct = Number(settings.switch_diff_pct ?? 10) || 10; patch.switch_diff_gb = Number(settings.switch_diff_gb ?? 10) || 10; }
+              savePatch(patch);
+            }
+          }} /></div>
+          {!lbFollowGlobal && g.switch_mode !== "dynamic" && (
             <div>
               <div className="form2" style={{ marginTop: 12 }}>
                 {diffMode === "percent" ? (
@@ -698,7 +738,25 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
             </div>
           )}
-          </>)}
+          {/* 动态模式的切换间隔不跟随“切换参数”开关隐藏：动态模式时一直显示
+              （跟随系统时显示全局值，改值后自动变成自定义）；否则动态模式下
+              切换参数区一片空白，看不到间隔设置。 */}
+          {g.switch_mode === "dynamic" && (
+            <div style={{ marginTop: 12 }}>
+              <div className="form2">
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
+                  <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
+                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
+                    { value: "90", label: t("90 分钟") },
+                    { value: "0", label: t("自定义"), sub: dynInterval === "0" && (Number(dynCustVal) || 0) > 0 ? `${dynCustVal} ${t("分钟")}` : undefined },
+                  ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
+              </div>
+              {dynInterval === "0" && (
+                <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={dynCustVal} onChange={(e) => setDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
+            </div>
+          )}
         </div>
       )}
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
@@ -1269,17 +1327,9 @@ export default function App() {
       return next;
     });
   };
-  // IP 显示：默认只显示 A.B 段（C.D 用 * 代替）；点 IP 文字切换显示全部/掩码，
+  // IP 显示：只显示 A.B 段（C.D 用 * 代替），不提供点按显示完整 IP；
   // 点旁边的 ⧉ 复制完整 IP。面板是明文 HTTP，navigator.clipboard 在非安全
   // 上下文不可用，复制失败时回退到 textarea + execCommand。
-  const [showFullIp, setShowFullIp] = useState<Set<number>>(new Set());
-  const toggleFullIp = (id: number) => {
-    setShowFullIp((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
   const copyIp = async (ip: string) => {
     try {
       await navigator.clipboard.writeText(ip);
@@ -1296,12 +1346,11 @@ export default function App() {
       } catch { setMsg(ip); }
     }
   };
-  // IP 显示：掩码/完整切换 + 复制按钮（运行概览与实例管理，卡片与列表共用）
+  // IP 显示：掩码 + 复制按钮（运行概览与实例管理，卡片与列表共用；不提供显示完整 IP）
   const IpView = ({ a }: { a: Any }) => {
     const ip = (a.public_ip as string) || "";
-    const full = showFullIp.has(a.id as number);
     return (<span style={{ whiteSpace: "nowrap" }}>
-      <span style={{ cursor: ip ? "pointer" : "default" }} title={ip ? (full ? t("点击隐藏 IP") : t("点击显示完整 IP")) : ""} onClick={() => { if (ip) toggleFullIp(a.id as number); }}>{full ? ip : maskIp(a.public_ip)}</span>
+      <span>{maskIp(a.public_ip)}</span>
       {ip ? <button className="btn ghost" style={{ padding: "1px 6px", marginLeft: 4, fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
     </span>);
   };
@@ -1334,6 +1383,7 @@ export default function App() {
     try { return localStorage.getItem("cdt-theme") || "system"; } catch { return "system"; }
   });
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1721,16 +1771,31 @@ export default function App() {
             {(settings?.site_logo as string) ? (
               <img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 140, objectFit: "contain" }} />
             ) : null}
-            <h1 style={{ margin: 0 }}>{tab === "dash" ? t("运行概览") : tab === "accounts" ? t("实例管理") : tab === "groups" ? t("分组管理") : tab === "domains" ? t("域名管理") : subTab === "settings" ? t("全局设置") : subTab === "account" ? t("账号设置") : subTab === "notify" ? t("通知设置") : subTab === "logs" ? t("日志统计") : t("其它设置")}</h1>
+            <h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>
           </div>
           <div className="row">
-            <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
-              <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
-              <span className="lang-sep">/</span>
-              <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
-            </button>
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
+              <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
+                <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
+              </button>
+              {langMenuOpen && (
+                <>
+                  <div className="menu-backdrop" onClick={() => setLangMenuOpen(false)} />
+                  <div className="menu">
+                    <button className={lang === "zh" ? "sel" : ""} onClick={() => { setLang("zh"); setLangMenuOpen(false); }}>
+                      <span>{t("简体中文")}</span>
+                      <span className="menu-check">{lang === "zh" ? "✓" : ""}</span>
+                    </button>
+                    <button className={lang === "en" ? "sel" : ""} onClick={() => { setLang("en"); setLangMenuOpen(false); }}>
+                      <span>English</span>
+                      <span className="menu-check">{lang === "en" ? "✓" : ""}</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="theme-menu">
+              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
                 <ThemeIcon theme={theme} size={9} />
               </button>
               {themeMenuOpen && (
@@ -1812,11 +1877,11 @@ export default function App() {
               ]} onChange={(v) => setViewMode(v as "card" | "list")} />
             </div>
             {viewMode === "card" ? (
-              <div className="grid3" style={{ marginTop: 12 }}>
+              <div className="grid2" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
                   <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
+                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
                       <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                     </div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
@@ -1827,7 +1892,7 @@ export default function App() {
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                     </div>
-                    {a.status_detail ? <div className="muted" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
+                    {a.status_detail ? <div className="muted status-detail" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
                 ))}
               </div>
@@ -1863,11 +1928,12 @@ export default function App() {
               onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
           )}
           {acctViewMode === "card" ? (
-          accounts.map((a) => (
+          <div className="grid2">
+          {accounts.map((a) => (
             <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number}
-              style={{ marginTop: 0, display: "flex", flexDirection: "column" }}>
+              style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
+                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : groupMode(a.group_id) === "dynamic" ? t("动态模式") : t("负载均衡")}）</span></div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
@@ -1875,7 +1941,7 @@ export default function App() {
                 </div>
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
-              <div className="stats five">
+              <div className="stats">
                 <div className="stat stat-detail"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
                 <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -1883,12 +1949,13 @@ export default function App() {
                 <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
               </div>
               <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 12 }}>
-                {a.status_detail ? <div className="muted" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span />}
+                {a.status_detail ? <div className="muted status-detail" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span />}
                 <div className="card-actions"><ActionButtons a={a} /></div>
               </div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
-          ))
+          ))}
+          </div>
           ) : (
           <table><thead><tr><th></th><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
@@ -2097,7 +2164,7 @@ export default function App() {
                   <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
                     { value: "90", label: t("90 分钟") },
-                    { value: "0", label: t("自定义") },
+                    { value: "0", label: t("自定义"), sub: sDynInterval === "0" && (Number(sDynCustVal) || 0) > 0 ? `${sDynCustVal} ${t("分钟")}` : undefined },
                   ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
               </div>
               {sDynInterval === "0" && (
@@ -2129,7 +2196,7 @@ export default function App() {
                 <div style={{ paddingLeft: "2em" }}><Seg value={sInterval} options={[
                   { value: "3", label: t("3 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                  { value: "0", label: t("自定义") },
+                  { value: "0", label: t("自定义"), sub: sInterval === "0" && (parseFloat(sCustVal) || 0) > 0 ? `${sCustVal} ${sCustUnit === "day" ? t("天") : sCustUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
                 ]} onChange={(v) => { setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div></div>
               {sInterval === "0" && (
               <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
@@ -2147,7 +2214,7 @@ export default function App() {
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
                 { value: "30", label: t("30 分钟") },
-                { value: "custom", label: t("自定义") },
+                { value: "custom", label: t("自定义"), sub: sRefresh === "custom" && (Number(sRefreshCustVal) || 0) > 0 ? `${sRefreshCustVal} ${t("分钟")}` : undefined },
                 { value: "0", label: t("不刷新"), title: t("不刷新=暂停调度，选分钟数=恢复运行") },
               ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
               {sRefresh === "custom" && (

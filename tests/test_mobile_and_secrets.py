@@ -17,8 +17,10 @@
   磨砂底 + 细边框 + 阴影；5 秒自动隐藏的定时器仍在 App.tsx 里。
   分组成员按键的 .member-btn/.member-ip 已按用户 2026-11-23 19:01 要求恢复：
   圆点 + 两行文字（名称/IP），IP 单独一行居中，圆点垂直居中在两行中心。
-  .lang-on/.lang-off 已按用户 2026-11-23 19:08 要求恢复：当前语言主题色，
-  未选的灰色；中/En 按钮改小到与主题/退出图标按钮同大（3px 4px、9px）。
+  语言按钮按用户 2026-11-23 19:58 要求改成下拉菜单：按钮只显示当前语言
+  （中 或 En，.lang-on 主题色高亮），不再同时显示两种语言；点按钮开菜单
+  选简体中文/English；.lang-off/.lang-sep 已删。按钮仍与主题/退出图标
+  按钮同大（3px 4px、9px）。
 - 主题风格 CSS 已恢复：html[data-accent] 五条规则（500 档 --accent）与
   .theme-grid/.theme-card/.theme-swatch/.theme-check/.theme-name/.theme-en
   卡片样式都在 styles.css 里；:root 的 --accent:#2563eb 只作 fallback。
@@ -89,7 +91,10 @@ def test_mobile_media_query():
     m = re.search(r"@media\s*\(max-width:\s*800px\)\s*\{(.*)\}\s*$", CSS, re.S)
     assert m, "mobile media query missing"
     block = m.group(1)
-    assert ".stats, .stats.five { grid-template-columns:repeat(2,1fr)" in block
+    assert ".stats { grid-template-columns:repeat(2,1fr)" in block
+    # 桌面端卡片内文字不换行（.stat b/span 与 .status-detail 的 nowrap），
+    # 手机端卡片窄，恢复换行
+    assert ".stat b, .stat span, .status-detail { white-space:normal; }" in block
     assert "input, select, textarea { font-size:16px" in block
     assert "table { display:block; overflow-x:auto" in block
     assert ".btn { padding:10px 16px" in block
@@ -430,20 +435,25 @@ def test_modal_frosted_50_percent():
     assert 'html[data-theme="dark"] .modal { background:rgba(71,85,105,0.5); }' in css
 
 
-def test_header_lang_toggle_and_logout():
+def test_header_lang_dropdown_and_logout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 语言切换：图标式 中/En 切换键，点一下切语言，不再是下拉菜单；
+    # 语言切换：按钮只显示当前语言（中 或 En，主题色高亮），点按钮开下拉菜单
+    # 选简体中文/English，不再点一下直接切换、也不再同时显示两种语言；
     # 语言键与主题/退出图标按钮同大（padding 3px 4px，9px 字/图标）；
-    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off）
+    # 语言与主题两个下拉菜单互斥（开一个关另一个）
     assert 'className="btn ghost lang-btn"' in tsx
-    assert 'setLang(lang === "zh" ? "en" : "zh")' in tsx
-    assert '>中</span>' in tsx and '>En</span>' in tsx
-    assert 'langMenuOpen' not in tsx
+    assert 'setLang(lang === "zh" ? "en" : "zh")' not in tsx
+    assert tsx.count('const [langMenuOpen, setLangMenuOpen] = useState(false);') == 2  # 页眉与登录页各一处
+    assert tsx.count('<span className="lang-on">{lang === "zh" ? "中" : "En"}</span>') == 2
+    assert 'setLang("zh")' in tsx and 'setLang("en")' in tsx
+    assert 't("简体中文")' in tsx
+    assert ".lang-off" not in css and ".lang-sep" not in css
+    assert "lang-off" not in tsx and "lang-sep" not in tsx
     # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
     # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大
     assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
-    assert ".lang-on { color:var(--accent); }" in css and ".lang-off { color:var(--muted); }" in css
+    assert ".lang-on { color:var(--accent); }" in css
     # 主题键与退出键是 9px 小图标（页眉与登录页各一处，ThemeIcon size={9}）；
     # .btn.theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
     assert tsx.count("size={9}") == 2
@@ -497,8 +507,9 @@ def test_theme_lines_alignment_dash_left_accounts_left():
 def test_group_card_custom_interval_and_start_time():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
-    # 间隔切换周期有“自定义”选项（值 0），选自定义时显示自定义间隔行（数字+分钟/小时/天）
-    assert '{ value: "0", label: t("自定义") }' in group_card
+    # 间隔切换周期有“自定义”选项（值 0），选自定义时显示自定义间隔行（数字+分钟/小时/天）；
+    # 自定义按钮带 sub 第二行数值（双行显示），所以选项行以 sub 结尾，不再是 label 后直接闭合
+    assert '{ value: "0", label: t("自定义"), sub: interval === "0"' in group_card
     assert 'interval === "0"' in group_card
     assert 't("自定义间隔")' in group_card
     assert 'custom_interval_minutes' in group_card
@@ -646,9 +657,9 @@ def test_group_card_settings_collapsed_by_default():
 def test_accounts_tab_renamed_to_instances():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    # 顶部导航与页眉标题：账户管理改名实例管理
+    # 顶部导航：账户管理改名实例管理（页眉标题已按用户 2026-11-23 20:00
+    # 要求改成固定站点名称，不再按标签页切换，见 test_header_shows_site_name）
     assert '["accounts", "实例管理"]' in tsx
-    assert 'tab === "accounts" ? t("实例管理")' in tsx
     assert "账户管理" not in tsx or "// 拖动排序" in tsx and tsx.count("账户管理") == 0
     assert '实例管理: "Instance Management"' in i18n
     assert "账户管理" not in i18n
@@ -679,8 +690,8 @@ def test_two_line_labels_with_two_char_indent():
     # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
     assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
-    # 分组侧的主标签已改成“切换模式”（三选一：百分比模式/流量模式/动态模式），
-    # 不再是裸的“切换阀值”
+    # 分组侧的主标签已改成“切换模式”（四选一：百分比模式/固定流量（GB）/
+    # 动态模式/跟随系统），不再是裸的“切换阀值”
     assert '<TwoLineLabel parent="负载均衡" child="切换模式"' in tsx
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' not in tsx
     # 定时轮巡子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组间隔切换周期/自定义间隔/开始时间）
@@ -710,33 +721,33 @@ def test_controls_align_with_indented_labels():
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
     # API 刷新时间按键区与上面轮巡周期按键区左对齐（同缩进 2em）
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sRefresh}' in tsx
-    # 分组：差值 Seg（动态模式时值为 "dynamic"，否则跟 diffMode）、间隔 Seg
-    # 包在缩进 div 里
-    assert '<div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string}' in tsx
+    # 分组：负载均衡四选一 Seg（跟随系统时值为 "follow"，动态模式时为
+    # "dynamic"，否则跟 diffMode）、间隔 Seg 包在缩进 div 里
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string}' in tsx
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={interval}' in tsx
 
 
-def test_ip_show_full_and_copy():
-    # IP 显示：默认仍掩码（A.B.*.*），点 IP 文字切换显示全部/掩码，点 ⧉ 复制完整 IP；
+def test_ip_copy_only_no_full_reveal():
+    # IP 显示：只掩码（A.B.*.*），不提供点按显示完整 IP；点 ⧉ 复制完整 IP；
     # 运行概览与实例管理、卡片与列表四处共用 IpView；复制用 navigator.clipboard，
     # 明文 HTTP 下回退 textarea + execCommand（clipboard 在非安全上下文不可用）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert "const [showFullIp, setShowFullIp] = useState<Set<number>>(new Set());" in tsx
-    assert "const toggleFullIp = (id: number) => {" in tsx
+    assert "showFullIp" not in tsx and "toggleFullIp" not in tsx
     assert "const copyIp = async (ip: string) => {" in tsx
     assert "navigator.clipboard.writeText(ip)" in tsx
     assert 'document.execCommand("copy")' in tsx
     assert tsx.count("<IpView a={a} />") == 4
-    assert '{full ? ip : maskIp(a.public_ip)}' in tsx
-    assert 'title={ip ? (full ? t("点击隐藏 IP") : t("点击显示完整 IP")) : ""}' in tsx
+    assert '{maskIp(a.public_ip)}' in tsx
     assert 'title={t("复制 IP")}' in tsx
     assert 'setMsg(t("IP 已复制"))' in tsx
     # 分组成员按键的 IP 仍掩码（悬停提示里有完整 IP），不动
     assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
-    # 新文案进英文表（t() 0 缺失由 i18n 测试覆盖，这里只点名）
+    # 点按显示/隐藏的文案已删（t() 0 缺失由 i18n 测试覆盖，这里只点名）
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    for key in ("IP 已复制", "复制 IP", "点击显示完整 IP", "点击隐藏 IP"):
+    for key in ("IP 已复制", "复制 IP"):
         assert key in i18n, key
+    for key in ("点击显示完整 IP", "点击隐藏 IP"):
+        assert key not in i18n, key
 
 
 def test_group_mode_seg_has_dynamic_option():
@@ -803,7 +814,8 @@ def test_settings_cards_use_parent_child_layout():
 def test_nav_and_subtabs_selected_are_accent_border():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 顶部导航与设置子标签选中态回到主题色边框样式（主题色填充已改回），
-    # 不用填充色、不写死白字；选中仍加粗
+    # 不用填充色、不写死白字；选中仍加粗。子标签与导航一样用 2px 主题色边框
+    # （边框加 1px 则内边距各减 1px，框体高度与按钮高度一致），选中时突出
     m = re.search(r"nav button\.active\s*\{([^}]*)\}", css)
     assert m, "nav button.active missing"
     body = m.group(1).replace(" ", "")
@@ -813,9 +825,15 @@ def test_nav_and_subtabs_selected_are_accent_border():
     m2 = re.search(r"\.subtabs button\.active\s*\{([^}]*)\}", css)
     assert m2, ".subtabs button.active missing"
     body2 = m2.group(1).replace(" ", "")
-    assert "border-color:var(--accent)" in body2
+    assert "border:2pxsolidvar(--accent)" in body2
+    assert "padding:9px19px" in body2
     assert "background:var(--accent)" not in body2
     assert "font-weight:600" in body2
+    # 手机端同样补偿内边距
+    assert ".subtabs button.active { padding:9px 13px; }" in css
+    # 旧的浏览器标签页样式（上圆角、底部开口、margin-bottom:-1px）已删
+    assert "border-radius:10px 10px 0 0" not in css
+    assert "margin-bottom:-1px" not in css
 
 
 def test_backup_card_cloud_button_local_button_and_dialog():
@@ -877,18 +895,18 @@ def test_dynamic_mode_heading_not_bold():
 
 
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
-    # 页眉中/En 按钮与主题/退出图标按钮同大（3px 4px 内边距、9px 字/图标），
-    # 当前语言用主题色（.lang-on），未选的用灰色（.lang-off），分隔符也是灰色；
+    # 语言按钮与主题/退出图标按钮同大（3px 4px 内边距、9px 字/图标），
+    # 按钮只显示当前语言（中 或 En），用主题色高亮（.lang-on）；
     # 必须是双类选择器 .btn.lang-btn/.btn.theme-btn，单类会被后写的 .btn 覆盖
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     assert ".btn.theme-btn { padding:3px 4px; display:flex; align-items:center; }" in css
     assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
     assert ".lang-on { color:var(--accent); }" in css
-    assert ".lang-off { color:var(--muted); }" in css
-    assert ".lang-sep { color:var(--muted); }" in css
+    assert ".lang-off" not in css and ".lang-sep" not in css
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert tsx.count('className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>') == 2
-    assert tsx.count('className={lang === "en" ? "lang-on" : "lang-off"}>En</span>') == 2
+    assert tsx.count('<span className="lang-on">{lang === "zh" ? "中" : "En"}</span>') == 2
+    # 点按钮开下拉菜单（不是直接切换）：页眉与登录页各一处
+    assert tsx.count("langMenuOpen") >= 2
 
 
 def test_group_settings_follow_global_layout_indent():
@@ -982,3 +1000,124 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
     # 主题风格卡片与 OAuth 登录按钮：悬停框体同样变主题色
     assert ".theme-card:hover { border-color:var(--accent); }" in css
     assert ".oauth-btn:hover { font-weight:600; border-color:var(--accent); }" in css
+
+
+def test_server_cards_two_per_row_no_wrap():
+    # 服务器卡片一行两个（运行概览与实例管理），卡片内文字不换行：
+    # .grid2 两列；顶上三张总览卡片仍是 grid3 三列，不动
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }" in css
+    assert "@media (max-width:800px){ .grid2{grid-template-columns:1fr;} }" in css
+    assert '<div className="grid2" style={{ marginTop: 12 }}>' in tsx  # 运行概览服务器卡片
+    assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
+    assert '<div className="grid3">' in tsx  # 顶上总览卡片仍三列
+    assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }" in css
+    # 指标三列按内容自适应宽度（auto）+ 两端对齐：等宽 1fr 只有约 167px，
+    # 流量值（179–195px）与实例 ID（207px）放不下会换行；auto 列按最宽内容定宽
+    assert ".stats { display:grid; grid-template-columns:repeat(3,auto); justify-content:space-between; gap:10px 16px; margin-top:12px; }" in css
+    # 实例管理卡片原来的五项一行（.stats.five）同样放不下，已改成三列
+    assert ".stats.five" not in css and "stats five" not in tsx
+    # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
+    assert ".stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
+    assert ".stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; white-space:nowrap; }" in css
+    assert ".status-detail { white-space:nowrap; }" in css
+    assert tsx.count('className="muted status-detail"') == 2
+    assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
+
+
+def test_header_shows_site_name():
+    # 页眉 logo 后面固定显示站点名称，不再显示当前标签页名（运行概览/实例管理/
+    # 其它设置……）；站点名称在其它设置→站点信息里改，当前标签仍由导航高亮表示
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>' in tsx
+    assert '{tab === "dash" ? t("运行概览")' not in tsx
+
+
+def test_group_dynamic_interval_shows_when_dynamic():
+    # 动态模式时切换间隔设置一直显示：原来整个负载均衡参数区只在“自定义”时
+    # 出现，动态模式 + 跟随系统时切换参数区一片空白，看不到间隔设置。
+    # 现在间隔块由 switch_mode === "dynamic" 直接控制，不在跟随系统开关里；
+    # 跟随系统时显示全局值（_gdm 取分组值或全局值），改值后自动变成自定义
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    i = tsx.index('t("动态切换间隔")')
+    # 动态间隔块直接由 switch_mode === "dynamic" 控制
+    j = tsx.rindex('{g.switch_mode === "dynamic" && (', 0, i)
+    assert 0 < i - j < 1500, "dynamic interval block must sit inside the dynamic-mode branch"
+    # 前面是负载均衡四选一（四选一不再藏在跟随系统开关里），后面才是间隔块
+    assert 'lbFollowGlobal ? "follow"' in tsx[:j]
+    assert 'g.dynamic_interval_minutes ?? (settings as Any)?.dynamic_interval_minutes ?? 0' in tsx
+    # 三选一里的动态选项与说明文案仍在
+    assert '{ value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") }' in tsx
+    assert 't("每到间隔切到剩余流量最多的服务器，不看流量差值。")' in tsx
+
+
+def test_group_lb_four_way_options():
+    # 分组里选负载均衡时，切换方式四选一一直显示：百分比模式 / 固定流量（GB）/
+    # 动态模式 / 跟随系统（原来三选一藏在“切换参数=自定义”后面，跟随系统时
+    # 一片空白）。跟随系统时选中“跟随系统”；选它清空负载均衡参数（继承全局），
+    # 选百分比/固定流量时从跟随系统切到自定义（填入全局差值），已是自定义时
+    # 只改模式、保留已填差值
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string}' in tsx
+    assert '{ value: "percent", label: t("百分比模式")' in tsx
+    assert '{ value: "gb", label: t("固定流量（GB）")' in tsx
+    assert '{ value: "follow", label: t("跟随系统"), title: t("负载均衡参数继承全局设置") }' in tsx
+    assert 'savePatch({ switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null })' in tsx
+    assert 'if (lbFollowGlobal) { patch.switch_diff_pct = Number(settings.switch_diff_pct ?? 10) || 10; patch.switch_diff_gb = Number(settings.switch_diff_gb ?? 10) || 10; }' in tsx
+    # 差值输入只在负载均衡不跟随系统、且不是动态模式时显示（不再看共用的
+    # switchFollowGlobal：定时轮巡自定义时差值输入不应冒出来）
+    assert '{!lbFollowGlobal && g.switch_mode !== "dynamic" && (' in tsx
+    assert '{!switchFollowGlobal && g.switch_mode !== "dynamic" && (' not in tsx
+    # “流量模式”旧标签已改成“固定流量（GB）”（与全局设置一致），英文表里旧键已删
+    assert 't("流量模式")' not in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert "流量模式" not in i18n
+    assert "负载均衡参数继承全局设置" in i18n
+
+
+def test_group_time_follow_custom():
+    # 分组里选定时轮巡时，切换参数跟随系统/自定义一直显示（原来只在共用的
+    # “切换参数”开关里，时间参数还藏在开关后面）；选自定义后间隔切换周期、
+    # 自定义间隔、开始时间出现，可直接在内联输入框里改
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<TwoLineLabel parent="定时轮巡" child="切换参数" />' in tsx
+    assert '<Seg value={timeFollowGlobal ? "global" : "custom"}' in tsx
+    assert 'savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null })' in tsx
+    # 时间参数只看时间是否跟随系统（不再看共用的 switchFollowGlobal：
+    # 负载均衡自定义时，时间参数不应跟着冒出来）
+    assert '{!timeFollowGlobal && (<>' in tsx
+    assert '{!switchFollowGlobal && (<>' not in tsx
+    # 选自定义时把全局的时间值填入（与“切换参数=自定义”填时间部分一致）
+    assert 'savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st })' in tsx
+
+
+def test_seg_custom_two_line_sub():
+    # 自定义按钮双行显示：编辑完成后按钮第一行“自定义”，第二行同时显示数值
+    # （如“5 分钟”）；Seg 选项支持 sub 第二行小字，只在该选项被选中且有值时传
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert "sub?: string" in tsx
+    assert '<span className="seg-sub">{o.sub}</span>' in tsx
+    assert ".seg-sub { display:block; font-size:12px; color:var(--muted); font-weight:400; }" in css
+    # 五处自定义 Seg 都有 sub：全局轮巡周期/动态间隔/API 刷新，分组轮巡周期/动态间隔
+    assert 'sub: sInterval === "0"' in tsx
+    assert 'sub: sDynInterval === "0"' in tsx
+    assert 'sub: sRefresh === "custom"' in tsx
+    assert 'sub: interval === "0"' in tsx
+    assert 'sub: dynInterval === "0"' in tsx
+    # 数值带单位（轮巡周期按分钟/小时/天，动态间隔与 API 刷新按分钟）
+    assert '`${sCustVal} ${sCustUnit === "day" ? t("天") : sCustUnit === "hour" ? t("小时") : t("分钟")}`' in tsx
+    assert '`${sDynCustVal} ${t("分钟")}`' in tsx
+    assert '`${sRefreshCustVal} ${t("分钟")}`' in tsx
+
+
+def test_custom_values_inline_no_dialog():
+    # 所有自定义数值都在内联输入框里改，不弹对话框：全站没有任何 prompt()，
+    # 自定义入口（地域自定义输入、分组/全局自定义间隔、动态间隔、API 刷新）
+    # 都是页面里的 input，失焦即保存
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "prompt(" not in tsx and "window.prompt" not in tsx
+    assert 'placeholder={t("地域 ID，如 cn-hongkong")}' in tsx
+    assert 't("自定义间隔")' in tsx and 't("自定义间隔（分钟，最少 30）")' in tsx
+    assert 't("自定义刷新时间（分钟）")' in tsx
