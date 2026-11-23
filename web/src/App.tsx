@@ -1392,15 +1392,13 @@ export default function App() {
   const copyIp = async (ip: string) => { await copyText(ip, t("IP 已复制")); };
   // 实例 ID 复制：显示是脱敏的，复制给完整 ID（与 IP 复制给完整 IP 一致）。
   const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };
-  // IP 显示：掩码 + 复制按钮（运行概览与实例管理，卡片与列表共用；不提供显示完整 IP）。
-  // 复制按钮紧跟在 IP 后方同一行：外层 inline-flex（一行，不换行）+ gap，
-  // 不只靠 white-space:nowrap——窄卡片里 .stat b 的 overflow-wrap:anywhere
-  // 与手机端 white-space:normal 仍会把按钮挤到下一行。
-  const IpView = ({ a }: { a: Any }) => {
+  // IP 显示：掩码 + 复制按钮（实例管理页卡片与列表共用；不提供显示完整 IP）。
+  // 运行概览（卡片与列表）只显示掩码 IP，不显示复制按钮（copy={false}）。
+  const IpView = ({ a, copy = true }: { a: Any; copy?: boolean }) => {
     const ip = (a.public_ip as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
       <span>{maskIp(a.public_ip)}</span>
-      {ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
+      {copy && ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
     </span>);
   };
   // 实例 ID 显示：脱敏（i- + 6 位，后面 ***）+ 复制按钮（复制完整 ID，
@@ -1980,7 +1978,7 @@ export default function App() {
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
                       <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
-                      <div className="stat"><span>IP</span><b><IpView a={a} /></b></div>
+                      <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                       <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
@@ -1990,13 +1988,13 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
+              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
-                    <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td>{a.region as string}</td>
-                    <td><IpView a={a} /></td>
+                    <td><IpView a={a} copy={false} /></td>
+                    <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
@@ -2036,8 +2034,10 @@ export default function App() {
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats">
-                <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /> <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>· {a.region as string}</span></b></div>
-                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /> <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b></div>
+                <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
+                <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
+                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
+                <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>

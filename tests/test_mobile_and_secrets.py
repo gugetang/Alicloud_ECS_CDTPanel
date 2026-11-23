@@ -839,17 +839,23 @@ def test_controls_align_with_indented_labels():
 
 
 def test_ip_copy_only_no_full_reveal():
-    # IP 显示：只掩码（A.B.*.*），不提供点按显示完整 IP；点 ⧉ 复制完整 IP；
-    # 运行概览与实例管理、卡片与列表四处共用 IpView；复制用 navigator.clipboard，
-    # 明文 HTTP 下回退 textarea + execCommand（clipboard 在非安全上下文不可用）
+    # IP 显示：只掩码（A.B.*.*），不提供点按显示完整 IP；实例管理页的卡片
+    # 与列表点 ⧉ 复制完整 IP；运行概览的卡片与列表只显示掩码 IP，没有复制按钮
+    # （IpView 的 copy 参数，默认 true，运行概览传 copy={false}）；
+    # 复制用 navigator.clipboard，明文 HTTP 下回退 textarea + execCommand
+    # （clipboard 在非安全上下文不可用）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "showFullIp" not in tsx and "toggleFullIp" not in tsx
     # 复制逻辑抽成 copyText（IP / 实例 ID 共用），copyIp 只是包一层
     assert "const copyText = async (text: string, okMsg: string) => {" in tsx
     assert "navigator.clipboard.writeText(text)" in tsx
     assert 'const copyIp = async (ip: string) => { await copyText(ip, t("IP 已复制")); };' in tsx
+    assert "const IpView = ({ a, copy = true }: { a: Any; copy?: boolean }) => {" in tsx
+    assert "{copy && ip ? <button" in tsx
+    # 实例管理页卡片与列表用 IpView（带复制），运行概览卡片与列表用 copy={false}
+    assert tsx.count("<IpView a={a} />") == 2
+    assert tsx.count("<IpView a={a} copy={false} />") == 2
     assert 'document.execCommand("copy")' in tsx
-    assert tsx.count("<IpView a={a} />") == 4
     assert '{maskIp(a.public_ip)}' in tsx
     assert 'title={t("复制 IP")}' in tsx
     # 提示语由 copyIp 传给 copyText（okMsg），copyText 里统一 setMsg(okMsg)
@@ -1313,9 +1319,10 @@ def test_custom_values_inline_except_group_dynamic_dialog():
 
 def test_server_card_groups_modes_and_masked_instance_id():
     # 服务器卡片（实例管理页）：模式显示在服务器名后面（蓝色，多个分组的模式
-    # 都显示，去重），分组名（Premium）不再显示在卡片上；站点移到 IP 后面，
-    # 地域移到实例 ID 后面；实例 ID 只显示前 6 位（ECS 是 i- + 6 位），
-    # 后面用 *** 代替，并有复制按钮（复制完整 ID，和 IP 复制一样）
+    # 都显示，去重），分组名（Premium）不再显示在卡片上；区域与站点是单独的
+    # 指标（标签在上、数值在下），顺序是实例、地域、IP、站点、流量、费用、
+    # 阈值；实例 ID 只显示前 6 位（ECS 是 i- + 6 位），后面用 *** 代替，
+    # 并有复制按钮（复制完整 ID，和 IP 复制一样）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 多分组的模式：用 accountGroupIds（group_ids 多对多，回退单 group_id），
     # accountModeLabels 去重后显示在服务器名后面（蓝色）
@@ -1332,16 +1339,30 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert 'if (m === "time") return t("定时轮巡");' in tsx
     assert 'if (m === "dynamic") return t("动态模式");' in tsx
     assert 'return dm === "gb" ? t("固定流量") : t("百分比");' in tsx
-    # 实例 ID 脱敏 + 复制按钮（复制完整 ID）+ 地域后缀；IP 后面跟站点后缀。
-    # ID 的脱敏与复制都包在 IdView 里（卡片与列表共用，和 IpView 同款）
+    # 实例 ID 脱敏 + 复制按钮（复制完整 ID）。ID 的脱敏与复制都包在
+    # IdView 里（卡片与列表共用，和 IpView 同款）
     assert 'return id.startsWith("i-") ? `${id.slice(0, 8)}***` : `${id.slice(0, 6)}***`;' in tsx
     assert 'const IdView = ({ a }: { a: Any }) => {' in tsx
     assert '<span>{maskInstanceId(id)}</span>' in tsx
     assert 'title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button>' in tsx
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
-    assert '<b><IdView a={a} />' in tsx
-    assert '· {a.region as string}</span></b>' in tsx
-    assert '· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b>' in tsx
+    # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
+    # 不再是 ID / IP 后面的小字后缀；卡片指标顺序与列表一致：
+    # 实例、地域、IP、站点、流量、费用、阈值
+    assert '<b><IdView a={a} /></b>' in tsx
+    assert '· {a.region as string}</span></b>' not in tsx
+    assert '· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b>' not in tsx
+    i = tsx.index('<b><IdView a={a} /></b>')
+    i_stats = tsx.rfind('<div className="stats">', 0, i)
+    stats = tsx[i_stats:i_stats + 1400]
+    assert '<div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>' in stats
+    assert '<div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>' in stats
+    assert stats.index('<span>{t("实例")}</span>') < stats.index('<span>{t("地域")}</span>')
+    assert stats.index('<span>{t("地域")}</span>') < stats.index('<span>IP</span>')
+    assert stats.index('<span>IP</span>') < stats.index('<span>{t("站点")}</span>')
+    assert stats.index('<span>{t("站点")}</span>') < stats.index('<span>{t("流量")}</span>')
+    assert stats.index('<span>{t("流量")}</span>') < stats.index('<span>{t("费用")}</span>')
+    assert stats.index('<span>{t("费用")}</span>') < stats.index('<span>{t("阈值")}</span>')
     # 复制配置摘要仍给完整 ID（与 IP 复制给完整 IP 一致），编辑表单也不脱敏
     assert '${t("实例 ID")}：${a.instance_id}' in tsx
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
@@ -1370,6 +1391,22 @@ def test_accounts_list_column_order():
     j = tsx.index('<td><IdView a={a} /></td>', i)
     assert tsx.index('<td>{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
     assert tsx.index('<td><IpView a={a} /></td>', j) < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
+
+
+def test_dash_list_column_order():
+    # 运行概览列表：列顺序也是服务器、地域、IP、站点、流量、费用（站点移到
+    # IP 后面，与实例管理页列表一致；没有 ID 与阈值列，也没有复制按钮）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    i = tsx.index('<th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th>')
+    header = tsx[i:i + 400]
+    assert header.index('<th>{t("地域")}</th>') < header.index('<th>IP</th>')
+    assert header.index('<th>IP</th>') < header.index('<th>{t("站点")}</th>')
+    assert header.index('<th>{t("站点")}</th>') < header.index('<th>{t("已用 / 月度流量额度")}</th>')
+    assert header.index('<th>{t("已用 / 月度流量额度")}</th>') < header.index('<th>{t("实时费用")}</th>')
+    # 行里的单元格顺序与表头一致：名称、地域、IpView（无复制）、站点
+    j = tsx.index('<td><IpView a={a} copy={false} /></td>', i)
+    assert tsx.index('<td>{a.region as string}</td>', i) < j
+    assert j < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
 def test_global_settings_run_mode_above_lb():
