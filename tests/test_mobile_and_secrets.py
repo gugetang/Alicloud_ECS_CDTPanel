@@ -895,10 +895,13 @@ def test_group_mode_seg_no_dynamic_option():
     # 动态模式选项还在下面（负载均衡切换方式四选一里）、新建分组表单与全局设置里，
     # 共 3 处；顶层已无动态模式选项
     assert tsx.count('{ value: "dynamic", label: t("动态模式")') == 3
-    # 域名表格里的分组模式标签：动态分组仍显示“动态模式”
-    # （实例列表没有分组列；卡片上的模式标签已改成服务器名后面的
-    # accountModeLabels，见 test_server_card_groups_modes_and_masked_instance_id）
-    assert 'groupMode(d.group_id) === "dynamic" ? t("动态模式")' in tsx
+    # 域名表格里的分组模式标签：跟随分组卡片顶栏（顶层模式，time→定时轮巡，
+    # 其余→负载均衡；动态是负载均衡的子模式，显示负载均衡，不显示“动态模式”），
+    # 颜色也与分组卡片顶栏的绿 pill 一致（className="pill"）。
+    # （实例列表没有分组列；服务器卡片名后面的 accountModeLabels 仍显示具体模式，
+    # 见 test_server_card_groups_modes_and_masked_instance_id）
+    assert 'groupMode(d.group_id) === "dynamic" ? t("动态模式")' not in tsx
+    assert '<span className="pill">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span>' in tsx
 
 
 def test_group_mode_follow_global_effective_mode():
@@ -1471,3 +1474,19 @@ def test_status_pill_follows_dot_and_mode_label_no_parens():
     # 模式标签不要括号（实例管理卡片名称后面）
     assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>' in tsx
     assert '（{m}）' not in tsx
+
+
+def test_group_name_and_section_labels_font_size_swapped():
+    # 分组卡片：组名称与“选择成员实例”“域名选择”两处标题的字号对调——
+    # 组名称改小（14px，与正文/按钮同款），两处标题保持 h3（.card h3 16px），
+    # 现在标题比组名称大，层级反过来了。
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (root / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 组名称是 14px
+    assert '<b style={{ fontSize: 14 }}>{g.name as string}</b>' in tsx
+    # 两处标题仍是 h3，字号 16px（.card h3），比组名称大
+    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>' in tsx
+    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>' in tsx
+    assert ".card h3 { margin:0 0 8px; font-size:16px; }" in css

@@ -632,7 +632,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
 
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
-      <div className="row"><b>{g.name as string}</b>
+      <div className="row"><b style={{ fontSize: 14 }}>{g.name as string}</b>
         {/* 模式标签显示顶层模式：跟随系统时显示全局的运行模式（不是“跟随系统”），
             动态是负载均衡的子模式，顶栏显示负载均衡（与顶层 Seg 同款映射：
             time→定时轮巡，其余→负载均衡）；动态模式只在下面的负载均衡
@@ -2127,7 +2127,7 @@ export default function App() {
                       return <option key={g.id as number} value={g.id as number} disabled={bound}>{g.name as string}{bound ? t("（已绑定域名，不可选）") : ""}</option>;
                     })}
                   </select>
-                ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="muted">{groupMode(d.group_id) === "time" ? t("定时轮巡") : groupMode(d.group_id) === "dynamic" ? t("动态模式") : t("负载均衡")}</span></>) : null}</>)}</td>
+                ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="pill">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>) : null}</>)}</td>
                 <td>{d.zone as string || t("自动发现")}</td>
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
