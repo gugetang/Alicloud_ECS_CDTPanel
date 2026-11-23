@@ -2323,6 +2323,12 @@ export default function App() {
                   return <option key={d.id as number} value={d.id as number} disabled={Boolean(boundGroup)}>{d.name as string}{boundGroup ? t("（已被 {group} 选取）", { group: boundGroup.name }) : ""}</option>;
                 })}
               </select>
+              {domains.filter((d) => !d.group_id).length === 0 && (
+                <div className="row" style={{ marginTop: 8 }}>
+                  <span className="muted">{t("请先创建域名")}</span><span className="spacer" />
+                  <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupRunMode("follow"); setNewGroupSwitchMode("follow"); setNewGroupDomain(""); setTab("domains"); setAddDomName(""); setShowAddDom(true); }}>{t("去创建域名")}</button>
+                </div>
+              )}
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
                 <button className="btn ghost" onClick={() => { setShowNewGroup(false); setNewGroupName(""); setNewGroupRunMode("follow"); setNewGroupSwitchMode("follow"); setNewGroupDomain(""); }}>{t("取消")}</button>
                 <button className="btn" title={t("创建分组")} onClick={() => {

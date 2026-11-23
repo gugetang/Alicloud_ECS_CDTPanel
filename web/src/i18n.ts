@@ -405,6 +405,8 @@ export const EN: Record<string, string> = {
   请选择分组: "Please select a group",
   "（已绑定域名，不可选）": "(already bound to a domain)",
   "+ 添加域名": "+ Add domain",
+  请先创建域名: "Please create a domain first",
+  去创建域名: "Create a domain",
   请填写域名: "Please fill in the domain",
   域名已添加: "Domain added",
   "删除域名 {name}？": "Delete domain {name}?",
