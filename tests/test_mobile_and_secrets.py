@@ -1332,7 +1332,8 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert 'const accountModeLabels = (a: Any): string[] => {' in tsx
     assert 'if (!labels.includes(l)) labels.push(l);' in tsx
     assert 'accountModeLabels(a).map((m) => (' in tsx
-    assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>（{m}）</span>' in tsx
+    assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>' in tsx
+    assert '（{m}）' not in tsx
     # 名称下面不再有分组行（分组名不显示在卡片上）
     assert ' · {a.region as string} · {groupName(a.group_id)}' not in tsx
     assert '<span style={{ color: "var(--accent)" }}>{groupName(gid)}</span>' not in tsx
@@ -1345,7 +1346,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     # IdView 里（卡片与列表共用，和 IpView 同款）
     assert 'return id.startsWith("i-") ? `${id.slice(0, 8)}***` : `${id.slice(0, 6)}***`;' in tsx
     assert 'const IdView = ({ a }: { a: Any }) => {' in tsx
-    assert '<span className="mono">{maskInstanceId(id)}</span>' in tsx
+    assert '<span>{maskInstanceId(id)}</span>' in tsx
     assert 'title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button>' in tsx
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
     # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
@@ -1357,7 +1358,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     i = tsx.index('<b><IdView a={a} /></b>')
     i_stats = tsx.rfind('<div className="stats">', 0, i)
     stats = tsx[i_stats:i_stats + 1400]
-    assert '<div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>' in stats
+    assert '<div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>' in stats
     assert '<div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>' in stats
     assert stats.index('<span>{t("实例")}</span>') < stats.index('<span>{t("地域")}</span>')
     assert stats.index('<span>{t("地域")}</span>') < stats.index('<span>IP</span>')
@@ -1391,7 +1392,7 @@ def test_accounts_list_column_order():
     assert header.index('<th>{t("阈值")}</th>') < header.index('<th>{t("操作")}</th>')
     # 行里的单元格顺序与表头一致：名称、IdView、地域、IpView、站点
     j = tsx.index('<td><IdView a={a} /></td>', i)
-    assert tsx.index('<td className="mono">{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
+    assert tsx.index('<td>{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
     assert tsx.index('<td><IpView a={a} /></td>', j) < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
@@ -1407,7 +1408,7 @@ def test_dash_list_column_order():
     assert header.index('<th>{t("已用 / 月度流量额度")}</th>') < header.index('<th>{t("实时费用")}</th>')
     # 行里的单元格顺序与表头一致：名称、地域、IpView（无复制）、站点
     j = tsx.index('<td><IpView a={a} copy={false} /></td>', i)
-    assert tsx.index('<td className="mono">{a.region as string}</td>', i) < j
+    assert tsx.index('<td>{a.region as string}</td>', i) < j
     assert j < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
@@ -1432,46 +1433,41 @@ def test_global_settings_run_mode_above_lb():
     assert '{ value: "dynamic", label: t("动态模式")' in tsx
 
 
-def test_tech_values_monospace():
-    # 技术标识（地域 / IP / 实例 ID）用等宽字体：Google Sans 里小写字母
-    # 与数字/符号高度不一，cn-hongkong / 47.242.*.* / i-j6ccop*** 看起来
-    # 不协调；等宽字体下字母、数字、符号宽度一致。卡片与列表共用同一套。
+def test_stat_values_uniform_weight():
+    # 卡片与列表的数值统一粗细：等宽字体是错的改法（等宽字体笔画细，与 Google Sans
+    # 的流量/费用放一起还是有的粗有的细，已撤掉）；真正粗细不一的根因是列表流量
+    # 已用数包了 <b>（浏览器默认 700 粗体），而地域/IP/ID/费用/阈值都是常规粗细。
+    # 改法：列表流量已用数去掉 <b>，卡片与列表全部数值都用同一字体同一粗细。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert '.mono { font-family:ui-monospace,' in css
-    assert 'monospace' in css.split('.mono {')[1].split('}')[0]
-    # IpView / IdView 的值用 mono（卡片与列表共用，运行概览与实例管理都是）
-    assert '<span className="mono">{maskIp(a.public_ip)}</span>' in tsx
-    assert '<span className="mono">{maskInstanceId(id)}</span>' in tsx
-    # 地域值在卡片（运行概览与实例管理）与列表里都用 mono
-    assert tsx.count('<b className="mono">{a.region as string}</b>') == 2
-    assert tsx.count('<td className="mono">{a.region as string}</td>') == 2
-    # 站点/流量/费用/阈值不动（不是技术标识，仍用 Google Sans）
-    assert '<b>{a.site === "cn" ? t("中国站") : t("国际站")}</b>' in tsx
+    # 等宽字体已撤掉：.mono 类与用法都不存在
+    assert ".mono" not in css
+    assert 'className="mono"' not in tsx
+    assert '<span className="mono">{maskIp(a.public_ip)}</span>' not in tsx
+    assert '<span className="mono">{maskInstanceId(id)}</span>' not in tsx
+    # 列表流量已用数不再包 <b>（两张列表：运行概览与实例管理）
+    assert '<td><b>{fmtGb(a.traffic_used_gb)}</b>' not in tsx
+    assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
+    # 卡片数值仍在 .stat b 里（400 常规粗细），流量/费用/阈值与地域/IP/实例 ID 同款
+    assert '.stat b { font-size:18px; font-weight:400;' in css
+    assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
 
 
-def test_global_settings_sections_follow_run_mode():
-    # 全局设置按运行模式只显示对应段：选负载均衡时不显示下面的定时轮巡，
-    # 选定时轮巡时不显示负载均衡段；API 刷新时间与阈值动作/阈值恢复不跟随，
-    # 始终显示（与分组卡片同款：time 只显示定时轮巡段，load_balance/dynamic
-    # 只显示负载均衡段；sRunMode 是顶层 Seg 的值，dynamic/both 都映射成
-    # 负载均衡，所以条件直接用 sRunMode）。
+def test_status_pill_follows_dot_and_mode_label_no_parens():
+    # 状态标签文字颜色跟随状态点颜色（在线绿 / 排队黄 / 停机红 / 灰），
+    # 亮暗主题一致；服务器卡片名称后面的模式标签不要括号。
+    # 三处状态标签（运行概览卡片、实例管理卡片、实例管理列表）都用同一映射。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 只取全局设置参数卡片（运行模式 Seg 在全局设置里；分组卡片的 Seg 另有跟随系统）
-    g = tsx.split("运行模式（全局）")[1].split("subTab === \"other\"")[0]
-    # 负载均衡段包在 sRunMode !== "time" 里，切换模式在条件内，阈值动作在条件外
-    assert '{sRunMode !== "time" && (<>' in g
-    i_lb = g.index('{sRunMode !== "time" && (<>')
-    assert i_lb < g.index('child="切换模式"')
-    assert g.index('</>)}', i_lb) < g.index('{t("阈值动作")}')
-    # 定时轮巡段（标题 + 轮巡周期）只在 sRunMode === "time" 时显示
-    assert '{sRunMode === "time" && (<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>)}' in g
-    assert '{sRunMode === "time" && (<div className="form2">' in g
-    i_time = g.index('{sRunMode === "time" && (<h3')
-    assert i_time < g.index('{t("轮巡周期")}')
-    # API 刷新时间在定时轮巡段的条件之外：定时轮巡段的条件闭合在 API 之前
-    assert '{t("API 刷新时间 *（分钟）")}' in g
-    assert g.index('</div>)}', i_time) < g.index('{t("API 刷新时间 *（分钟）")}')
-    # 阈值动作/阈值恢复在两段条件之外（始终显示）
-    assert g.index('{t("阈值动作")}') > g.index('</>)}', i_lb)
-    assert g.index('{t("阈值恢复")}') > g.index('</>)}', i_lb)
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 状态标签 class 按 status_dot 选，与 dotColor 同款映射
+    assert 'dot === "yellow" ? "pill st-yellow" : dot === "gray" ? "pill st-gray" : dot === "red" || dot === "red_pulse" ? "pill st-red" : "pill st-green"' in tsx
+    assert tsx.count('<span className={statusPillClass(a.status_dot)}>') == 3
+    assert '<span className="pill">{a.status_label' not in tsx
+    # st-* 的文字颜色就是状态点颜色
+    assert ".pill.st-green { color:#34A853;" in css
+    assert ".pill.st-yellow { color:#FBBC04;" in css
+    assert ".pill.st-red { color:#EA4335;" in css
+    assert ".pill.st-gray { color:#9AA0A6;" in css
+    # 模式标签不要括号（实例管理卡片名称后面）
+    assert '<span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>' in tsx
+    assert '（{m}）' not in tsx

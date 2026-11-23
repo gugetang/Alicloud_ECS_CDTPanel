@@ -160,3 +160,26 @@ def test_footer_links_no_underline():
     import re
     for m in re.finditer(r'<a href="(?:https://github\.com/gugetang/Alicloud_ECS_CDTPanel|mailto:alicloudadmin@gmail\.com)"[^>]*>', tsx):
         assert 'textDecoration: "none"' in m.group(0), m.group(0)
+
+
+def test_site_logo_buttons_right_icons():
+    # 站点 logo 的上传/删除按钮移到最右边、改成图标按钮（上传=上传箭头图标，
+    # 删除=垃圾桶图标红色），悬停提示仍是“上传 logo”/“删除 logo”。
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    logo = tsx.split('t("站点 logo")')[1].split('t("站点简介")')[0]
+    # 两个按钮之间隔一个 spacer，推到最右边（logo 图在左，按钮在右）
+    assert '<span className="spacer" />' in logo
+    assert logo.index('<span className="spacer" />') < logo.index('title={t("上传 logo")}')
+    # 上传是图标按钮（icon-btn + 上传箭头 SVG），不再是文字按钮
+    assert '<button className="icon-btn" title={t("上传 logo")}' in logo
+    assert '<polyline points="17 8 12 3 7 8" />' in logo
+    assert '>{t("上传 logo")}</button>' not in logo
+    # 删除是红色图标按钮（icon-btn danger + 垃圾桶 SVG，与域名/指纹删除同款）
+    assert '<button className="icon-btn danger" title={t("删除 logo")}' in logo
+    assert '<polyline points="3 6 5 6 21 6" />' in logo
+    assert '>{t("删除 logo")}</button>' not in logo
+    # 删除按钮只在已有 logo 时显示，上传按钮始终显示
+    assert logo.count('title={t("删除 logo")}') == 1
+    assert logo.count('title={t("上传 logo")}') == 1

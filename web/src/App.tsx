@@ -1325,9 +1325,10 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon"
           style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f); e.target.value = ""; }} />
-        <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>{t("上传 logo")}</button>
+        <span className="spacer" />
+        <button className="icon-btn" title={t("上传 logo")} onClick={() => fileRef.current?.click()} disabled={busy}><Ico label={t("上传 logo")}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Ico></button>
         {hasLogo && (
-          <button className="btn ghost" onClick={() => void removeLogo()} disabled={busy}>{t("删除 logo")}</button>
+          <button className="icon-btn danger" title={t("删除 logo")} onClick={() => void removeLogo()} disabled={busy}><Ico label={t("删除 logo")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico></button>
         )}
       </div>
       <div style={{ marginTop: 12 }}>
@@ -1399,7 +1400,7 @@ export default function App() {
   const IpView = ({ a, copy = true }: { a: Any; copy?: boolean }) => {
     const ip = (a.public_ip as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-      <span className="mono">{maskIp(a.public_ip)}</span>
+      <span>{maskIp(a.public_ip)}</span>
       {copy && ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
     </span>);
   };
@@ -1408,7 +1409,7 @@ export default function App() {
   const IdView = ({ a }: { a: Any }) => {
     const id = (a.instance_id as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-      <span className="mono">{maskInstanceId(id)}</span>
+      <span>{maskInstanceId(id)}</span>
       {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button> : null}
     </span>);
   };
@@ -1515,6 +1516,9 @@ export default function App() {
     dot === "green" ? "#34A853" : dot === "green_pulse" ? "#34A853" : dot === "yellow" ? "#FBBC04" : dot === "gray" ? "#9AA0A6" : dot === "red_pulse" ? "#EA4335" : "#EA4335";
   const dotClass = (dot: string | undefined) =>
     dot === "green_pulse" ? "dot-pulse" : dot === "red_pulse" ? "dot-pulse-red" : "";
+  // 状态标签的 class 跟随状态点颜色（在线绿 / 排队黄 / 停机红 / 灰），与 dotColor 同款映射。
+  const statusPillClass = (dot: string | undefined) =>
+    dot === "yellow" ? "pill st-yellow" : dot === "gray" ? "pill st-gray" : dot === "red" || dot === "red_pulse" ? "pill st-red" : "pill st-green";
   const dotEl = (dot: string | undefined, title?: string) => (
     <span className={`dot ${dotClass(dot)}`} title={title || ""}
       style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6, verticalAlign: "middle" }} />
@@ -1974,12 +1978,12 @@ export default function App() {
                 {accounts.map((a) => (
                   <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
+                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
                       <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                     </div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
-                      <div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>
+                      <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
                       <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                       <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -1994,10 +1998,10 @@ export default function App() {
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
-                    <td className="mono">{a.region as string}</td>
+                    <td>{a.region as string}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                    <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                    <td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table>
@@ -2027,8 +2031,8 @@ export default function App() {
               style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>{accountModeLabels(a).map((m) => (
-                  <span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>（{m}）</span>
-                ))} <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
+                  <span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>{m}</span>
+                ))} <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
@@ -2037,7 +2041,7 @@ export default function App() {
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats">
                 <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
-                <div className="stat"><span>{t("地域")}</span><b className="mono">{a.region as string}</b></div>
+                <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
                 <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
                 <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -2059,12 +2063,12 @@ export default function App() {
               <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
                 style={{ cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
                 <td title={t("拖动排序")}>⠿</td>
-                <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
+                <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td><IdView a={a} /></td>
-                <td className="mono">{a.region as string}</td>
+                <td>{a.region as string}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                <td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                 <td><div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>

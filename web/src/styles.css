@@ -96,6 +96,12 @@ html[data-theme="light"] .pill.gray { background:#e2e8f0; color:#64748b; }
 .pill.blue { background:#172554; color:#93c5fd; }
 html[data-theme="light"] .pill.blue { background:#dbeafe; color:#1d4ed8; }
 .pill.red { background:#3f1d1d; color:#fca5a5; }
+/* 状态标签：文字颜色跟随状态点颜色（在线绿 #34A853 / 排队黄 #FBBC04 / 停机红 #EA4335 / 灰 #9AA0A6），
+   底色是同色浅 tint，亮暗主题一致（App.tsx 里 statusPillClass 按 a.status_dot 选）。 */
+.pill.st-green { color:#34A853; background:rgba(52,168,83,.14); }
+.pill.st-yellow { color:#FBBC04; background:rgba(251,188,4,.14); }
+.pill.st-red { color:#EA4335; background:rgba(234,67,53,.14); }
+.pill.st-gray { color:#9AA0A6; background:rgba(154,160,166,.14); }
 /* 保存提示框：自动保存后右下角悬浮弹出，5 秒自动隐藏（App.tsx 里 setTimeout）；
    字体用主题色（--accent，跟随 5 种主题风格切换），磨砂底 + 细边框 + 阴影。 */
 .toast { position:fixed; right:20px; bottom:20px; z-index:300; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px 16px; color:var(--accent); font-size:14px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); box-shadow:0 8px 24px rgba(0,0,0,.18); max-width:min(420px, calc(100vw - 40px)); }
@@ -134,10 +140,6 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
 .stats { display:grid; grid-template-columns:repeat(3,auto); justify-content:space-between; gap:10px 16px; margin-top:12px; }
 .stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }
 .stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; white-space:nowrap; }
-/* 技术标识（地域 / IP / 实例 ID）：等宽字体，字母、数字、符号宽度一致，
-   cn-hongkong / 47.242.*.* / i-j6ccop*** 这类值在 Google Sans 里大小写
-   高度不一、看起来不协调，等宽字体才统一。 */
-.mono { font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,"Liberation Mono",monospace; }
 /* 服务器卡片状态详情行：单行显示不换行（手机端恢复换行，见媒体查询） */
 .status-detail { white-space:nowrap; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
