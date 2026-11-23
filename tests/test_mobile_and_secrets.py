@@ -478,6 +478,24 @@ def test_webdav_dialog_opaque_drag_anywhere_click_outside_saves():
     assert 'onClick={() => setShowAddDom(false)}' in tsx
 
 
+def test_group_follow_system_hides_param_sections():
+    # 运行模式选“跟随系统”（switch_mode 为 NULL）时，下面的参数框体都不显示：
+    # 定时轮巡段、负载均衡段、阈值动作、阈值恢复；设置区只留分组名称、运行模式
+    # 与删除分组。切回具体模式时参数框体重新出现（卡片按 switch_mode 重挂载，
+    # 本地状态重新初始化）。分组名称、运行模式、删除分组不受影响。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 参数段都包在“未选跟随系统”的条件里（wrapper 在运行模式 Seg 之后打开）
+    i = group_card.index('{g.switch_mode !== null && (<>')
+    assert group_card.index('t("运行模式")') < i
+    # 时间段、负载均衡段、阈值动作、阈值恢复都在 wrapper 打开之后、删除分组之前
+    k = group_card.index('t("删除分组")', i)
+    assert 'effMode === "time" || effMode === "both"' in group_card[i:k]
+    assert 'effMode !== "time"' in group_card[i:k]
+    assert 't("阈值动作")' in group_card[i:k]
+    assert 't("阈值恢复")' in group_card[i:k]
+
+
 def test_add_domain_button_at_top_of_domains_page():
     # 域名管理页的“+ 添加域名”按钮在域名表格卡片顶行（DDNS 设置 ⚙ 旁边），
     # 打开页面不用滚到底就能看到；表格下方的旧按钮已移除，只留一个

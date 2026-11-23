@@ -653,7 +653,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m === "follow" ? null : m }), t("已切换模式"))} />
       </div>
       {/* 运行模式的有效值：分组未填（跟随系统）时继承全局；全局默认 both
-          （定时轮巡 + 负载均衡都启用），both 时时间与负载两段参数都显示。 */}
+          （定时轮巡 + 负载均衡都启用），both 时时间与负载两段参数都显示。
+          选“跟随系统”时下面的参数框体（定时轮巡 / 负载均衡 / 阈值动作 /
+          阈值恢复）都不显示，设置区只留分组名称、运行模式与删除分组。 */}
+      {g.switch_mode !== null && (<>
       {(effMode === "time" || effMode === "both") && (
         <div style={{ marginTop: 12 }}>
           {/* 定时轮巡的轮巡周期五选一：跟随系统 / 3/6/12 小时 / 自定义，
@@ -786,6 +789,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
       </div>
+      </>)}
       <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
         <button className="btn" title={t("删除分组")} style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
           onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
