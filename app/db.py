@@ -547,9 +547,12 @@ def create_group(data: dict) -> dict:
         return get_group(cur.lastrowid)
 
 
-def _norm_start_time(value) -> str:
-    """开始时间归一化：HH:MM:SS（也接受 HH:MM），非法回退 00:00:00。"""
-    v = (value or "00:00:00").strip() if isinstance(value, str) else "00:00:00"
+def _norm_start_time(value) -> str | None:
+    """开始时间归一化：HH:MM:SS（也接受 HH:MM），非法回退 00:00:00；
+    None/空 = 不填（存 NULL，继承全局）。"""
+    if value is None or value == "":
+        return None
+    v = value.strip() if isinstance(value, str) else "00:00:00"
     parts = v.split(":")
     try:
         if len(parts) == 2:

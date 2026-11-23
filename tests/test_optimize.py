@@ -907,3 +907,53 @@ def test_group_inherits_global_dynamic_interval():
     g_own = GroupView(id=1, name="G", switch_mode="dynamic",
                       dynamic_interval_minutes=90)
     assert _group_config(g_own, cfg).dynamic_interval_minutes == 90
+
+
+def test_group_follow_global_lb_nulls_diff_fields(tmpdb):
+    """负载均衡跟随全局：分组的差值参数置空后，引擎用全局值。"""
+    from app.engine import Config, GroupView, _group_config
+    g = tmpdb.create_group({"name": "G", "switch_mode": "load_balance",
+                            "switch_diff_mode": "gb", "switch_diff_pct": 5,
+                            "switch_diff_gb": 3, "dynamic_interval_minutes": 90})
+    assert g["switch_diff_pct"] == 5
+    g2 = tmpdb.update_group(g["id"], {"switch_diff_mode": None,
+                                       "switch_diff_pct": None,
+                                       "switch_diff_gb": None,
+                                       "dynamic_interval_minutes": None})
+    assert g2["switch_diff_mode"] is None
+    assert g2["switch_diff_pct"] is None
+    assert g2["switch_diff_gb"] is None
+    assert g2["dynamic_interval_minutes"] is None
+    cfg = Config(switch_diff_mode="percent", switch_diff_pct=20,
+                 switch_diff_gb=20, dynamic_interval_minutes=60)
+    gv = GroupView(id=g["id"], name="G", switch_mode="load_balance",
+                   switch_diff_mode=None, switch_diff_pct=None,
+                   switch_diff_gb=None, dynamic_interval_minutes=None)
+    gc = _group_config(gv, cfg)
+    assert gc.switch_diff_mode == "percent"
+    assert gc.switch_diff_pct == 20
+    assert gc.switch_diff_gb == 20
+    assert gc.dynamic_interval_minutes == 60
+
+
+def test_group_follow_global_time_nulls_interval_fields(tmpdb):
+    """定时轮巡跟随全局：分组的间隔参数置空后，引擎用全局值。"""
+    from app.engine import Config, GroupView, _group_config
+    g = tmpdb.create_group({"name": "G", "switch_mode": "time",
+                            "interval_hours": 2, "custom_interval_minutes": 0,
+                            "interval_start_time": "01:00:00"})
+    g2 = tmpdb.update_group(g["id"], {"interval_hours": None,
+                                       "custom_interval_minutes": None,
+                                       "interval_start_time": None})
+    assert g2["interval_hours"] is None
+    assert g2["custom_interval_minutes"] is None
+    assert g2["interval_start_time"] is None
+    cfg = Config(interval_hours=6, custom_interval_minutes=0,
+                 interval_start_time="00:00:00")
+    gv = GroupView(id=g["id"], name="G", switch_mode="time",
+                   interval_hours=None, custom_interval_minutes=None,
+                   interval_start_time=None)
+    gc = _group_config(gv, cfg)
+    assert gc.interval_hours == 6
+    assert gc.custom_interval_minutes == 0
+    assert gc.interval_start_time == "00:00:00"

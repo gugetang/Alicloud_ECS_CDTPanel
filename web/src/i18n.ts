@@ -283,6 +283,7 @@ export const EN: Record<string, string> = {
   // 分组
   已切换模式: "Mode switched",
   切换模式: "Switch mode",
+  切换参数: "Switch parameters",
   间隔切换周期: "Interval switch cycle",
   "1 小时": "1 hour",
   "2 小时": "2 hours",

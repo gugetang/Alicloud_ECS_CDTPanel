@@ -528,6 +528,41 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   // 分组级阈值策略：空=跟随全局
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
+  // 负载均衡/定时轮巡是否跟随全局：相关参数全为空即跟随全局（后端 NULL=继承全局）
+  const lbFollowGlobal = g.switch_diff_mode == null && g.switch_diff_pct == null && g.switch_diff_gb == null && g.dynamic_interval_minutes == null;
+  const timeFollowGlobal = g.interval_hours == null && g.custom_interval_minutes == null && g.interval_start_time == null;
+  // 负载均衡跟随全局/自定义切换：跟随全局时参数全部置空（继承全局），自定义时
+  // 参数填入当前全局值（对话框出现，用户可改）
+  const setLbFollowGlobal = (follow: boolean) => {
+    if (follow) {
+      savePatch({ switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null });
+    } else {
+      const m = (settings.switch_diff_mode as string) || "percent";
+      const pct = Number(settings.switch_diff_pct ?? 10) || 10;
+      const gb = Number(settings.switch_diff_gb ?? 10) || 10;
+      const dyn = Math.max(30, Number(settings.dynamic_interval_minutes ?? 30) || 30);
+      setDiffMode(m); setDiffPct(String(pct)); setDiffGb(String(gb));
+      setDynInterval([30, 60, 90, 120].includes(dyn) ? String(dyn) : "0");
+      setDynCustVal(String([30, 60, 90, 120].includes(dyn) ? 30 : dyn));
+      savePatch({ switch_diff_mode: m, switch_diff_pct: pct, switch_diff_gb: gb, dynamic_interval_minutes: dyn });
+    }
+  };
+  // 定时轮巡跟随全局/自定义切换
+  const setTimeFollowGlobal = (follow: boolean) => {
+    if (follow) {
+      savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null });
+    } else {
+      const hrs = Number(settings.interval_hours ?? 6) || 6;
+      const cmins = Number(settings.custom_interval_minutes ?? 0) || 0;
+      const st = (settings.interval_start_time as string) || "00:00:00";
+      setInterval(cmins > 0 ? "0" : String(hrs));
+      const u = cmins > 0 && cmins % 1440 === 0 ? "day" : cmins > 0 && cmins % 60 === 0 ? "hour" : "minute";
+      setCustUnit(u);
+      setCustVal(String(u === "day" ? cmins / 1440 : u === "hour" ? cmins / 60 : cmins));
+      setStartTime(st);
+      savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st });
+    }
+  };
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(false);
 
@@ -573,7 +608,13 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
-          <div className="form2">
+          <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
+            <div style={{ paddingLeft: "2em" }}><Seg value={timeFollowGlobal ? "global" : "custom"} options={[
+              { value: "global", label: t("跟随全局") },
+              { value: "custom", label: t("自定义") },
+            ]} onChange={(v) => setTimeFollowGlobal(v === "global")} /></div></div>
+          {!timeFollowGlobal && (<>
+          <div className="form2" style={{ marginTop: 12 }}>
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
                 { value: "1", label: t("1 小时") }, { value: "2", label: t("2 小时") },
@@ -596,9 +637,16 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
             <label className="lbl" style={{ paddingLeft: "2em" }}>{t("开始时间")}</label>
             <div style={{ paddingLeft: "2em" }}><input type="time" step="1" value={startTime} onChange={(e) => setStartTime(e.target.value)} onBlur={() => savePatch({ interval_start_time: startTime || "00:00:00" })} /></div>
           </div>
+          </>)}
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
+          <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
+            <div style={{ paddingLeft: "2em" }}><Seg value={lbFollowGlobal ? "global" : "custom"} options={[
+              { value: "global", label: t("跟随全局") },
+              { value: "custom", label: t("自定义") },
+            ]} onChange={(v) => setLbFollowGlobal(v === "global")} /></div></div>
+          {!lbFollowGlobal && (<>
           <TwoLineLabel parent="负载均衡" child="切换模式" />
           <div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
             { value: "percent", label: t("百分比模式"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
@@ -632,6 +680,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
             </div>
           )}
+          </>)}
         </div>
       )}
       <div style={{ marginTop: 12 }}>
