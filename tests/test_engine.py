@@ -330,6 +330,21 @@ def test_group_time_defaults_to_interval_mode():
     assert _group_config(g3, Config()).time_switch_mode == ""
 
 
+def test_group_follow_global_inherits_switch_mode():
+    # 顶层“跟随系统”（switch_mode=None）：有效模式继承全局；全局 time 时
+    # time_switch_mode 同样默认 interval，全局 both 时有效模式就是 both
+    from app.engine import GroupView, _group_config
+    g = GroupView(id=1, name="G", switch_mode=None, interval_hours=2)
+    assert g.switch_mode is None  # __post_init__ 保留 None，不回退 load_balance
+    assert _group_config(g, Config(switch_mode="time")).switch_mode == "time"
+    assert _group_config(g, Config(switch_mode="time")).time_switch_mode == "interval"
+    assert _group_config(g, Config()).switch_mode == "both"
+    assert _group_config(g, Config(switch_mode="load_balance")).switch_mode == "load_balance"
+    # 显式模式不受影响
+    g2 = GroupView(id=2, name="G2", switch_mode="time", interval_hours=2)
+    assert _group_config(g2, Config()).switch_mode == "time"
+
+
 def test_group_interval_start_time_override():
     # 分组开始时间覆盖全局：全局 00:00:00，分组 08:00:00、间隔 2 小时，
     # 08:00 到点切、07:00 不切（开始时间是锚点相位：切换时刻=08:00+k*2h）

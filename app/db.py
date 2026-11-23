@@ -68,7 +68,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             CREATE TABLE IF NOT EXISTS groups(
               id INTEGER PRIMARY KEY,
               name TEXT NOT NULL,
-              switch_mode TEXT NOT NULL DEFAULT 'load_balance'
+              switch_mode TEXT DEFAULT 'load_balance'
                 CHECK (switch_mode IN ('time', 'load_balance', 'dynamic')),
               interval_hours INTEGER,
               custom_interval_minutes INTEGER,
@@ -220,10 +220,14 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         # TABLE 改不了 CHECK 约束）。新库建表时 CHECK 已含 dynamic，不会
         # 走到这里。重建在事务内完成、数据按列名全量复制；若 CHECK 已含
         # dynamic 则跳过。groups_new 残留表（上次重建失败时）先清掉。
+        # 顶层“跟随系统”：switch_mode 为 NULL 即继承全局切换模式，旧库的
+        # NOT NULL 约束也要重建表才能去掉（NULL 本身能通过 CHECK，不用改
+        # CHECK）；新库建表时 switch_mode 已可空，不会走到这里。
         _gsql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='groups'"
         ).fetchone()
-        if _gsql and "'dynamic'" not in (_gsql[0] or ""):
+        if _gsql and ("'dynamic'" not in (_gsql[0] or "")
+                      or "switch_mode TEXT NOT NULL" in (_gsql[0] or "")):
             _in_txn = conn.in_transaction
             try:
                 if not _in_txn:
@@ -233,7 +237,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
                     """CREATE TABLE groups_new(
                       id INTEGER PRIMARY KEY,
                       name TEXT NOT NULL,
-                      switch_mode TEXT NOT NULL DEFAULT 'load_balance'
+                      switch_mode TEXT DEFAULT 'load_balance'
                         CHECK (switch_mode IN ('time', 'load_balance', 'dynamic')),
                       interval_hours INTEGER,
                       custom_interval_minutes INTEGER,
@@ -565,7 +569,11 @@ def _resolve_group_id(gid) -> int | None:
     return _default_group_id()
 
 
-def _check_switch_mode(mode: str) -> str:
+def _check_switch_mode(mode: str | None) -> str | None:
+    # None = 跟随系统（继承全局切换模式，存 NULL）；空串/未填按旧行为默认
+    # 负载均衡；其余非法值拒绝
+    if mode is None:
+        return None
     m = (mode or "load_balance").strip().lower()
     if m not in ("time", "load_balance", "dynamic"):
         raise ValueError(
@@ -610,7 +618,8 @@ def create_group(data: dict) -> dict:
             "dynamic_interval_minutes"]
     vals = [data.get(c) for c in cols]
     vals[0] = (data.get("name") or "").strip() or "未命名分组"
-    vals[1] = _check_switch_mode(data.get("switch_mode"))
+    # 新建未填模式默认负载均衡（跟随系统只能在已有分组上改，不能新建时留空）
+    vals[1] = _check_switch_mode(data.get("switch_mode")) or "load_balance"
     # 停止状态归一化（新建默认运行中）
     vals[cols.index("paused")] = 1 if data.get("paused") else 0
     # 开始时间归一化（非法回退 00:00:00）

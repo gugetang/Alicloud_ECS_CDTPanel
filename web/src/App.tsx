@@ -547,11 +547,12 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
 }
 
 // ---------------- 分组卡片：模式按键 + 参数表单（无 prompt） ----------------
-function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragProps: gDragProps, dragOver, dragging }: {
+function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSettings, onToggleSettings, dragProps: gDragProps, dragOver, dragging }: {
   g: Any; settings: Any; accounts: Any[]; domains: Any[];
   dotEl: (dot: string | undefined, title?: string) => JSX.Element;
   run: (fn: () => Promise<unknown>, ok: string) => Promise<void>;
   setMsg: (s: string) => void;
+  showSettings: boolean; onToggleSettings: () => void;
   dragProps?: Any; dragOver?: boolean; dragging?: boolean;
 }) {
   const { lang, t } = useI18n();
@@ -582,9 +583,11 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
   // 负载均衡是否跟随系统：相关参数全为空即跟随系统（后端 NULL=继承全局）
   const lbFollowGlobal = g.switch_diff_mode == null && g.switch_diff_pct == null && g.switch_diff_gb == null && g.dynamic_interval_minutes == null;
-  // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
-  const [showSettings, setShowSettings] = useState(false);
-
+  // 运行模式的有效值：分组未填（跟随系统）时继承全局；全局默认 both
+  // （定时轮巡 + 负载均衡都启用），both 时时间与负载两段参数都显示
+  const _gsm = (((settings as Any)?.switch_mode as string) || "both").toLowerCase();
+  const effMode = (g.switch_mode as string | null) ?? (["time", "load_balance", "dynamic", "both"].includes(_gsm) ? _gsm : "both");
+  // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认收起；状态在父级，见 App）
   const dom = domains.find((d) => d.group_id === g.id);
 
   // 分组参数自动保存：改动即存，不用点保存
@@ -624,9 +627,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   return (
     <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b>{g.name as string}</b>
-        <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态模式") : t("负载均衡")}</span>
+        <span className="pill">{g.switch_mode == null ? t("跟随系统") : g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态模式") : t("负载均衡")}</span>
         <span className="spacer" />
-        <button className="icon-btn" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}><Ico label={t("分组设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
+        <button className="icon-btn" title={t("分组设置")} onClick={onToggleSettings}><Ico label={t("分组设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
       </div>
       {showSettings && (<>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
@@ -640,14 +643,18 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       </div>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
         <label className="lbl">{t("运行模式")}</label>
-        {/* 顶层只留定时轮巡 / 负载均衡两项；动态模式在下面的负载均衡切换方式里选，
-            动态分组顶栏显示负载均衡（动态是负载均衡的子模式）。 */}
-        <Seg value={(g.switch_mode === "time" ? "time" : "load_balance")} options={[
+        {/* 顶层三项：定时轮巡 / 负载均衡 / 跟随系统；动态模式在下面的负载均衡
+            切换方式里选，动态分组顶栏显示负载均衡（动态是负载均衡的子模式）。
+            选跟随系统即清空 switch_mode（继承全局切换模式）。 */}
+        <Seg value={(g.switch_mode == null ? "follow" : g.switch_mode === "time" ? "time" : "load_balance")} options={[
           { value: "time", label: t("定时轮巡") },
           { value: "load_balance", label: t("负载均衡") },
-        ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
+          { value: "follow", label: t("跟随系统"), title: t("运行模式继承全局设置") },
+        ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m === "follow" ? null : m }), t("已切换模式"))} />
       </div>
-      {g.switch_mode === "time" ? (
+      {/* 运行模式的有效值：分组未填（跟随系统）时继承全局；全局默认 both
+          （定时轮巡 + 负载均衡都启用），both 时时间与负载两段参数都显示。 */}
+      {(effMode === "time" || effMode === "both") && (
         <div style={{ marginTop: 12 }}>
           {/* 定时轮巡的轮巡周期五选一：跟随系统 / 3/6/12 小时 / 自定义，
               与全局设置的轮巡周期同一排版，只多一个跟随系统。选跟随系统即
@@ -655,7 +662,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               时间值填入（间隔、单位、开始时间），再按所选项保存。选自定义后
               数值输入直接跟在选项下面（数字 + 分钟/小时/天，可编辑），不再另
               起“自定义间隔”行。 */}
-          <TwoLineLabel parent="定时轮巡" child="轮巡周期" />
+          <label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</span></label>
           <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
             { value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") },
             { value: "3", label: t("3 小时") },
@@ -690,7 +697,8 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           </div>
           </>)}
         </div>
-      ) : (
+      )}
+      {effMode !== "time" && (
         <div style={{ marginTop: 12 }}>
           {/* 负载均衡的切换方式四选一：百分比（%） / 固定流量（GB） / 动态模式 /
               跟随系统，与全局设置同一排版，只多一个跟随系统；父级“负载均衡”
@@ -728,7 +736,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           {/* 动态模式的切换间隔两选一：跟随系统 / 自定义。选自定义弹对话框改
               分钟数（最少 30），确认后保存，取消不改；对话框打开时显示当前值。
               30/60/90 预设已取消。 */}
-          {g.switch_mode === "dynamic" && (
+          {effMode === "dynamic" && (
             <div style={{ marginTop: 12 }}>
               <div className="form2">
                 <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
@@ -792,11 +800,16 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
           const on = gids.includes(g.id as number);
           const next = on ? gids.filter((x) => x !== g.id) : [...gids, g.id as number];
+          // 未选中的成员不在本组排队：全局状态是排队中（黄点）时显示离队（灰点），
+          // 不显示排队；仍被域名指向的未选中成员继续显示在线（DNS 切走后才离队），
+          // 已跳出/已停机/未知等其它状态不动。
+          const leftGroup = !on && a.status_dot === "yellow";
+          const mLabel = leftGroup ? t("离队") : (a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知")));
           return (
             <button key={a.id as number} className={(on ? "seg-on " : "") + "member-btn"}
-              title={`${a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
+              title={`${mLabel}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
               onClick={() => run(() => put(`/api/accounts/${a.id}`, { group_ids: next, ...(on ? {} : { ddns_enabled: 1 }) }), on ? t("已从分组移除 {name}", { name: a.name }) : t("{name} 已加入分组", { name: a.name }))}>
-              {dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="member-text"><span className="member-name">{a.name as string}</span><span className="member-ip">{maskIp(a.public_ip)}</span></span>
+              {dotEl(leftGroup ? "gray" : a.status_dot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text"><span className="member-name">{a.name as string}</span><span className="member-ip">{maskIp(a.public_ip)}</span></span>
             </button>
           );
         })}
@@ -1043,12 +1056,14 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const [fileName, setFileName] = useState("");
   const [wdStatus, setWdStatus] = useState<Any | null>(null);
   const [showWdDialog, setShowWdDialog] = useState(false);
-  // 云端备份对话框可拖动：按住标题拖，松手后位置保留；拖动结束 200ms 内
-  // 忽略遮罩的点击，避免拖到遮罩上松手时误关对话框
+  // 云端备份对话框可拖动：对话框任意位置按住都可拖（输入框/按钮等控件除外，
+  // 点控件时正常聚焦/点击不拖动），松手后位置保留；拖动结束 200ms 内忽略遮罩
+  // 的点击，避免拖到遮罩上松手时误关对话框
   const [wdPos, setWdPos] = useState({ x: 0, y: 0 });
   const wdDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const wdDragEndAt = useRef(0);
   const onWdDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest("input, button, select, textarea, a, [contenteditable]")) return;
     e.preventDefault();
     wdDragRef.current = { startX: e.clientX, startY: e.clientY, origX: wdPos.x, origY: wdPos.y };
     let moved = false;
@@ -1190,9 +1205,9 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
       </div>
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
       {showWdDialog && (
-        <div className="modal-overlay" onClick={() => { if (Date.now() - wdDragEndAt.current < 200) return; setShowWdDialog(false); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={(wdPos.x || wdPos.y) ? { transform: `translate(${wdPos.x}px, ${wdPos.y}px)` } : undefined}>
-            <h3 onMouseDown={onWdDragStart} style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>
+        <div className="modal-overlay" onClick={async () => { if (Date.now() - wdDragEndAt.current < 200) return; await saveWd(); setShowWdDialog(false); }}>
+          <div className="modal modal-wd" onClick={(e) => e.stopPropagation()} onMouseDown={onWdDragStart} style={{ cursor: "grab", ...((wdPos.x || wdPos.y) ? { transform: `translate(${wdPos.x}px, ${wdPos.y}px)` } : {}) }}>
+            <h3 style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>
             <div style={{ marginTop: 12 }}>
               <div><label className="req" style={{ paddingLeft: "2em" }}>{t("* 地址")}</label>
                 <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} style={{ width: "100%" }} onBlur={saveWd} /></div>
@@ -1567,7 +1582,8 @@ export default function App() {
   const groupName = (gid: number | null | undefined) =>
     gid ? (groups.find((g) => g.id === gid)?.name as string) || t("未分组") : t("未分组");
   const groupMode = (gid: number | null | undefined) =>
-    gid ? (groups.find((g) => g.id === gid)?.switch_mode as string) || "load_balance" : "";
+    // 分组未填模式（跟随系统）时用全局模式；全局默认 both（列表里显示负载均衡）
+    gid ? (groups.find((g) => g.id === gid)?.switch_mode as string) || (settings?.switch_mode as string) || "load_balance" : "";
 
   // ---------- 单台操作：刷新 / 启动 / 重启 / 停机 ----------
   const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop") => {
@@ -1725,6 +1741,10 @@ export default function App() {
 
   // ---------- 分组新建表单 ----------
   const [showNewGroup, setShowNewGroup] = useState(false);
+  // 分组卡片设置区的展开状态放父级（按分组 id 记）：GroupCard 的 key 里含可变
+  // 设置字段，保存后 key 变了卡片会重挂载，展开状态放卡片本地会在每次保存后
+  // 被重置（设置自动收起）；放父级则保存后仍保持展开。
+  const [openGroupSettings, setOpenGroupSettings] = useState<Record<number, boolean>>({});
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMode, setNewGroupMode] = useState("");
   // 新建分组时选一个已添加的域名（可选；一个域名只能被选取一次，已被选取的不可选）
@@ -2108,8 +2128,10 @@ export default function App() {
       {tab === "groups" && (
         <>
           {groups.map((g) => (
-            <GroupCard key={`${g.id}-${g.name}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.exclusion_action ?? ""}-${g.recovery_action ?? ""}`}
+            <GroupCard key={`${g.id}-${g.name}-${g.switch_mode ?? "follow"}-${g.interval_hours}-${g.custom_interval_minutes}-${g.interval_start_time}-${g.switch_diff_pct}-${g.switch_diff_gb}-${g.exclusion_action ?? ""}-${g.recovery_action ?? ""}`}
               g={g} settings={settings} accounts={accounts} domains={domains} dotEl={dotEl} run={run} setMsg={setMsg}
+              showSettings={!!openGroupSettings[g.id as number]}
+              onToggleSettings={() => setOpenGroupSettings((m) => ({ ...m, [g.id as number]: !m[g.id as number] }))}
               dragProps={dragProps("group", g.id as number)} dragOver={dragOverId === g.id && dragKind === "group"} dragging={dragId === g.id && dragKind === "group"} />
           ))}
           {showNewGroup && (

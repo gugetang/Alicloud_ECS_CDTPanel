@@ -275,12 +275,35 @@ def test_group_member_shows_masked_ip():
     # 分组成员按键：圆点 + 两行文字，上面名称、下面当前 IP（A.B 显示，C.D 用 * 代替），
     # IP 单独一行居中，圆点用 flex 垂直居中，落在两行文字的中心高度
     assert 'className={(on ? "seg-on " : "") + "member-btn"}' in tsx
-    assert '{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<span className="member-text">' in tsx
+    assert '{dotEl(leftGroup ? "gray" : a.status_dot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text">' in tsx
+    # 未选中的成员不在本组排队：全局排队中（黄点）时显示离队（灰点），不显示排队；
+    # 仍被域名指向的未选中成员继续显示在线，其它状态不动
+    assert 'const leftGroup = !on && a.status_dot === "yellow";' in tsx
+    assert 'const mLabel = leftGroup ? t("离队")' in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert "离队" in i18n
     assert '<span className="member-name">{a.name as string}</span>' in tsx
     assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
     assert ".member-btn { display:inline-flex; align-items:center;" in css
     assert ".member-text { display:inline-flex; flex-direction:column; align-items:center; }" in css
     assert ".member-ip { display:block;" in css
+
+
+def test_group_settings_stay_open_after_save():
+    # 分组卡片设置区的展开状态放父级（按分组 id 记）：GroupCard 的 key 里含可变
+    # 设置字段，保存后 key 变了卡片会重挂载，展开状态放卡片本地会在每次保存后
+    # 被重置（设置自动收起）；放父级则保存后仍保持展开
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 父级按分组 id 记展开状态
+    assert "const [openGroupSettings, setOpenGroupSettings] = useState<Record<number, boolean>>({});" in tsx
+    # GroupCard 不再有本地 showSettings 状态，改由 props 传入
+    assert "const [showSettings, setShowSettings] = useState(false);" not in group_card
+    assert "showSettings: boolean; onToggleSettings: () => void;" in group_card
+    assert "onClick={onToggleSettings}" in group_card
+    # 渲染时传入父级的展开状态与切换函数
+    assert "showSettings={!!openGroupSettings[g.id as number]}" in tsx
+    assert "onToggleSettings={() => setOpenGroupSettings((m) => ({ ...m, [g.id as number]: !m[g.id as number] }))}" in tsx
 
 
 def test_group_time_section_only_interval():
@@ -434,6 +457,25 @@ def test_modal_frosted_50_percent():
     assert "background:rgba(255,255,255,0.5)" in m.group(0)
     assert "backdrop-filter:blur(18px)" in m.group(0)
     assert 'html[data-theme="dark"] .modal { background:rgba(71,85,105,0.5); }' in css
+
+
+def test_webdav_dialog_opaque_drag_anywhere_click_outside_saves():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 云端备份设置对话框：90% 不透明（只作用于本对话框，其它对话框仍是 50% 磨砂）
+    assert ".modal.modal-wd { background:rgba(255,255,255,0.9); }" in css
+    assert 'html[data-theme="dark"] .modal.modal-wd { background:rgba(71,85,105,0.9); }' in css
+    assert 'className="modal modal-wd"' in tsx
+    # 对话框任意位置按住都可拖动，拖动绑在 .modal 上（不再只在标题上）；
+    # 点输入框/按钮等控件时不拖动，让控件正常聚焦/点击
+    assert 'className="modal modal-wd" onClick={(e) => e.stopPropagation()} onMouseDown={onWdDragStart}' in tsx
+    assert 'if ((e.target as HTMLElement).closest("input, button, select, textarea, a, [contenteditable]")) return;' in tsx
+    assert '<h3 style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>' in tsx
+    # 点遮罩（对话框外）先自动保存再退出；其它对话框（动态自定义、添加域名）
+    # 不受影响，点遮罩只是取消/关闭，不保存
+    assert "await saveWd(); setShowWdDialog(false);" in tsx
+    assert 'onClick={() => setShowDynCustom(false)}' in tsx
+    assert 'onClick={() => setShowAddDom(false)}' in tsx
 
 
 def test_header_lang_dropdown_and_logout():
@@ -677,8 +719,9 @@ def test_required_fields_have_star_marker():
 def test_group_card_settings_collapsed_by_default():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 点开分组管理后，每个分组卡片默认是不被编辑状态（设置区收起），
-    # 点右上角 ⚙ 才展开
-    assert "const [showSettings, setShowSettings] = useState(false);" in tsx
+    # 点右上角 ⚙ 才展开；展开状态在父级按分组 id 记，初始为空（全部收起）
+    assert "const [openGroupSettings, setOpenGroupSettings] = useState<Record<number, boolean>>({});" in tsx
+    assert "showSettings={!!openGroupSettings[g.id as number]}" in tsx
 
 
 def test_accounts_tab_renamed_to_instances():
@@ -726,9 +769,10 @@ def test_two_line_labels_with_two_char_indent():
     assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>' in group_card
     assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（%）")}</span></label>' in group_card
     assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label>' in group_card
-    # 定时轮巡的轮巡周期也改成 TwoLineLabel（分组）/ plain label（全局），
-    # 子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组轮巡周期/自定义间隔/开始时间）
-    assert '<TwoLineLabel parent="定时轮巡" child="轮巡周期" />' in tsx
+    # 分组定时轮巡的父级“定时轮巡”字已取消（与负载均衡分支 2026-11-23 的改法一致），
+    # 只留单行缩进的“轮巡周期”标签；全局设置没有定时轮巡的 TwoLineLabel
+    assert '<TwoLineLabel parent="定时轮巡"' not in tsx
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</span></label>' in group_card
     assert '<TwoLineLabel parent="定时轮巡" child="切换参数" />' not in tsx
     for label in ("轮巡周期", "自定义间隔", "开始时间"):
         assert f'style={{{{ paddingLeft: "2em" }}}}>{{t("{label}")}}' in tsx, label
@@ -789,26 +833,51 @@ def test_ip_copy_only_no_full_reveal():
 
 
 def test_group_mode_seg_no_dynamic_option():
-    # 分组卡片顶层“切换模式”只两项：定时轮巡 / 负载均衡。动态模式不在顶层，
+    # 分组卡片顶层“运行模式”三项：定时轮巡 / 负载均衡 / 跟随系统。动态模式不在顶层，
     # 在下面的负载均衡切换方式（百分比/固定流量/动态模式/跟随系统）里选；
     # 动态分组在顶栏显示负载均衡（动态是负载均衡的子模式），下面才显示动态模式。
+    # 跟随系统即清空 switch_mode（存 NULL，继承全局切换模式）。
     # 后端与引擎仍支持 dynamic（test_optimize 的 test_dynamic_switch_*）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
-    # 顶层 Seg 的值：time 显示定时轮巡，其它（含 dynamic）都显示负载均衡
-    assert '<Seg value={(g.switch_mode === "time" ? "time" : "load_balance")}' in group_card
+    # 顶层 Seg 的值：未填（跟随系统）显示跟随系统，time 显示定时轮巡，其它（含 dynamic）都显示负载均衡
+    assert '<Seg value={(g.switch_mode == null ? "follow" : g.switch_mode === "time" ? "time" : "load_balance")}' in group_card
     # 顶层标签已由“切换模式”改名“运行模式”（只改分组卡片顶层这一处；新建分组表单
     # 与负载均衡切换方式的“切换模式”标签不动）
     assert '<label className="lbl">{t("运行模式")}</label>' in group_card
     assert '<label className="lbl">{t("切换模式")}</label>' not in tsx
     assert '{ value: "time", label: t("定时轮巡") }' in group_card
     assert '{ value: "load_balance", label: t("负载均衡") }' in group_card
+    assert '{ value: "follow", label: t("跟随系统"), title: t("运行模式继承全局设置") }' in group_card
+    # 选跟随系统即把 switch_mode 清空（存 NULL，继承全局）
+    assert '{ switch_mode: m === "follow" ? null : m }' in group_card
     # 动态模式选项还在下面（负载均衡切换方式四选一里）、新建分组表单与全局设置里，
     # 共 3 处；顶层已无动态模式选项
     assert tsx.count('{ value: "dynamic", label: t("动态模式")') == 3
     # 实例列表与域名表格里的分组模式标签：动态分组仍显示“动态模式”
     assert 'groupMode(a.group_id) === "dynamic" ? t("动态模式")' in tsx
     assert 'groupMode(d.group_id) === "dynamic" ? t("动态模式")' in tsx
+
+
+def test_group_mode_follow_global_effective_mode():
+    # 顶层“跟随系统”：分组 switch_mode 为 NULL 时继承全局切换模式；
+    # 有效模式决定显示哪段参数：time 只显示定时轮巡段，load_balance/dynamic
+    # 只显示负载均衡段，both（全局默认）两段都显示
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 有效模式：分组未填时取全局（非法值回退 both）
+    assert 'const effMode = (g.switch_mode as string | null) ?? (["time", "load_balance", "dynamic", "both"].includes(_gsm) ? _gsm : "both");' in group_card
+    assert '{(effMode === "time" || effMode === "both") && (' in group_card
+    assert '{effMode !== "time" && (' in group_card
+    # 动态切换间隔段按有效模式显示（跟随系统且全局是 dynamic 时也要显示）
+    assert '{effMode === "dynamic" && (' in group_card
+    # 模式标签：跟随系统时显示跟随系统
+    assert '{g.switch_mode == null ? t("跟随系统") : g.switch_mode === "time" ? t("定时轮巡")' in group_card
+    # 切模式会重挂载卡片（key 含 switch_mode），新分支的本地状态重新初始化；
+    # 设置展开状态在父级，不受重挂载影响（仍保持展开）
+    assert '${g.switch_mode ?? "follow"}' in tsx
+    # 实例/域名列表的模式标签：跟随系统时用全局模式
+    assert '(settings?.switch_mode as string) || "load_balance"' in tsx
 
 
 def test_parent_child_hierarchy_global():
@@ -1084,12 +1153,13 @@ def test_header_shows_site_name():
 def test_group_dynamic_interval_shows_when_dynamic():
     # 动态模式时切换间隔设置一直显示：原来整个负载均衡参数区只在“自定义”时
     # 出现，动态模式 + 跟随系统时切换参数区一片空白，看不到间隔设置。
-    # 现在间隔块由 switch_mode === "dynamic" 直接控制，不在跟随系统开关里；
+    # 现在间隔块由有效模式 effMode === "dynamic" 直接控制，不在跟随系统开关里；
     # 跟随系统时显示全局值（_gdm 取分组值或全局值），改值后自动变成自定义
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i = tsx.index('t("动态切换间隔")')
-    # 动态间隔块直接由 switch_mode === "dynamic" 控制
-    j = tsx.rindex('{g.switch_mode === "dynamic" && (', 0, i)
+    # 动态间隔块直接由有效模式 effMode === "dynamic" 控制（跟随系统且全局是
+    # dynamic 时也显示）
+    j = tsx.rindex('{effMode === "dynamic" && (', 0, i)
     assert 0 < i - j < 1500, "dynamic interval block must sit inside the dynamic-mode branch"
     # 前面是负载均衡四选一（四选一不再藏在跟随系统开关里），后面才是间隔块
     assert 'lbFollowGlobal ? "follow"' in tsx[:j]
@@ -1150,7 +1220,8 @@ def test_group_time_follow_custom():
     # 自定义两选一 + 下面藏着的间隔 Seg）。选跟随系统即清空三项时间参数
     # （继承全局），选其它即切到自定义；从跟随系统切出来时把全局的时间值填入
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '<TwoLineLabel parent="定时轮巡" child="轮巡周期" />' in tsx
+    # 框体外的“定时轮巡”父级字已取消，只留单行缩进的“轮巡周期”标签
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</span></label>' in tsx
     assert '<Seg value={interval} options={[' in tsx
     assert '{ value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") }' in tsx
     assert 'savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null })' in tsx

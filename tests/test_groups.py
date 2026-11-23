@@ -250,6 +250,51 @@ def test_default_group_created_and_invalid_mode_rejected(tmpdb):
         tmpdb.create_group({"name": "坏分组", "switch_mode": "both"})
 
 
+def test_group_switch_mode_follow_global(tmpdb, tmp_path):
+    # 顶层“跟随系统”：switch_mode 存 NULL（继承全局），新建未填仍默认负载均衡，
+    # 非法值仍拒绝；新库 switch_mode 列已可空
+    g = tmpdb.create_group({"name": "跟随组", "switch_mode": "time"})
+    assert g["switch_mode"] == "time"
+    row = tmpdb.update_group(g["id"], {"switch_mode": None})
+    assert row["switch_mode"] is None
+    assert tmpdb.get_group(g["id"])["switch_mode"] is None
+    # 新建未填模式默认负载均衡（跟随系统只能在已有分组上改）
+    g2 = tmpdb.create_group({"name": "默认组"})
+    assert g2["switch_mode"] == "load_balance"
+    with pytest.raises(ValueError, match="只能是 time"):
+        tmpdb.update_group(g["id"], {"switch_mode": "both"})
+    # 旧库迁移：用旧定义（switch_mode NOT NULL）建一张 groups 表，init_db
+    # 应重建为可空且数据保留，重建后能存 NULL
+    import sqlite3
+    import app.db as dbmod
+    old = tmp_path / "old.db"
+    c = sqlite3.connect(str(old))
+    c.execute("""CREATE TABLE groups(
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+      switch_mode TEXT NOT NULL DEFAULT 'load_balance'
+        CHECK (switch_mode IN ('time', 'load_balance', 'dynamic')),
+      interval_hours INTEGER, custom_interval_minutes INTEGER,
+      interval_start_time TEXT, fixed_switch_time TEXT,
+      night_window_start TEXT, night_window_end TEXT,
+      night_optimize_enabled INTEGER, switch_diff_mode TEXT,
+      switch_diff_gb REAL, switch_diff_pct REAL, time_switch_mode TEXT,
+      exclusion_action TEXT, recovery_action TEXT,
+      paused INTEGER NOT NULL DEFAULT 0, priority INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL, dynamic_interval_minutes INTEGER
+    )""")
+    c.execute("INSERT INTO groups(id, name, switch_mode, created_at)"
+              " VALUES (1, '旧组', 'time', 1)")
+    c.commit()
+    c.close()
+    dbmod.close()
+    dbmod.init_db(db_path=old)
+    assert dbmod.get_group(1)["name"] == "旧组"
+    assert dbmod.get_group(1)["switch_mode"] == "time"
+    assert dbmod.update_group(1, {"switch_mode": None})["switch_mode"] is None
+    cols = {r[1]: r[3] for r in dbmod.connect().execute("PRAGMA table_info(groups)")}
+    assert cols["switch_mode"] == 0
+
+
 def test_status_dot_derivation(tmpdb):
     """状态点（新映射；旧期望“已踢出=黄点”已改为“已跳出=灰点”，见下）：
     正在服务+Running=绿（在线）；排队+Running=黄（排队中，带排队位次）；

@@ -61,7 +61,8 @@ class GroupView:
     """一个分组：IP 池 + 最多 1 个域名 + 只选一种切换模式（无 both）。"""
     id: int
     name: str = ""
-    switch_mode: str = "load_balance"  # time | load_balance | dynamic（分组层无 both）
+    # time | load_balance | dynamic（分组层无 both）；None = 跟随系统（继承全局）
+    switch_mode: str | None = "load_balance"
     # 以下全部可空 = 继承全局设置
     interval_hours: int | None = None
     custom_interval_minutes: int | None = None
@@ -83,6 +84,9 @@ class GroupView:
     paused: bool = False  # 停止：域名不再解析（指向 0.0.0.0），不分配实例
 
     def __post_init__(self):
+        # switch_mode 为 None = 跟随系统，保留 None（继承全局）；其余非法值回退
+        if self.switch_mode is None:
+            return
         m = (self.switch_mode or "load_balance").strip().lower()
         self.switch_mode = m if m in ("time", "load_balance", "dynamic") else "load_balance"
 
@@ -275,15 +279,17 @@ def _eff_diff_gb(a: AccountView, cfg: Config) -> float:
 
 def _group_config(group: GroupView | None, cfg: Config) -> Config:
     """分组的有效配置：分组字段非空时覆盖全局，否则继承全局。
-    分组 switch_mode 只取 time/load_balance/dynamic；group 为 None 时沿用全局
-    switch_mode（legacy 路径，both 仍合法）。time 模式的分组未显式设置
+    分组 switch_mode 只取 time/load_balance/dynamic，None=跟随系统（沿用全局
+    switch_mode，both 仍合法）；group 为 None 时沿用全局 switch_mode（legacy
+    路径，both 仍合法）。time 模式的分组未显式设置
     time_switch_mode 时默认按 interval 走——分组界面只剩间隔周期这一项，
     间隔就是分组定时轮巡的机制；否则默认 auto 下间隔永不触发，间隔周期
     形同虚设。显式设置过的（auto/night_only/fixed_time/off）不受影响。"""
     if group is None:
         return cfg
     import dataclasses
-    g = dataclasses.replace(cfg, switch_mode=group.switch_mode)
+    g = (dataclasses.replace(cfg, switch_mode=group.switch_mode)
+         if group.switch_mode is not None else dataclasses.replace(cfg))
     if group.interval_hours is not None:
         g.interval_hours = group.interval_hours
     if group.custom_interval_minutes is not None:
@@ -306,7 +312,8 @@ def _group_config(group: GroupView | None, cfg: Config) -> Config:
         g.switch_diff_pct = group.switch_diff_pct
     if group.time_switch_mode is not None:
         g.time_switch_mode = group.time_switch_mode
-    elif group.switch_mode == "time":
+    elif g.switch_mode == "time":
+        # 按有效模式判断（跟随系统且全局是 time 时同样默认 interval）
         g.time_switch_mode = "interval"
     if group.dynamic_interval_minutes is not None:
         g.dynamic_interval_minutes = group.dynamic_interval_minutes
