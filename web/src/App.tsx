@@ -342,12 +342,12 @@ function TwoLineLabel({ parent, child, req }: { parent: string; child: string; r
 }
 
 // ---------------- 密码输入框：带显示/隐藏切换（眼睛图标） ----------------
-function PasswordField({ value, onChange, placeholder, onKeyDown }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void }) {
+function PasswordField({ value, onChange, placeholder, onKeyDown, inputRef }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void; inputRef?: React.Ref<HTMLInputElement> }) {
   const { t } = useI18n();
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative" }}>
-      <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
+      <input ref={inputRef} type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} onKeyDown={onKeyDown} style={{ paddingRight: 40 }} />
       <button type="button" aria-label={show ? t("隐藏密码") : t("显示密码")} title={show ? t("隐藏密码") : t("显示密码")}
         onClick={() => setShow(!show)}
@@ -403,17 +403,42 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   const [msg, setMsg] = useState(oauthMsg || "");
   const [busy, setBusy] = useState(false);
   const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+  // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
+  // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
+  // 一出现就同步到 state 并自动登录。用户一旦在密码框按过键（手动输入/
+  // 粘贴），就不再自动登录，避免误触。
+  const pwRef = useRef<HTMLInputElement>(null);
+  const userTyped = useRef(false);
+  const autoLoginDone = useRef(false);
 
-  const loginPw = async () => {
-    if (!pw) { setMsg(t("请输入密码")); return; }
+  const loginPwWith = async (password: string) => {
+    if (!password) { setMsg(t("请输入密码")); return; }
     setBusy(true); setMsg("");
     try {
-      const r = await post("/api/auth/login", { password: pw }) as Any;
+      const r = await post("/api/auth/login", { password }) as Any;
       setToken(r.token as string);
       onDone();
     } catch (e) { setMsg(String((e as Error).message)); }
     finally { setBusy(false); }
   };
+  const loginPw = () => loginPwWith(pw);
+
+  useEffect(() => {
+    const check = () => {
+      if (autoLoginDone.current || userTyped.current) return;
+      const el = pwRef.current;
+      if (el && el.value) {
+        autoLoginDone.current = true;
+        setPw(el.value);
+        loginPwWith(el.value);
+      }
+    };
+    check();
+    const timer = setInterval(check, 300);
+    const stop = setTimeout(() => clearInterval(timer), 8000);
+    return () => { clearInterval(timer); clearTimeout(stop); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loginWebauthn = async () => {
     if (!webauthnSupported) { setMsg(t("当前浏览器不支持指纹登录")); return; }
@@ -439,8 +464,8 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
       <div className="card">
         <div className="auth-title">{t("登录 CDT 面板")}</div>
         <label className="req">{t("登录密码 *")}</label>
-        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")}
-          onKeyDown={(e) => { if (e.key === "Enter") loginPw(); }} />
+        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef}
+          onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
         <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy}>{t("登录")}</button>
         {info.webauthn && (
@@ -1104,7 +1129,8 @@ export default function App() {
   const [accounts, setAccounts] = useState<Any[]>([]);
   const [domains, setDomains] = useState<Any[]>([]);
   const [groups, setGroups] = useState<Any[]>([]);
-  // 拖动排序：实例管理 / 分组管理卡片可拖拽换位
+  // 拖动排序：分组管理卡片和实例管理列表可拖拽换位；服务器卡片和实例管理
+  // 卡片不支持拖动排序（卡片太宽，手机上不好拖），要调整顺序请用列表。
   const [dragId, setDragId] = useState<number | null>(null);
   const [dragKind, setDragKind] = useState<"account" | "group" | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
@@ -1115,8 +1141,9 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
   const [cardSettingsId, setCardSettingsId] = useState<number | null>(null);
-  // 手机端卡片折叠：默认只显示名字/状态/流量/费用，实例 ID、IP、阈值、
-  // 操作按钮默认隐藏，点卡片右上角的 ▾ 展开显示全部（仅窄屏生效）。
+  // 手机端卡片折叠：默认只显示名字/状态/流量/费用；实例管理卡片的实例 ID、
+  // IP、阈值、操作按钮和总览卡片的站点默认隐藏，点卡片右上角的 ▾ 展开显示
+  // 全部（仅窄屏生效）。
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const toggleCardExpand = (id: number) => {
     setExpandedCards((prev) => {
@@ -1127,6 +1154,7 @@ export default function App() {
   };
   // 概览视图：卡片 / 列表
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [acctViewMode, setAcctViewMode] = useState<"card" | "list">("card");
   // 域名管理页 DDNS 设置卡片是否展开（右上角 ⚙ 开关）
   const [showDdns, setShowDdns] = useState(true);
   // 域名管理页：正在编辑的行（null=无），行内表单
@@ -1593,15 +1621,18 @@ export default function App() {
             {viewMode === "card" ? (
               <div className="grid3" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
-                  <div className="card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
-                    <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
+                  <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
+                    <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
+                      <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
+                    </div>
                     <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                     <div className="stats">
                       <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
                       <div className="stat"><span>IP</span><b>{maskIp(a.public_ip)}</b></div>
                       <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                       <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
-                      <div className="stat"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
+                      <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                     </div>
                     {a.status_detail ? <div className="muted" style={{ marginTop: "auto", paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                   </div>
@@ -1626,16 +1657,22 @@ export default function App() {
 
       {tab === "accounts" && (
         <>
+          <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+            <Seg value={acctViewMode} options={[
+              { value: "card", label: t("卡片") },
+              { value: "list", label: t("列表") },
+            ]} onChange={(v) => setAcctViewMode(v as "card" | "list")} />
+          </div>
           {editingId === "new" && (
             <InstanceForm account={null} settings={settings} count={accounts.length} groups={groups}
               onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
               onCancel={() => setEditingId(null)}
               onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
           )}
-          {accounts.map((a) => (
+          {acctViewMode === "card" ? (
+          accounts.map((a) => (
             <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number}
-              style={{ marginTop: 0, display: "flex", flexDirection: "column", cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}
-              {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}>
+              style={{ marginTop: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16 }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
                 <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}）</span></div>
@@ -1658,7 +1695,24 @@ export default function App() {
               </div>
               {cardSettingsId === a.id && <CardSettings a={a} />}
             </div>
-          ))}
+          ))
+          ) : (
+          <table><thead><tr><th></th><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
+            <tbody>{accounts.map((a) => (
+              <tr key={a.id as number} {...dragProps("account", a.id as number)}
+                style={{ cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
+                <td title={t("拖动排序")}>⠿</td>
+                <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
+                <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
+                <td>{a.region as string}</td>
+                <td>{maskIp(a.public_ip)}</td>
+                <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
+                <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
+                <td><ActionButtons a={a} /></td>
+              </tr>
+            ))}</tbody></table>
+          )}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
             <button className="btn" onClick={() => setEditingId("new")}>{t("+ 添加实例")}</button>
           </div>

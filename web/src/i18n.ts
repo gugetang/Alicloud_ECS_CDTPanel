@@ -332,7 +332,7 @@ export const EN: Record<string, string> = {
   "使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器": "Switch to the server with the most remaining traffic when the usage-rate difference ≥ the threshold %",
   "已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器": "Switch to the server with the most remaining traffic when the used-traffic difference ≥ the threshold GB",
   "每到间隔切到剩余流量最多的服务器，不看流量差值": "Switch to the server with the most remaining traffic at each interval, regardless of traffic difference",
-  云端备份（WebDAV）: "Cloud backup (WebDAV)",
+  "云端备份（WebDAV）": "Cloud backup (WebDAV)",
   启用云端备份: "Enable cloud backup",
   "WebDAV 地址": "WebDAV URL",
   用户名: "Username",

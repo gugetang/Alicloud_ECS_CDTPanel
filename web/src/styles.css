@@ -178,8 +178,9 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   nav { margin-bottom:14px; }
   nav button { padding:10px 14px; }
   .card { padding:14px; margin-bottom:12px; }
-  /* 手机端实例卡片默认折叠：只留名字/状态/流量/费用，实例 ID、IP、阈值、
-     操作按钮隐藏；点右上角 ▾ 展开（卡片带 .expanded 时全部显示）。 */
+  /* 手机端卡片默认折叠：只留名字/状态/流量/费用；实例管理卡片的实例 ID、
+     IP、阈值、操作按钮和总览卡片的站点默认隐藏；点右上角 ▾ 展开（卡片带
+     .expanded 时全部显示）。 */
   .card-expand { display:inline-flex; }
   .card:not(.expanded) .stat-detail { display:none; }
   .card:not(.expanded) .card-actions { display:none; }
