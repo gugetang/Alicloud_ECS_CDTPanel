@@ -30,6 +30,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # 切换差值模式：percent 按使用率差值(%)；gb 按已用流量差值(GB)
     "switch_diff_mode": "percent",
     "switch_diff_gb": "10",
+    # 动态切换间隔（分钟）：动态模式的默认间隔，分组未填时继承这里；
+    # 默认 30，最少 30（小于 30 按 30 算，见 engine.from_settings）。
+    "dynamic_interval_minutes": "30",
     "exclusion_action": "none",          # none | stop | stop_charging
     # 阈值恢复默认拉起：start=恢复时调用开机拉起（默认）；keep_stopped=恢复入池但保持停机。
     # 恢复线 = 保护阈值 - 2%（防抖动滞后值，见 README“阈值恢复默认拉起”）。

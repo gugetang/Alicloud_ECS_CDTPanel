@@ -1351,6 +1351,8 @@ export default function App() {
   const [sInterval, setSInterval] = useState("6");
   const [sCustVal, setSCustVal] = useState("0");
   const [sCustUnit, setSCustUnit] = useState("minute");
+  const [sDynInterval, setSDynInterval] = useState("30");
+  const [sDynCustVal, setSDynCustVal] = useState("30");
   const [sRefresh, setSRefresh] = useState("5");
   const [sCurrency, setSCurrency] = useState("USD");
   useEffect(() => {
@@ -1358,6 +1360,9 @@ export default function App() {
     setSRecovery(settings.threshold_recovery_action ?? "start");
     setSDiffMode(settings.switch_diff_mode ?? "percent");
     setSInterval(String(settings.interval_hours ?? 6));
+    const dyn = Number(settings.dynamic_interval_minutes ?? 30) || 30;
+    setSDynInterval(["30", "60", "90", "120"].includes(String(dyn)) ? String(dyn) : "0");
+    setSDynCustVal(String(Math.max(30, dyn)));
     const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
     const cu = cm > 0 && cm % 1440 === 0 ? "day" : cm > 0 && cm % 60 === 0 ? "hour" : "minute";
     setSCustUnit(cu);
@@ -1386,6 +1391,7 @@ export default function App() {
       switch_diff_gb: (document.getElementById("s-diffgb") as HTMLInputElement)?.value || String(settings.switch_diff_gb ?? 10),
       interval_hours: sInterval,
       custom_interval_minutes: String(Math.round((parseFloat(sCustVal) || 0) * custMult(sCustUnit))),
+      dynamic_interval_minutes: sDynInterval === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(sDynInterval),
       exclusion_action: sExcl,
       threshold_recovery_action: sRecovery,
       api_refresh_minutes: sRefresh,
@@ -1779,7 +1785,7 @@ export default function App() {
         <>
           <div className="card"><h2>{t("参数设置")}</h2><p className="muted">{t("账户未配置覆盖值时，使用以下全局设置。")}</p>
             <div className="notice" style={{ marginBottom: 0 }}><b>{t("切换模式按分组设置，请到「分组管理」选择。")}</b>
-              {t("一个分组只选一种模式（定时轮巡 / 负载均衡），不同分组可以选不同模式。这里的时间/差值参数是")}
+              {t("一个分组只选一种模式（定时轮巡 / 负载均衡 / 动态模式），不同分组可以选不同模式。这里的时间/差值参数是")}
               <b>{t("新建分组的默认值")}</b>
               {t("，分组里未填的项继承这里的值。旧的全局切换模式只作默认值与无分组 legacy 回退，不再直接控制分组。")}
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>{t("去分组管理")}</button>
@@ -1836,6 +1842,21 @@ export default function App() {
                     { value: "day", label: t("天") },
                   ]} onChange={changeCustUnit} />
                 </div></div></div>)}
+            </div>
+            <h3 style={{ marginTop: 20 }}>{t("动态模式")}</h3>
+            <div>
+              <div className="form2">
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
+                  <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
+                    { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
+                    { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
+                    { value: "0", label: t("自定义") },
+                  ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
+              </div>
+              {sDynInterval === "0" && (
+                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
+                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
+              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
             </div>
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>

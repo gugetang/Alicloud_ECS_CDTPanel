@@ -874,3 +874,36 @@ def test_webdav_password_masked():
     assert masked["webdav_configured"] is True
     assert masked["webdav_url"] == "https://x/y.json"
     assert _mask({})["webdav_configured"] is False
+
+
+# ---------------------------------------------------------------------------
+# 全局动态模式：全局 dynamic_interval_minutes 默认 30，分组未填时继承
+# ---------------------------------------------------------------------------
+
+def test_global_dynamic_interval_default():
+    """全局动态间隔默认 30 分钟（DEFAULT_SETTINGS）。"""
+    from app.settings import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["dynamic_interval_minutes"] == "30"
+
+
+def test_global_dynamic_interval_from_settings():
+    """Config.from_settings 读全局动态间隔，小于 30 钳到 30。"""
+    from app.engine import Config
+    assert Config.from_settings({}).dynamic_interval_minutes == 30
+    assert Config.from_settings({"dynamic_interval_minutes": "15"}).dynamic_interval_minutes == 30
+    assert Config.from_settings({"dynamic_interval_minutes": "60"}).dynamic_interval_minutes == 60
+    assert Config.from_settings({"dynamic_interval_minutes": "90"}).dynamic_interval_minutes == 90
+    assert Config.from_settings(
+        {"switch_mode": "dynamic", "dynamic_interval_minutes": "120"}).dynamic_interval_minutes == 120
+
+
+def test_group_inherits_global_dynamic_interval():
+    """分组未填动态间隔时继承全局；填了则用分组自己的。"""
+    from app.engine import Config, GroupView, _group_config
+    cfg = Config(dynamic_interval_minutes=60)
+    g_none = GroupView(id=1, name="G", switch_mode="dynamic",
+                       dynamic_interval_minutes=None)
+    assert _group_config(g_none, cfg).dynamic_interval_minutes == 60
+    g_own = GroupView(id=1, name="G", switch_mode="dynamic",
+                      dynamic_interval_minutes=90)
+    assert _group_config(g_own, cfg).dynamic_interval_minutes == 90
