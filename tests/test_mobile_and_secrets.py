@@ -478,6 +478,17 @@ def test_webdav_dialog_opaque_drag_anywhere_click_outside_saves():
     assert 'onClick={() => setShowAddDom(false)}' in tsx
 
 
+def test_add_domain_button_at_top_of_domains_page():
+    # 域名管理页的“+ 添加域名”按钮在域名表格卡片顶行（DDNS 设置 ⚙ 旁边），
+    # 打开页面不用滚到底就能看到；表格下方的旧按钮已移除，只留一个
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert tsx.count('>{t("+ 添加域名")}</button>') == 1
+    # 顶行：添加按钮在 DDNS 设置 ⚙ 前面
+    i = tsx.index('>{t("+ 添加域名")}</button>')
+    j = tsx.index('title={t("DDNS 设置")}', i)
+    assert 0 < j - i < 300
+
+
 def test_header_lang_dropdown_and_logout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -757,11 +768,15 @@ def test_two_line_labels_with_two_char_indent():
     assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
     # API 刷新时间标签字体也与定时轮巡 h3 一样大（16px）
     assert '<label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>' in tsx
-    # 负载均衡切换模式（只剩全局 3 处：主标签 + % + GB；分组卡片里父级
-    # “负载均衡”字已取消，只留子标签，不再用 TwoLineLabel）
-    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 3
+    # 负载均衡切换模式（只剩全局 1 处：切换模式；切换阀值已移到切换模式下面，
+    # 父级“负载均衡”字已取消，只留单行缩进标签，不再用 TwoLineLabel）
+    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 1
     assert tsx.count('<TwoLineLabel parent="负载均衡" child="切换模式"') == 1
-    assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' not in tsx
+    assert '<TwoLineLabel parent="负载均衡" child="切换阀值' not in tsx
+    # 全局切换阀值在切换模式下面（不再左右两列），单行缩进标签
+    assert tsx.index('<Seg value={sMode}') < tsx.index('t("切换阀值 *（%）")')
+    assert '<label className="req"><span style={{ paddingLeft: "2em" }}>{t("切换阀值 *（%）")}</span></label>' in tsx
+    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label>' in tsx
     # 分组侧不再用 TwoLineLabel（父级“负载均衡”字已取消），只留子标签：
     # 切换模式与切换阀值（%）/（GB）都是单行缩进标签
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]

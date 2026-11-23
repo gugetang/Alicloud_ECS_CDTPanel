@@ -2029,6 +2029,7 @@ export default function App() {
         <>
         <div className="card">
           <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
+            <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
           <table><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
@@ -2079,9 +2080,6 @@ export default function App() {
                   </div>
                 )}</td></tr>
               ); })}</tbody></table>
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-            <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
-          </div>
           {showAddDom && (
             <div className="modal-overlay" onClick={() => setShowAddDom(false)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -2182,7 +2180,9 @@ export default function App() {
               <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
-            <div className="form2">
+            {/* 负载均衡：切换模式在上，切换阀值在下（不再左右两列）；切换阀值
+                的父级“负载均衡”字已取消，只留单行缩进标签（与分组卡片同款）。 */}
+            <div>
               <div><TwoLineLabel parent="负载均衡" child="切换模式" req />
                 <div style={{ paddingLeft: "2em" }}><Seg value={sMode} options={[
                   { value: "percent", label: t("百分比（%）") },
@@ -2190,9 +2190,9 @@ export default function App() {
                   { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
                 ]} onChange={(v) => { if (v === "dynamic") { setSMode("dynamic"); saveParamSettings({ switch_mode: "dynamic" }); } else { setSMode(v); setSDiffMode(v); saveParamSettings({ switch_mode: "load_balance", switch_diff_mode: v }); } }} /></div></div>
               {sMode === "percent" ? (
-                <div><TwoLineLabel parent="负载均衡" child="切换阀值 *（%）" req /><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div></div>
+                <div style={{ marginTop: 12 }}><label className="req"><span style={{ paddingLeft: "2em" }}>{t("切换阀值 *（%）")}</span></label><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div></div>
               ) : sMode === "gb" ? (
-                <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div></div>
+                <div style={{ marginTop: 12 }}><label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div></div>
               ) : null}
             </div>
             {sMode === "dynamic" && (
