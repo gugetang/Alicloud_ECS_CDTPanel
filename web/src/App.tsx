@@ -116,6 +116,12 @@ const maskIp = (ip: string | null | undefined) => {
   const parts = String(ip).split(".");
   return parts.length === 4 ? `${parts[0]}.${parts[1]}.*.*` : String(ip);
 };
+// 实例 ID 脱敏：只显示前 6 位，后面用 *** 代替。ECS 是 i- + 6 位
+//（如 i-j6ccop***），SWAS 等非 i- 开头的 ID 只显示前 6 位。
+const maskInstanceId = (id: string | null | undefined): string => {
+  if (!id) return "—";
+  return id.startsWith("i-") ? `${id.slice(0, 8)}***` : `${id.slice(0, 6)}***`;
+};
 // 日志详情里的数字用主题色显示：按数字分段，数字段包一层主题色 span，其余文字不动。
 const accentNums = (s: string) => String(s ?? "").split(/(\d+)/g).map((p, i) =>
   /^\d+$/.test(p) ? <span key={i} style={{ color: "var(--accent)" }}>{p}</span> : <Fragment key={i}>{p}</Fragment>);
@@ -1365,22 +1371,27 @@ export default function App() {
   // IP 显示：只显示 A.B 段（C.D 用 * 代替），不提供点按显示完整 IP；
   // 点旁边的 ⧉ 复制完整 IP。面板是明文 HTTP，navigator.clipboard 在非安全
   // 上下文不可用，复制失败时回退到 textarea + execCommand。
-  const copyIp = async (ip: string) => {
+  // 复制文本（IP / 实例 ID 共用）：优先 navigator.clipboard，失败时用
+  // textarea + execCommand 兜底（纯 HTTP 下可用），再失败直接把文本当消息显示。
+  const copyText = async (text: string, okMsg: string) => {
     try {
-      await navigator.clipboard.writeText(ip);
-      setMsg(t("IP 已复制"));
+      await navigator.clipboard.writeText(text);
+      setMsg(okMsg);
     } catch {
       try {
         const ta = document.createElement("textarea");
-        ta.value = ip;
+        ta.value = text;
         document.body.appendChild(ta);
         ta.select();
         document.execCommand("copy");
         document.body.removeChild(ta);
-        setMsg(t("IP 已复制"));
-      } catch { setMsg(ip); }
+        setMsg(okMsg);
+      } catch { setMsg(text); }
     }
   };
+  const copyIp = async (ip: string) => { await copyText(ip, t("IP 已复制")); };
+  // 实例 ID 复制：显示是脱敏的，复制给完整 ID（与 IP 复制给完整 IP 一致）。
+  const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };
   // IP 显示：掩码 + 复制按钮（运行概览与实例管理，卡片与列表共用；不提供显示完整 IP）。
   // 复制按钮紧跟在 IP 后方同一行：外层 inline-flex（一行，不换行）+ gap，
   // 不只靠 white-space:nowrap——窄卡片里 .stat b 的 overflow-wrap:anywhere
@@ -1390,6 +1401,15 @@ export default function App() {
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
       <span>{maskIp(a.public_ip)}</span>
       {ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
+    </span>);
+  };
+  // 实例 ID 显示：脱敏（i- + 6 位，后面 ***）+ 复制按钮（复制完整 ID，
+  // 和 IP 复制一样）。卡片与列表共用。
+  const IdView = ({ a }: { a: Any }) => {
+    const id = (a.instance_id as string) || "";
+    return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+      <span>{maskInstanceId(id)}</span>
+      {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button> : null}
     </span>);
   };
   // 概览视图：卡片 / 列表
@@ -1591,6 +1611,32 @@ export default function App() {
   const groupMode = (gid: number | null | undefined) =>
     // 分组未填模式（跟随系统）时用全局模式；全局默认 both（列表里显示负载均衡）
     gid ? (groups.find((g) => g.id === gid)?.switch_mode as string) || (settings?.switch_mode as string) || "load_balance" : "";
+  // 账户所属的全部组（多对多；group_ids 为空时回退到旧的单 group_id）
+  const accountGroupIds = (a: Any): number[] => {
+    const ids = (a.group_ids as number[] | undefined) || [];
+    return ids.length ? ids : (a.group_id ? [a.group_id as number] : []);
+  };
+  // 分组模式标签（服务器卡片多分组/多模式显示）：time→定时轮巡，
+  // dynamic→动态模式，load_balance/both→按差值模式显示 百分比 / 固定流量
+  // （分组未填差值模式时继承全局）。
+  const groupModeLabel = (gid: number | null | undefined): string => {
+    const m = groupMode(gid);
+    if (m === "time") return t("定时轮巡");
+    if (m === "dynamic") return t("动态模式");
+    const g = groups.find((x) => x.id === gid);
+    const dm = (g?.switch_diff_mode as string) || (settings?.switch_diff_mode as string) || "percent";
+    return dm === "gb" ? t("固定流量") : t("百分比");
+  };
+  // 账户所属各分组的有效模式标签（去重，保持分组顺序），显示在服务器名后面。
+  // 分组名（Premium）不再显示在卡片上，只显示模式。
+  const accountModeLabels = (a: Any): string[] => {
+    const labels: string[] = [];
+    for (const gid of accountGroupIds(a)) {
+      const l = groupModeLabel(gid);
+      if (!labels.includes(l)) labels.push(l);
+    }
+    return labels;
+  };
 
   // ---------- 单台操作：刷新 / 启动 / 重启 / 停机 ----------
   const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop") => {
@@ -1976,8 +2022,9 @@ export default function App() {
             <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number}
               style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}<br />
-                <span className="muted">{a.site === "cn" ? t("中国站 cn") : t("国际站 global")} · {a.region as string} · {groupName(a.group_id)}（{groupMode(a.group_id) === "time" ? t("定时轮巡") : groupMode(a.group_id) === "dynamic" ? t("动态模式") : t("负载均衡")}）</span></div>
+                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>{accountModeLabels(a).map((m) => (
+                  <span key={m} style={{ color: "var(--accent)", fontSize: 14, marginLeft: 4 }}>（{m}）</span>
+                ))} <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</div>
                 <div className="row" style={{ gap: 6 }}>
                   <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
@@ -1985,8 +2032,8 @@ export default function App() {
               </div>
               <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
               <div className="stats">
-                <div className="stat stat-detail"><span>{t("实例")}</span><b>{a.instance_id as string}</b></div>
-                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /></b></div>
+                <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /> <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>· {a.region as string}</span></b></div>
+                <div className="stat stat-detail"><span>IP</span><b><IpView a={a} /> <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 400 }}>· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b></div>
                 <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
                 <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
@@ -2000,16 +2047,17 @@ export default function App() {
           ))}
           </div>
           ) : (
-          <table><thead><tr><th></th><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
+          <table><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
               <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
                 style={{ cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
-                <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
+                <td><IdView a={a} /></td>
                 <td>{a.region as string}</td>
                 <td><IpView a={a} /></td>
+                <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                 <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
