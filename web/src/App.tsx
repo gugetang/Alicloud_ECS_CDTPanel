@@ -1489,9 +1489,9 @@ export default function App() {
     setSCustVal(String(cu === "day" ? cm / 1440 : cu === "hour" ? cm / 60 : cm));
     const r = String(settings.api_refresh_minutes ?? 5);
     const rn = Number(r) || 0;
-    // API 刷新只留 5/10/30/自定义：已取消的 15/60 归入自定义，0（不刷新）
-    // 已取消，映射回默认 5 分钟（调度不再提供暂停入口）。
-    if (["5", "10", "30"].includes(r)) { setSRefresh(r); setSRefreshCustVal(r); }
+    // API 刷新只留 5/10/30/自定义/不刷新：已取消的 15/60 归入自定义，
+    // 0（不刷新）保留，放在自定义后面。
+    if (["5", "10", "30", "0"].includes(r)) { setSRefresh(r); setSRefreshCustVal(r); }
     else if (rn > 0) { setSRefresh("custom"); setSRefreshCustVal(String(rn)); }
     else { setSRefresh("5"); setSRefreshCustVal("5"); }
     setSCurrency(settings.settlement_currency === "CNY" ? "CNY" : "USD");
@@ -1520,8 +1520,9 @@ export default function App() {
       exclusion_action: sExcl,
       threshold_recovery_action: sRecovery,
       api_refresh_minutes: sRefresh === "custom" ? (Number(sRefreshCustVal) || 5) : sRefresh,
-      // 不刷新已取消：调度不再提供暂停入口，保存参数时一律恢复运行。
-      scheduler_paused: "0",
+      // 不刷新（0）= 关闭调度；选分钟数 = 开始调度。跟暂停开关同步，
+      // 让后端已有的暂停逻辑直接生效。
+      scheduler_paused: sRefresh === "0" ? "1" : "0",
       settlement_currency: sCurrency,
       exchange_rate_usd_cny: String(settings.exchange_rate_usd_cny ?? "6.6719"),
       ...ddnsPatch(),
@@ -2016,7 +2017,8 @@ export default function App() {
                 { value: "5", label: t("5 分钟") }, { value: "10", label: t("10 分钟") },
                 { value: "30", label: t("30 分钟") },
                 { value: "custom", label: t("自定义") },
-              ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: "0" }); }} /></div>
+                { value: "0", label: t("不刷新") },
+              ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
               {sRefresh === "custom" && (
                 <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义刷新时间（分钟）")}</label>
                   <div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
