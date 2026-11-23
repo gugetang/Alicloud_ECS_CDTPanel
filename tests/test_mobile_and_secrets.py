@@ -508,14 +508,16 @@ def test_theme_lines_alignment_dash_left_accounts_left():
 def test_group_card_custom_interval_and_start_time():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
-    # 间隔切换周期有“自定义”选项（值 0），选自定义时显示自定义间隔行（数字+分钟/小时/天）；
+    # 轮巡周期有“自定义”选项（值 0），选自定义时数值输入直接跟在选项下面
+    # （数字 + 分钟/小时/天，可编辑），不再另起“自定义间隔”行；
     # 自定义按钮带 sub 第二行数值（双行显示），所以选项行以 sub 结尾，不再是 label 后直接闭合
     assert '{ value: "0", label: t("自定义"), sub: interval === "0"' in group_card
     assert 'interval === "0"' in group_card
-    assert 't("自定义间隔")' in group_card
+    assert 't("自定义间隔")' not in group_card
     assert 'custom_interval_minutes' in group_card
-    # 开始时间在自定义行后面，默认 00:00:00，带秒的 time 输入，失焦自动保存
-    assert group_card.index('t("开始时间")') > group_card.index('t("自定义间隔")')
+    # 自定义的数值输入在轮巡周期 Seg 之后、开始时间之前（同一缩进 div 内）
+    assert group_card.index('<Seg value={interval}') < group_card.index('value={custVal}') < group_card.index('t("开始时间")')
+    # 开始时间默认 00:00:00，带秒的 time 输入，失焦自动保存
     assert 'interval_start_time: startTime || "00:00:00"' in group_card
     # 切回固定时长时清掉自定义分钟数（否则自定义优先，固定时长不生效）
     assert "custom_interval_minutes: 0" in group_card
@@ -712,9 +714,11 @@ def test_two_line_labels_with_two_char_indent():
     assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
     # API 刷新时间标签字体也与定时轮巡 h3 一样大（16px）
     assert '<label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>' in tsx
-    # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
+    # 负载均衡切换模式（全局 3 处：主标签 + % + GB；分组 3 处同理；主标签已由
+    # “切换阀值 *”改名“切换模式”，% / GB 的值输入仍是切换阀值）
     assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
-    assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
+    assert tsx.count('<TwoLineLabel parent="负载均衡" child="切换模式"') == 2
+    assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' not in tsx
     # 分组侧的主标签已改成“切换模式”（四选一：百分比（%）/固定流量（GB）/
     # 动态模式/跟随系统），不再是裸的“切换阀值”
     assert '<TwoLineLabel parent="负载均衡" child="切换模式"' in tsx
@@ -741,7 +745,7 @@ def test_controls_align_with_indented_labels():
     # 控件与缩进 2 字符的标签左对齐：Seg/输入框包在 paddingLeft 2em 的 div 里，
     # 阈值动作/阈值恢复整段缩进 2em；全局设置与分组设置都一样
     assert tsx.count('paddingLeft: "2em"') >= 12
-    # 全局：切换阀值三选一 Seg（sMode，百分比/固定流量/动态模式）、轮巡周期 Seg
+    # 全局：切换模式三选一 Seg（sMode，百分比/固定流量/动态模式）、轮巡周期 Seg
     # 包在缩进 div 里
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sMode}' in tsx
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sInterval}' in tsx

@@ -649,7 +649,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           {/* 定时轮巡的轮巡周期五选一：跟随系统 / 3/6/12 小时 / 自定义，
               与全局设置的轮巡周期同一排版，只多一个跟随系统。选跟随系统即
               清空三项时间参数（继承全局）；从跟随系统切出来时，先把全局的
-              时间值填入（间隔、单位、开始时间），再按所选项保存。 */}
+              时间值填入（间隔、单位、开始时间），再按所选项保存。选自定义后
+              数值输入直接跟在选项下面（数字 + 分钟/小时/天，可编辑），不再另
+              起“自定义间隔”行。 */}
           <TwoLineLabel parent="定时轮巡" child="轮巡周期" />
           <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
             { value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") },
@@ -667,18 +669,18 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
             if (wasFollow) { setCustUnit(effCustUnit); setCustVal(effCustVal); setStartTime(effStart); }
             if (v === "0") { setInterval("0"); savePatch({ interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(effCustVal) || 0) * custMult(effCustUnit)), interval_start_time: effStart }); }
             else { setInterval(v); savePatch({ interval_hours: Number(v) || 6, custom_interval_minutes: 0, interval_start_time: effStart }); }
-          }} /></div>
-          {interval !== "follow" && (<>
-          {interval === "0" && (
-            <div style={{ marginTop: 12 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
-              <div style={{ paddingLeft: "2em" }}><div className="row" style={{ alignItems: "center" }}>
+          }} />
+            {interval === "0" && (
+              <div className="row" style={{ alignItems: "center", marginTop: 8 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}>
                 <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: 120 }} />
                 <Seg value={custUnit} options={[
                   { value: "minute", label: t("分钟") },
                   { value: "hour", label: t("小时") },
                   { value: "day", label: t("天") },
                 ]} onChange={changeCustUnit} />
-              </div></div></div>)}
+              </div>)}
+          </div>
+          {interval !== "follow" && (<>
           <div style={{ marginTop: 12 }}>
             <label className="lbl" style={{ paddingLeft: "2em" }}>{t("开始时间")}</label>
             <div style={{ paddingLeft: "2em" }}><input type="time" step="1" value={startTime} onChange={(e) => setStartTime(e.target.value)} onBlur={() => savePatch({ interval_start_time: startTime || "00:00:00" })} /></div>
@@ -2145,7 +2147,7 @@ export default function App() {
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
             <div className="form2">
-              <div><TwoLineLabel parent="负载均衡" child="切换阀值 *" req />
+              <div><TwoLineLabel parent="负载均衡" child="切换模式" req />
                 <div style={{ paddingLeft: "2em" }}><Seg value={sMode} options={[
                   { value: "percent", label: t("百分比（%）") },
                   { value: "gb", label: t("固定流量（GB）") },
