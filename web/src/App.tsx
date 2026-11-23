@@ -560,8 +560,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const _gcm = Number(g.custom_interval_minutes ?? 0) || 0;
   const _gcu = _gcm > 0 && _gcm % 1440 === 0 ? "day" : _gcm > 0 && _gcm % 60 === 0 ? "hour" : "minute";
   const _gih = Number(g.interval_hours ?? settings.interval_hours ?? 6) || 6;
-  // 轮巡周期只留 3/6/12/自定义：把已取消的 1/2/4/24 小时映射到最近的保留值
-  const [interval, setInterval] = useState(_gcm > 0 ? "0" : ["3", "6", "12"].includes(String(_gih)) ? String(_gih) : _gih <= 2 ? "3" : _gih <= 4 ? "6" : "12");
+  // 定时轮巡是否跟随系统：三项时间参数全为空即跟随系统（后端 NULL=继承全局）
+  const timeFollowGlobal = g.interval_hours == null && g.custom_interval_minutes == null && g.interval_start_time == null;
+  // 轮巡周期五选一：跟随系统 / 3/6/12/自定义；把已取消的 1/2/4/24 小时映射到最近的保留值
+  const [interval, setInterval] = useState(timeFollowGlobal ? "follow" : _gcm > 0 ? "0" : ["3", "6", "12"].includes(String(_gih)) ? String(_gih) : _gih <= 2 ? "3" : _gih <= 4 ? "6" : "12");
   const [custUnit, setCustUnit] = useState(_gcu);
   const [custVal, setCustVal] = useState(String(_gcu === "day" ? _gcm / 1440 : _gcu === "hour" ? _gcm / 60 : _gcm));
   const [startTime, setStartTime] = useState((g.interval_start_time as string) || "00:00:00");
@@ -571,39 +573,13 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   // 动态切换间隔（分钟）：后端存分钟；30/60/90 为预设，0=自定义；未填默认 30。
   // 分组未填时显示全局值（跟随系统时面板里看到的就是实际生效值）。
   const _gdm = Number(g.dynamic_interval_minutes ?? (settings as Any)?.dynamic_interval_minutes ?? 0) || 0;
-  const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
+  const [dynInterval, setDynInterval] = useState(g.dynamic_interval_minutes == null ? "follow" : _gdm > 0 && [30, 60, 90].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
   const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90].includes(_gdm) ? _gdm : 30));
   // 分组级阈值策略：空=跟随系统
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
-  // 负载均衡/定时轮巡是否跟随系统：相关参数全为空即跟随系统（后端 NULL=继承全局）
+  // 负载均衡是否跟随系统：相关参数全为空即跟随系统（后端 NULL=继承全局）
   const lbFollowGlobal = g.switch_diff_mode == null && g.switch_diff_pct == null && g.switch_diff_gb == null && g.dynamic_interval_minutes == null;
-  const timeFollowGlobal = g.interval_hours == null && g.custom_interval_minutes == null && g.interval_start_time == null;
-  // 切换参数统一跟随系统/自定义：跟随系统时定时轮巡与负载均衡参数全部置空
-  // （继承全局），自定义时两组参数都填入当前全局值（配置对话框出现，用户可改）
-  const switchFollowGlobal = timeFollowGlobal && lbFollowGlobal;
-  const setSwitchFollowGlobal = (follow: boolean) => {
-    if (follow) {
-      savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null, switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null });
-    } else {
-      const hrs = Number(settings.interval_hours ?? 6) || 6;
-      const cmins = Number(settings.custom_interval_minutes ?? 0) || 0;
-      const st = (settings.interval_start_time as string) || "00:00:00";
-      setInterval(cmins > 0 ? "0" : String(hrs));
-      const u = cmins > 0 && cmins % 1440 === 0 ? "day" : cmins > 0 && cmins % 60 === 0 ? "hour" : "minute";
-      setCustUnit(u);
-      setCustVal(String(u === "day" ? cmins / 1440 : u === "hour" ? cmins / 60 : cmins));
-      setStartTime(st);
-      const m = (settings.switch_diff_mode as string) || "percent";
-      const pct = Number(settings.switch_diff_pct ?? 10) || 10;
-      const gb = Number(settings.switch_diff_gb ?? 10) || 10;
-      const dyn = Math.max(30, Number(settings.dynamic_interval_minutes ?? 30) || 30);
-      setDiffMode(m); setDiffPct(String(pct)); setDiffGb(String(gb));
-      setDynInterval([30, 60, 90].includes(dyn) ? String(dyn) : "0");
-      setDynCustVal(String([30, 60, 90].includes(dyn) ? 30 : dyn));
-      savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st, switch_diff_mode: m, switch_diff_pct: pct, switch_diff_gb: gb, dynamic_interval_minutes: dyn });
-    }
-  };
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
   const [showSettings, setShowSettings] = useState(false);
 
@@ -611,6 +587,29 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
 
   // 分组参数自动保存：改动即存，不用点保存
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
+  // 分组内成员：与“选择成员实例”区同一口径（group_ids 多对多）
+  const members = accounts.filter((a) => { const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number); return gids.includes(g.id as number); });
+  // 分组操作（卡片右下角 4 个图标按钮，与服务器卡片同一套：刷新/启动/重启/停机）：
+  // 刷新=逐台刷新成员数据；启动=取消暂停；重启=重启运行中的成员（先确认）；
+  // 停机=暂停分组（先确认）。启动只在已暂停时可点，停机只在运行中可点。
+  const [gBusy, setGBusy] = useState<string | null>(null);
+  const gBusyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "停机中…" } as const;
+  const groupAction = async (action: "refresh" | "start" | "restart" | "stop") => {
+    if (action === "stop" && !confirm(t("停止分组 {name}？", { name: g.name }))) return;
+    if (action === "restart" && !confirm(t("重启分组 {name} 内全部实例？", { name: g.name }))) return;
+    setGBusy(action);
+    try {
+      if (action === "refresh") await run(async () => { for (const m of members) await post(`/api/accounts/${m.id}/refresh`, {}); }, t("已刷新分组 {name}", { name: g.name }));
+      else if (action === "start") await run(() => put(`/api/groups/${g.id}`, { paused: 0 }), t("分组已启动"));
+      else if (action === "restart") await run(async () => { for (const m of members.filter((x) => x.instance_status === "Running")) await post(`/api/accounts/${m.id}/restart`, {}); }, t("已重启分组 {name} 内全部实例", { name: g.name }));
+      else await run(() => put(`/api/groups/${g.id}`, { paused: 1 }), t("分组已停止"));
+    } finally { setGBusy(null); }
+  };
+  const gbtn = (action: "refresh" | "start" | "restart" | "stop", label: string, disabled: boolean, icon: JSX.Element, cls = "") => (
+    <button key={action} className={cls ? `icon-btn ${cls}` : "icon-btn"} title={gBusy === action ? t(gBusyLabel[action]) : label}
+      aria-label={label} disabled={!!gBusy || disabled}
+      onClick={() => groupAction(action)}>{icon}</button>
+  );
   // 自定义间隔单位换算：后端存的一律是分钟；分钟 1 / 小时 60 / 天 1440
   const custMult = (u: string) => (u === "day" ? 1440 : u === "hour" ? 60 : 1);
   const fmtCust = (v: number) => String(Number.isInteger(v) ? v : Math.round(v * 100) / 100);
@@ -625,10 +624,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       <div className="row"><b>{g.name as string}</b>
         <span className="pill">{g.switch_mode === "time" ? t("定时轮巡") : g.switch_mode === "dynamic" ? t("动态模式") : t("负载均衡")}</span>
         <span className="spacer" />
-        <button className="btn ghost" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}>⚙️</button>
-        <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
-          <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
-        </button>
+        <button className="icon-btn" title={t("分组设置")} onClick={() => setShowSettings(!showSettings)}><Ico label={t("分组设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
       </div>
       {showSettings && (<>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
@@ -648,45 +644,31 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
-      <div style={{ marginTop: 12 }}>
-        <label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
-        <div style={{ paddingLeft: "2em" }}><Seg value={switchFollowGlobal ? "global" : "custom"} options={[
-          { value: "global", label: t("跟随系统") },
-          { value: "custom", label: t("自定义") },
-        ]} onChange={(v) => setSwitchFollowGlobal(v === "global")} /></div>
-      </div>
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
-          {/* 定时轮巡的切换参数：跟随系统 / 自定义。跟随系统时也显示（选中
-              跟随系统），不再藏在共用的“切换参数”开关后面；选自定义后下面的
-              间隔与开始时间出现，可直接在内联输入框里改，不弹对话框。 */}
-          <TwoLineLabel parent="定时轮巡" child="切换参数" />
-          <div style={{ paddingLeft: "2em" }}><Seg value={timeFollowGlobal ? "global" : "custom"} options={[
-            { value: "global", label: t("跟随系统") },
-            { value: "custom", label: t("自定义") },
+          {/* 定时轮巡的轮巡周期五选一：跟随系统 / 3/6/12 小时 / 自定义，
+              与全局设置的轮巡周期同一排版，只多一个跟随系统。选跟随系统即
+              清空三项时间参数（继承全局）；从跟随系统切出来时，先把全局的
+              时间值填入（间隔、单位、开始时间），再按所选项保存。 */}
+          <TwoLineLabel parent="定时轮巡" child="轮巡周期" />
+          <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
+            { value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") },
+            { value: "3", label: t("3 小时") },
+            { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
+            { value: "0", label: t("自定义"), sub: interval === "0" && (parseFloat(custVal) || 0) > 0 ? `${custVal} ${custUnit === "day" ? t("天") : custUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
           ]} onChange={(v) => {
-            if (v === "global") { savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null }); }
-            else {
-              const hrs = Number(settings.interval_hours ?? 6) || 6;
-              const cmins = Number(settings.custom_interval_minutes ?? 0) || 0;
-              const st = (settings.interval_start_time as string) || "00:00:00";
-              setInterval(cmins > 0 ? "0" : [3, 6, 12].includes(hrs) ? String(hrs) : hrs <= 2 ? "3" : hrs <= 4 ? "6" : "12");
-              const u = cmins > 0 && cmins % 1440 === 0 ? "day" : cmins > 0 && cmins % 60 === 0 ? "hour" : "minute";
-              setCustUnit(u);
-              setCustVal(String(u === "day" ? cmins / 1440 : u === "hour" ? cmins / 60 : cmins));
-              setStartTime(st);
-              savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st });
-            }
+            if (v === "follow") { setInterval("follow"); savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null }); return; }
+            const wasFollow = interval === "follow";
+            const gcmins = Number(settings.custom_interval_minutes ?? 0) || 0;
+            const gu = gcmins > 0 && gcmins % 1440 === 0 ? "day" : gcmins > 0 && gcmins % 60 === 0 ? "hour" : "minute";
+            const effCustVal = wasFollow ? String(gu === "day" ? gcmins / 1440 : gu === "hour" ? gcmins / 60 : gcmins) : custVal;
+            const effCustUnit = wasFollow ? gu : custUnit;
+            const effStart = wasFollow ? ((settings.interval_start_time as string) || "00:00:00") : startTime;
+            if (wasFollow) { setCustUnit(effCustUnit); setCustVal(effCustVal); setStartTime(effStart); }
+            if (v === "0") { setInterval("0"); savePatch({ interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(effCustVal) || 0) * custMult(effCustUnit)), interval_start_time: effStart }); }
+            else { setInterval(v); savePatch({ interval_hours: Number(v) || 6, custom_interval_minutes: 0, interval_start_time: effStart }); }
           }} /></div>
-          {!timeFollowGlobal && (<>
-          <div className="form2" style={{ marginTop: 12 }}>
-            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
-              <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
-                { value: "3", label: t("3 小时") },
-                { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
-                { value: "0", label: t("自定义"), sub: interval === "0" && (parseFloat(custVal) || 0) > 0 ? `${custVal} ${custUnit === "day" ? t("天") : custUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
-              ]} onChange={(v) => { setInterval(v); savePatch(v === "0" ? { interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) } : { interval_hours: Number(v) || 6, custom_interval_minutes: 0 }); }} /></div></div>
-          </div>
+          {interval !== "follow" && (<>
           {interval === "0" && (
             <div style={{ marginTop: 12 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
               <div style={{ paddingLeft: "2em" }}><div className="row" style={{ alignItems: "center" }}>
@@ -705,14 +687,14 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          {/* 负载均衡的切换方式四选一：百分比 / 固定流量 / 动态模式 / 跟随系统。
-              跟随系统时也显示（选中跟随系统），不再藏在“切换参数=自定义”后面；
-              选跟随系统即清空负载均衡参数（继承全局），选其它三项即切到自定义。
-              从跟随系统切到百分比/固定流量时，把全局的差值填入（与“切换参数=
-              自定义”一致）；已是自定义时只改模式，保留已填的差值。 */}
+          {/* 负载均衡的切换方式四选一：百分比（%） / 固定流量（GB） / 动态模式 /
+              跟随系统，与全局设置同一排版，只多一个跟随系统。选跟随系统即
+              清空负载均衡参数（继承全局），选其它三项即切到自定义。
+              从跟随系统切到百分比/固定流量时，把全局的差值填入；已是自定义
+              时只改模式，保留已填的差值。 */}
           <TwoLineLabel parent="负载均衡" child="切换模式" />
           <div style={{ paddingLeft: "2em" }}><Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
-            { value: "percent", label: t("百分比模式"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
+            { value: "percent", label: t("百分比（%）"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
             { value: "gb", label: t("固定流量（GB）"), title: t("已用流量差值 ≥ 阀值 GB 时，切到剩余流量最多的服务器") },
             { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
             { value: "follow", label: t("跟随系统"), title: t("负载均衡参数继承全局设置") },
@@ -738,18 +720,22 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
             </div>
           )}
-          {/* 动态模式的切换间隔不跟随“切换参数”开关隐藏：动态模式时一直显示
-              （跟随系统时显示全局值，改值后自动变成自定义）；否则动态模式下
-              切换参数区一片空白，看不到间隔设置。 */}
+          {/* 动态模式的切换间隔五选一：跟随系统 / 30/60/90 分钟 / 自定义，
+              与全局设置同一排版，只多一个跟随系统。跟随系统时显示全局值，
+              改值后自动变成自定义。 */}
           {g.switch_mode === "dynamic" && (
             <div style={{ marginTop: 12 }}>
               <div className="form2">
                 <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
+                    { value: "follow", label: t("跟随系统"), title: t("动态切换间隔继承全局设置") },
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
                     { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义"), sub: dynInterval === "0" && (Number(dynCustVal) || 0) > 0 ? `${dynCustVal} ${t("分钟")}` : undefined },
-                  ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
+                  ]} onChange={(v) => {
+                    if (v === "follow") { setDynInterval("follow"); savePatch({ dynamic_interval_minutes: null }); return; }
+                    setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) });
+                  }} /></div></div>
               </div>
               {dynInterval === "0" && (
                 <div style={{ marginTop: 12 }} onBlur={() => savePatch({ dynamic_interval_minutes: Math.max(30, Number(dynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
@@ -775,6 +761,12 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           { value: "start", label: t("恢复时拉起"), title: t("流量恢复后自动拉起实例") },
           { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
+      </div>
+      <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+        <button className="btn" title={t("删除分组")} style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
+          onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
+          {t("删除分组")}
+        </button>
       </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>
@@ -806,13 +798,18 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           );
         })}
       </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className={`icon-btn ${g.paused ? "green" : "gray"}`} title={g.paused ? t("启动分组") : t("停止分组")}
-          onClick={() => run(() => put(`/api/groups/${g.id}`, { paused: g.paused ? 0 : 1 }), g.paused ? t("分组已启动") : t("分组已停止"))}>
-          {g.paused
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}>
+        {gbtn("refresh", t("刷新"), false,
+          <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
+        {gbtn("start", t("启动"), !g.paused,
+          g.paused
             ? <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>
-            : <Ico label={t("停止")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>}
-        </button>
+            : <Ico label={t("启动")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>,
+          g.paused ? "green" : "gray")}
+        {gbtn("restart", t("重启"), !members.some((m) => m.instance_status === "Running"),
+          <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
+        {gbtn("stop", t("停机"), !!g.paused,
+          <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
       </div>
     </div>
   );

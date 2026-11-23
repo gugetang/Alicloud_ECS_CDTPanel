@@ -285,12 +285,13 @@ def test_group_member_shows_masked_ip():
 
 def test_group_time_section_only_interval():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 分组定时轮巡设置区只剩间隔切换周期 + 开始时间，固定每日切换时刻/夜间窗口开始/结束三个时间框已取消
+    # 分组定时轮巡设置区只剩轮巡周期 + 开始时间，固定每日切换时刻/夜间窗口开始/结束三个时间框已取消
     assert 't("固定每日切换时刻")' not in tsx
     assert 't("夜间窗口开始")' not in tsx
     assert 't("夜间窗口结束")' not in tsx
-    # 间隔切换周期仍在；说明小字已随“取消小字说明”一并去掉
-    assert 't("间隔切换周期")' in tsx
+    # 轮巡周期仍在（原来叫“间隔切换周期”，与全局设置统一改名）；说明小字已随“取消小字说明”一并去掉
+    assert 't("轮巡周期")' in tsx
+    assert 't("间隔切换周期")' not in tsx
     assert 't("间隔按上次切换锚点每 N 小时切一次。")' not in tsx
     # 开始时间是分组里唯一的 time 输入（默认 00:00:00，带秒）
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
@@ -590,15 +591,39 @@ def test_buttons_accent_border_not_filled():
     assert 'background: "#EA4335"' in tsx
 
 
-def test_group_card_pause_toggle_button():
+def test_group_card_action_buttons_like_server_card():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 分组卡片右下角的停止/启动按钮：停止后绿色三角（点一下启动），
-    # 启动后灰色方块（点一下停止）
-    assert 't("启动分组")' in tsx and 't("停止分组")' in tsx
-    assert 'paused: g.paused ? 0 : 1' in tsx
-    assert 'icon-btn ${g.paused ? "green" : "gray"}' in tsx
-    assert '<polygon points="6 3 20 12 6 21 6 3"' in tsx
-    assert '<rect x="6" y="6" width="12" height="12"' in tsx
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    # 分组卡片与服务器卡片同一布局：右上只有 ⚙（与服务器卡片一样的 icon-btn
+    # 齿轮 SVG，不再是 btn ghost + ⚙️ emoji），删除移到设置区底部（红色实心，
+    # 与服务器卡片的删除实例一样）；右下 4 个操作图标按钮：刷新/启动/重启/停机
+    assert '<button className="icon-btn" title={t("分组设置")}' in group_card
+    assert "⚙️" not in group_card
+    assert 'className="icon-btn danger" title={t("删除")}' not in group_card
+    assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' in group_card
+    assert '{t("删除分组")}' in group_card
+    # 4 个操作按钮：刷新逐台刷新成员数据；启动取消暂停（只在已暂停时可点，
+    # 绿色三角，否则灰色方块不可点）；重启只重启运行中的成员（先确认）；
+    # 停机暂停分组（先确认）
+    assert 'gbtn("refresh", t("刷新")' in group_card
+    assert 'gbtn("start", t("启动"), !g.paused' in group_card
+    assert 'gbtn("restart", t("重启"), !members.some((m) => m.instance_status === "Running")' in group_card
+    assert 'gbtn("stop", t("停机"), !!g.paused' in group_card
+    assert 'for (const m of members) await post(`/api/accounts/${m.id}/refresh`, {})' in group_card
+    assert 'for (const m of members.filter((x) => x.instance_status === "Running")) await post(`/api/accounts/${m.id}/restart`, {})' in group_card
+    assert 't("停止分组 {name}？"' in group_card
+    assert 't("重启分组 {name} 内全部实例？"' in group_card
+    assert 'paused: 0' in group_card and 'paused: 1' in group_card
+    assert 'paused: g.paused ? 0 : 1' not in group_card
+    assert '<polygon points="6 3 20 12 6 21 6 3"' in group_card
+    assert '<rect x="6" y="6" width="12" height="12"' in group_card
+    # 旧的单按钮切换（启动分组/停止分组标题）已取消，英文表里的旧键随之删除
+    # （新键“停止分组 {name}？”是另一条，带冒号的精确匹配才算旧键还在）
+    assert 't("启动分组")' not in tsx and 't("停止分组")' not in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert '  启动分组: ' not in i18n and '  停止分组: ' not in i18n
+    for key in ("删除分组", "已刷新分组 {name}", "已重启分组 {name} 内全部实例", "重启分组 {name} 内全部实例？", "停止分组 {name}？"):
+        assert key in i18n, key
 
 
 def test_ddns_settings_no_account_id():
@@ -690,12 +715,15 @@ def test_two_line_labels_with_two_char_indent():
     # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
     assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
-    # 分组侧的主标签已改成“切换模式”（四选一：百分比模式/固定流量（GB）/
+    # 分组侧的主标签已改成“切换模式”（四选一：百分比（%）/固定流量（GB）/
     # 动态模式/跟随系统），不再是裸的“切换阀值”
     assert '<TwoLineLabel parent="负载均衡" child="切换模式"' in tsx
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' not in tsx
-    # 定时轮巡子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组间隔切换周期/自定义间隔/开始时间）
-    for label in ("轮巡周期", "间隔切换周期", "自定义间隔", "开始时间"):
+    # 定时轮巡的轮巡周期也改成 TwoLineLabel（分组）/ plain label（全局），
+    # 子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组轮巡周期/自定义间隔/开始时间）
+    assert '<TwoLineLabel parent="定时轮巡" child="轮巡周期" />' in tsx
+    assert '<TwoLineLabel parent="定时轮巡" child="切换参数" />' not in tsx
+    for label in ("轮巡周期", "自定义间隔", "开始时间"):
         assert f'style={{{{ paddingLeft: "2em" }}}}>{{t("{label}")}}' in tsx, label
 
 
@@ -1053,17 +1081,24 @@ def test_group_dynamic_interval_shows_when_dynamic():
     # 三选一里的动态选项与说明文案仍在
     assert '{ value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") }' in tsx
     assert 't("每到间隔切到剩余流量最多的服务器，不看流量差值。")' in tsx
+    # 动态间隔五选一：跟随系统 / 30/60/90 分钟 / 自定义（与全局设置同一排版，
+    # 只多一个跟随系统）；选跟随系统即清空动态间隔参数（继承全局）
+    assert '{ value: "follow", label: t("跟随系统"), title: t("动态切换间隔继承全局设置") }' in tsx
+    assert 'g.dynamic_interval_minutes == null ? "follow"' in tsx
+    assert 'savePatch({ dynamic_interval_minutes: null })' in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert "动态切换间隔继承全局设置" in i18n
 
 
 def test_group_lb_four_way_options():
-    # 分组里选负载均衡时，切换方式四选一一直显示：百分比模式 / 固定流量（GB）/
+    # 分组里选负载均衡时，切换方式四选一一直显示：百分比（%）/ 固定流量（GB）/
     # 动态模式 / 跟随系统（原来三选一藏在“切换参数=自定义”后面，跟随系统时
     # 一片空白）。跟随系统时选中“跟随系统”；选它清空负载均衡参数（继承全局），
     # 选百分比/固定流量时从跟随系统切到自定义（填入全局差值），已是自定义时
     # 只改模式、保留已填差值
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert '<Seg value={(lbFollowGlobal ? "follow" : g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string}' in tsx
-    assert '{ value: "percent", label: t("百分比模式")' in tsx
+    assert '{ value: "percent", label: t("百分比（%）")' in tsx
     assert '{ value: "gb", label: t("固定流量（GB）")' in tsx
     assert '{ value: "follow", label: t("跟随系统"), title: t("负载均衡参数继承全局设置") }' in tsx
     assert 'savePatch({ switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null })' in tsx
@@ -1072,28 +1107,37 @@ def test_group_lb_four_way_options():
     # switchFollowGlobal：定时轮巡自定义时差值输入不应冒出来）
     assert '{!lbFollowGlobal && g.switch_mode !== "dynamic" && (' in tsx
     assert '{!switchFollowGlobal && g.switch_mode !== "dynamic" && (' not in tsx
-    # “流量模式”旧标签已改成“固定流量（GB）”（与全局设置一致），英文表里旧键已删
+    # “流量模式”旧标签已改成“固定流量（GB）”（与全局设置一致），英文表里旧键已删；
+    # “百分比模式”旧标签已改成“百分比（%）”（与全局设置一致），英文表里旧键已删
     assert 't("流量模式")' not in tsx
+    assert 't("百分比模式")' not in tsx
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
     assert "流量模式" not in i18n
+    assert "百分比模式" not in i18n
     assert "负载均衡参数继承全局设置" in i18n
 
 
 def test_group_time_follow_custom():
-    # 分组里选定时轮巡时，切换参数跟随系统/自定义一直显示（原来只在共用的
-    # “切换参数”开关里，时间参数还藏在开关后面）；选自定义后间隔切换周期、
-    # 自定义间隔、开始时间出现，可直接在内联输入框里改
+    # 分组里选定时轮巡时，轮巡周期五选一一直显示：跟随系统 / 3/6/12 小时 /
+    # 自定义（与全局设置的轮巡周期同一排版，只多一个跟随系统；原来是跟随系统/
+    # 自定义两选一 + 下面藏着的间隔 Seg）。选跟随系统即清空三项时间参数
+    # （继承全局），选其它即切到自定义；从跟随系统切出来时把全局的时间值填入
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '<TwoLineLabel parent="定时轮巡" child="切换参数" />' in tsx
-    assert '<Seg value={timeFollowGlobal ? "global" : "custom"}' in tsx
+    assert '<TwoLineLabel parent="定时轮巡" child="轮巡周期" />' in tsx
+    assert '<Seg value={interval} options={[' in tsx
+    assert '{ value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") }' in tsx
     assert 'savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null })' in tsx
-    # 时间参数只看时间是否跟随系统（不再看共用的 switchFollowGlobal：
-    # 负载均衡自定义时，时间参数不应跟着冒出来）
-    assert '{!timeFollowGlobal && (<>' in tsx
-    assert '{!switchFollowGlobal && (<>' not in tsx
-    # 选自定义时把全局的时间值填入（与“切换参数=自定义”填时间部分一致）
-    assert 'savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st })' in tsx
-
+    # 时间参数只在不跟随系统时显示（统一的“切换参数”开关已取消，跟随系统改由
+    # 各段自己的 Seg 承载；原来共用的 switchFollowGlobal 已删）
+    assert '{interval !== "follow" && (<>' in tsx
+    assert '{!timeFollowGlobal && (<>}' not in tsx
+    assert '{!switchFollowGlobal && (<>}' not in tsx
+    assert 'switchFollowGlobal' not in tsx and 'setSwitchFollowGlobal' not in tsx
+    # 从跟随系统切出来时把全局的时间值填入（间隔、单位、开始时间）
+    assert 'const wasFollow = interval === "follow"' in tsx
+    assert 'interval_start_time: effStart' in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert "定时轮巡参数继承全局设置" in i18n
 
 def test_seg_custom_two_line_sub():
     # 自定义按钮双行显示：编辑完成后按钮第一行“自定义”，第二行同时显示数值
