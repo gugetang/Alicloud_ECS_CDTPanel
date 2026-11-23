@@ -213,8 +213,13 @@ def test_account_belongs_to_exactly_one_group(tmpdb):
     tmpdb.update_account(a["id"], {"group_id": gb["id"]})
     rows = [x for x in tmpdb.list_accounts() if x["id"] == a["id"]]
     assert len(rows) == 1 and rows[0]["group_id"] == gb["id"]
+    # 新建时不存在的分组不再直接 400：落到第一个已建分组（前端新建默认发
+    # group_id=1，删过默认分组时不能因此报错）；改组（update）仍校验存在性
+    first = tmpdb.list_groups()[0]
+    row = tmpdb.create_account({"name": "IPX", "group_id": 9999})
+    assert row["group_id"] == first["id"]
     with pytest.raises(ValueError, match="分组 .* 不存在"):
-        tmpdb.create_account({"name": "IPX", "group_id": 9999})
+        tmpdb.update_account(a["id"], {"group_id": 9999})
 
 
 def test_delete_group_with_members_unassigns_and_default_deletable(tmpdb, tmp_path):
@@ -397,10 +402,11 @@ def test_api_duplicate_domain_in_group_returns_400(tmpdb):
 
 
 def test_group_interval_start_time_persist_and_normalize(tmpdb):
-    # 新建分组默认开始时间 00:00:00；改成合法值存住，非法值归一化回 00:00:00
+    # 不填开始时间 = 存 NULL（继承全局，默认 00:00:00）；显式值存住，
+    # 非法值归一化回 00:00:00
     g = tmpdb.create_group({"name": "分组C", "switch_mode": "time",
                             "interval_hours": 2})
-    assert g["interval_start_time"] == "00:00:00"
+    assert g["interval_start_time"] is None
     row = tmpdb.update_group(g["id"], {"interval_start_time": "08:30:00"})
     assert row["interval_start_time"] == "08:30:00"
     row = tmpdb.update_group(g["id"], {"interval_start_time": "8:30"})

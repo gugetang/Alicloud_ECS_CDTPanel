@@ -33,6 +33,9 @@ def _client(monkeypatch):
                  "site": "global", "instance_id": "i-demo000000000000001"}
     c.secret = "fake-secret"
     c.region = "cn-hongkong"
+    # 与 __init__ 一致：SWAS 403 标记默认 False（find_instance_region /
+    # describe_instance 的最终报错要读它）
+    c._swas_denied = False
     return c
 
 
@@ -146,7 +149,11 @@ def test_find_instance_region_not_found_raises(monkeypatch):
 
     class FakeReq:
         def do_action_with_exception(self, req):
-            return json.dumps({"Instances": {"Instance": []}})
+            # “哪里都查不到”：空列表对两种解析都成立——ECS 读
+            # Instances.Instance，SWAS 读 Instances 列表本身。
+            # 不能返回 ECS 形的 {"Instances": {"Instance": []}}，
+            # SWAS 解析会对 dict 做 [0] 取下标抛 KeyError: 0。
+            return json.dumps({"Instances": []})
 
     monkeypatch.setattr(c, "_client", lambda region=None: FakeReq())
     with pytest.raises(AliyunError, match="查不到"):

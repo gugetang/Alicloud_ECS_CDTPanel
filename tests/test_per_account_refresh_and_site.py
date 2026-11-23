@@ -44,9 +44,9 @@ def test_refresh_cloud_status_only_due_accounts(tmpdb, monkeypatch):
 
     import app.scheduler as sched
     now = int(time.time())
-    # 全局默认 5 分钟；A 跟随全局（10 分钟前刷新 -> 到期），
-    # B 自定义 60 分钟（10 分钟前刷新 -> 未到期），
-    # C 自定义 1 分钟（2 分钟前刷新 -> 到期）
+    # 实例级刷新时间已取消、全部强制跟随全局（默认 5 分钟）：实例上存的
+    # api_refresh_minutes 不再起作用；A/B 都是 10 分钟前刷新 -> 到期，
+    # C 是 2 分钟前刷新 -> 未到期
     a = tmpdb.create_account({"name": "A"})
     b = tmpdb.create_account({"name": "B", "api_refresh_minutes": 60})
     c = tmpdb.create_account({"name": "C", "api_refresh_minutes": 1})
@@ -57,14 +57,15 @@ def test_refresh_cloud_status_only_due_accounts(tmpdb, monkeypatch):
     monkeypatch.setattr(sched, "_refresh_one",
                         lambda acc, s: seen.append(acc["id"]))
     sched.refresh_cloud_status(tmpdb.get_settings())
-    assert sorted(seen) == sorted([a["id"], c["id"]])
+    assert sorted(seen) == sorted([a["id"], b["id"]])
 
 
 def test_eff_refresh_minutes_fallback(tmpdb):
     import app.scheduler as sched
     settings = tmpdb.get_settings()
+    # 实例级刷新时间已取消：不管实例上存的是多少，一律返回全局间隔（默认 5）
     assert sched._eff_refresh_minutes({"api_refresh_minutes": None}, settings) == 5
-    assert sched._eff_refresh_minutes({"api_refresh_minutes": 30}, settings) == 30
+    assert sched._eff_refresh_minutes({"api_refresh_minutes": 30}, settings) == 5
     assert sched._eff_refresh_minutes({"api_refresh_minutes": "abc"}, settings) == 5
     assert sched._eff_refresh_minutes({"api_refresh_minutes": 0}, settings) == 5
     assert sched._is_refresh_due({"api_refresh_minutes": None, "last_seen_at": 0},
@@ -123,13 +124,12 @@ def test_frontend_site_and_refresh_and_footer():
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i18n = (root / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    # 实例表单：API 刷新时间（跟随全局 / 固定 / 自定义），保存进 api_refresh_minutes；
-    # 位置在阈值恢复下面（表单最底部），不在月度流量额度旁边
-    assert 't("API 刷新时间")' in tsx
-    assert '{ value: "follow", label: t("跟随全局") }' in tsx
-    assert "api_refresh_minutes: refresh ===" in tsx
-    assert tsx.index('t("阈值恢复")') < tsx.index('t("API 刷新时间")')
-    assert tsx.index('t("API 刷新时间")') < tsx.index('{formMsg &&')
+    # 全局 API 刷新时间（参数设置里，5/10/30/自定义/不刷新；0=不刷新=关闭调度）；
+    # 实例表单里的“API 刷新时间（跟随全局/固定/自定义）”已取消，实例强制跟随全局
+    assert 't("API 刷新时间 *（分钟）")' in tsx
+    assert '{ value: "0", label: t("不刷新")' in tsx
+    assert 't("跟随全局")' not in tsx
+    assert "api_refresh_minutes: refresh ===" not in tsx
     # 其它设置：站点信息卡片（logo 上传/删除 + 简介）
     assert "<SiteInfoCard" in tsx
     assert 't("站点信息")' in tsx
@@ -140,9 +140,13 @@ def test_frontend_site_and_refresh_and_footer():
     # 页眉：有 logo 时显示在标题左边；简介非空时替代默认副标题
     assert '<img src="/api/settings/logo"' in tsx
     assert "settings?.site_intro" in tsx
-    # 页脚：GitHub 项目地址
+    # 页脚：GitHub 图标 + 项目地址超链、信封图标 + 联系邮箱超链
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
-    assert "GitHub: gugetang/Alicloud_ECS_CDTPanel" in tsx
+    assert 't("项目地址")' in tsx
+    assert 't("联系邮箱")' in tsx
+    assert "alicloudadmin@gmail.com" in tsx
+    assert "mailto:alicloudadmin@gmail.com" in tsx
+    assert "GitHub: gugetang/Alicloud_ECS_CDTPanel" not in tsx
     for k in ("站点信息", "站点 logo", "上传 logo", "删除 logo", "站点简介",
               "上传失败", "删除失败"):
         assert k in i18n

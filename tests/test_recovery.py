@@ -180,7 +180,11 @@ def test_dry_run_no_recovery_between_line_and_threshold(tmpdb):
     d = tmpdb.create_domain({"name": "www.example.xyz", "group_id": 1})
     tmpdb.update_domain(d["id"], {"current_account_id": a2["id"],
                                   "current_ip": "203.0.113.12"})
-    tmpdb.set_flag(f"evicted:{a1['id']}", _at(0, 10, 0).isoformat())
+    # 被踢出 1 小时前（未满 24 小时兜底）：旗标时刻必须相对当前时间取，
+    # 不能写死 2026-11-22——run_once 用真实 now，写死日期过 24 小时后
+    # 兜底恢复会误触发，本用例就不再是“恢复线与阈值之间不恢复”
+    tmpdb.set_flag(f"evicted:{a1['id']}",
+                   (dt.datetime.now(TZ) - dt.timedelta(hours=1)).isoformat())
     tmpdb.update_account(a1["id"], {"traffic_used_gb": 188.0})  # 94%
     res = scheduler.run_once(dry_run=True, refresh=False)
     assert res["threshold_recovery"] == []

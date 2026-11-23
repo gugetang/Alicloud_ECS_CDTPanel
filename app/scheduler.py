@@ -752,20 +752,32 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     return True
 
 
-def _maybe_prune_daily() -> None:
-    """每天清理一次过期事件/流量采样（见 db.prune_old_data）。
-    用 flags.prune_done 记日期，重启当天不重复；清理失败只记日志，
-    不影响调度轮次，失败也记当天已处理、明天再试。"""
-    today = _now().strftime("%Y-%m-%d")
-    if db.get_flag("prune_done") == today:
-        return
+def _maybe_cleanup_daily(settings: dict,
+                         now: dt.datetime | None = None) -> bool:
+    """每天在 cleanup_time（默认 03:00，可配）到达后清理一次
+    （见 db.run_cleanup：过期事件/流量采样 + VACUUM + WAL 检查点 +
+    数据目录临时文件）。
+    用 flags.cleanup_done 记日期，重启当天不重复；到点前不跑；
+    清理失败只记日志，不影响调度轮次，失败也记当天已处理、明天再试。
+    返回 True 表示当天清理已执行。"""
+    now = now or _now()
+    today = now.strftime("%Y-%m-%d")
+    if db.get_flag("cleanup_done") == today:
+        return False
+    hh, mm = _parse_hhmm(db.norm_cleanup_time(settings.get("cleanup_time")))
+    if (now.hour, now.minute) < (hh, mm):
+        return False
     try:
-        pruned = db.prune_old_data()
-        log.info("数据清理：事件 %s 条，流量采样 %s 条",
-                 pruned["events_deleted"], pruned["traffic_samples_deleted"])
+        result = db.run_cleanup(now=int(now.timestamp()),
+                                ran_at=now.strftime("%Y-%m-%d %H:%M"))
+        log.info("数据清理：事件 %s 条，流量采样 %s 条，临时文件 %s 个，"
+                 "回收 %s 字节",
+                 result["events_deleted"], result["traffic_samples_deleted"],
+                 result["temp_files_deleted"], result["db_size_reclaimed"])
     except Exception as exc:  # noqa: BLE001
         log.warning("数据清理失败: %s", exc)
-    db.set_flag("prune_done", today)
+    db.set_flag("cleanup_done", today)
+    return True
 
 
 def last_run() -> dict:
@@ -800,7 +812,7 @@ def _loop() -> None:
             _wake.clear()
             continue
         try:
-            _maybe_prune_daily()
+            _maybe_cleanup_daily(settings)
         except Exception as exc:  # noqa: BLE001
             log.exception("数据清理检查失败: %s", exc)
         # DDNS 检查固定每分钟一次（无后端设置）；完整轮次（带 API 刷新）

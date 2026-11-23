@@ -696,7 +696,21 @@ def status(_: bool = Depends(_admin_required)):
         "evicted_account_ids": [a["id"] for a in accounts if a.get("evicted")],
         "dns_confirmed": sum(1 for d in domains if d.get("current_ip")),
         "dns_total": len(domains),
+        # 上次数据清理（定时/手动）：flags.cleanup_last 存 JSON，无记录为 None
+        "cleanup": _last_cleanup(),
     }
+
+
+def _last_cleanup() -> Any:
+    raw = db.get_flag("cleanup_last")
+    if not raw:
+        return None
+    try:
+        import json
+        out = json.loads(raw)
+        return out if isinstance(out, dict) else None
+    except Exception:
+        return None
 
 
 @router.get("/accounts")
@@ -988,6 +1002,9 @@ def _validate_settings(data: dict) -> None:
     if "daily_report_time" in data and not re.fullmatch(
             r"([01]\d|2[0-3]):[0-5]\d", str(data["daily_report_time"])):
         raise HTTPException(400, "daily_report_time 必须是 HH:MM 格式")
+    if "cleanup_time" in data:
+        # 非法值不报 400，直接归一化回 03:00（见 db.norm_cleanup_time）
+        data["cleanup_time"] = db.norm_cleanup_time(data["cleanup_time"])
     if "timezone" in data:
         from zoneinfo import ZoneInfo
         try:
@@ -1245,6 +1262,15 @@ def schedule_pause(body: dict, _: bool = Depends(_admin_required)):
     else:
         scheduler.start()
     return {"paused": bool(body.get("paused"))}
+
+
+@router.post("/maintenance/cleanup")
+def manual_cleanup(_: bool = Depends(_admin_required)):
+    """手动触发一次数据清理（与每天固定时间的自动清理内容相同）。
+    手动清理也记当天已清理，避免定时清理一小时内重复跑。"""
+    result = db.run_cleanup(ran_at=scheduler._now().strftime("%Y-%m-%d %H:%M"))
+    db.set_flag("cleanup_done", scheduler._now().strftime("%Y-%m-%d"))
+    return {"ok": True, **result}
 
 
 @router.get("/logs")

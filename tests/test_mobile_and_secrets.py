@@ -7,7 +7,17 @@
 - 分组页：外层卡片框体取消，“+ 新建分组”移到右下角。
 - 手机端（≤800px）：单列卡片、指标两列、表格横向滚动、触控目标放大、
   输入框 16px（防 iOS 聚焦缩放）；电脑端保持 1200px 三列布局。
-- 夜间底色不再是纯黑 #000000，改成更柔和的深蓝灰 #1e293b（原 #0b1220 仍太黑）。
+- 夜间底色：用户新代码回到 #0b1220（原 #1e293b 已改回）；白天卡片磨砂回到
+  rgba(255,255,255,0.3)，夜间灰卡 0.5；列表 table 字体回到 14px。
+- 按钮/选中态：.btn 回到透明底 + 主题色边框（不再主题色填充）；导航与子标签
+  选中回到主题色边框样式（不再填充）；Seg 选中仍是主题色边框（无填充、无写死
+  蓝字）；主题 accent 回到 600 档（:root #2563eb），主题风格渐变色块仍用 500 档。
+- 用户新代码删掉的部分 CSS 规则（.toast/.modal/.member-btn/.member-ip/
+  .lang-on/.lang-off），对应元素仍在 App.tsx 里引用，但不再有样式规则——
+  本文件按“规则已删”的现状断言，不擅自恢复。
+- 主题风格 CSS 已恢复：html[data-accent] 五条规则（500 档 --accent）与
+  .theme-grid/.theme-card/.theme-swatch/.theme-check/.theme-name/.theme-en
+  卡片样式都在 styles.css 里；:root 的 --accent:#2563eb 只作 fallback。
 """
 import re
 from pathlib import Path
@@ -90,7 +100,8 @@ def test_mobile_media_query():
 def test_dark_bg_is_not_pure_black():
     m = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', CSS)
     assert m, "dark theme block missing"
-    assert "--bg:#1e293b" in m.group(1).replace(" ", "")
+    # 用户新代码回到 #0b1220（#1e293b 已改回）；仍不是纯黑 #000000
+    assert "--bg:#0b1220" in m.group(1).replace(" ", "")
     assert "#000000" not in CSS
 
 
@@ -98,14 +109,14 @@ def test_light_card_is_30pct_transparent():
     m = re.search(r'html\[data-theme="light"\]\s*\{([^}]*)\}', CSS)
     assert m, "light theme block missing"
     body = m.group(1).replace(" ", "")
-    # 卡片毛玻璃加深：白天卡片 alpha 0.5（原 0.3 太透、不够突出），夜间灰卡 0.65
-    assert "--card:rgba(255,255,255,0.5)" in body
-    assert "--card2:rgba(255,255,255,0.5)" in body
+    # 用户新代码回到白天卡片 alpha 0.3（加深到 0.5 的版本已改回），夜间灰卡 0.5
+    assert "--card:rgba(255,255,255,0.3)" in body
+    assert "--card2:rgba(255,255,255,0.3)" in body
     assert "rgba(255,255,255,0.7)" not in CSS
     dm = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', CSS)
     assert dm, "dark theme block missing"
     dbody = dm.group(1).replace(" ", "")
-    assert "--card:rgba(71,85,105,0.65)" in dbody
+    assert "--card:rgba(71,85,105,0.5)" in dbody
 
 
 def test_google_sans_font_self_hosted():
@@ -127,13 +138,13 @@ def test_google_sans_font_self_hosted():
     assert "Noto Sans SC" in fam and "PingFang SC" in fam and "Microsoft YaHei" in fam
 
 
-def test_list_font_smaller_and_dash_notice_removed():
+def test_list_font_and_dash_notice_removed():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    # 列表字体缩小一号：表格 14px → 12px，表头 13px → 12px
-    assert re.search(r"table\s*\{[^}]*font-size:\s*12px", CSS)
-    assert re.search(r"th\s*\{[^}]*font-size:\s*12px", CSS)
-    assert "table { width:100%; border-collapse:collapse; font-size:14px; }" not in CSS
+    # 列表字体：用户新代码回到表格 14px、表头 13px（缩小到 12px 的版本已改回）
+    assert re.search(r"table\s*\{[^}]*font-size:\s*14px", CSS)
+    assert re.search(r"th\s*\{[^}]*font-size:\s*13px", CSS)
+    assert "table { width:100%; border-collapse:collapse; font-size:12px; }" not in CSS
     # 运行概览顶部的调度提示说明已取消；临时消息条 msg 改成右下角悬浮 toast
     #（字体主题色），不再是顶部通栏 notice——见 test_save_toast_bottom_right_theme_color
     assert "调度运行时会按当前配置执行 VPS 和 DNS 操作。" not in tsx
@@ -179,9 +190,10 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
 def test_api_refresh_own_row_and_other_settings_tab():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 全局的 API 刷新时间单独占一行，移到轮巡周期下面（不在两列 form2 里）；
-    # 实例表单里另有一项单账户 API 刷新时间（跟随全局/自定义），两者各出现一次
+    # 实例表单里的单账户 API 刷新时间已被用户取消（141ca7d，强制跟随全局），
+    # 全站只剩全局这一处
     assert tsx.count('API 刷新时间 *（分钟）') == 1
-    assert tsx.count('t("API 刷新时间")') == 1
+    assert tsx.count('t("API 刷新时间")') == 0
     api_idx = tsx.index('API 刷新时间 *（分钟）')
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('轮巡周期') < api_idx
@@ -224,17 +236,20 @@ def test_theme_styles_picker():
         assert f'id: "{tid}"' in tsx and f'zh: "{zh}"' in tsx and f'en: "{en}"' in tsx
     assert 'localStorage.getItem("cdt-accent") || "deepblue"' in tsx
     assert 'document.documentElement.dataset.accent = accent' in tsx
-    # CSS：每种风格只定义 --accent/--accent-soft/--accent-text，不改磨砂底色（--card/--card2/--bg）
-    for tid in ["emerald", "deepblue", "warmsun", "nebula", "crimson"]:
-        m = re.search(rf'html\[data-accent="{tid}"\] \{{[^}}]*\}}', css)
+    # 主题风格已恢复：5 条 html[data-accent] 规则，只改 --accent（按钮与边框），
+    # 磨砂底色与页面底色不变；:root 的 #2563eb 只作 JS 运行前的 fallback
+    for tid, hexv in [("emerald", "#10b981"), ("deepblue", "#3b82f6"), ("warmsun", "#f97316"),
+                      ("nebula", "#8b5cf6"), ("crimson", "#ef4444")]:
+        m = re.search(rf'html\[data-accent="{tid}"\] \{{([^}}]*)\}}', css)
         assert m, f"data-accent {tid} missing"
-        assert "--accent:" in m.group(0) and "--accent-soft:" in m.group(0) and "--accent-text:" in m.group(0)
-        assert "--card" not in m.group(0) and "--bg" not in m.group(0)
-    # 选中按键/按钮的浅底与深色字走变量（随主题换色）：#dbeafe/#1d4ed8 只允许出现在
-    # deepblue 风格的变量定义里，不允许写死在任何一条选择器规则里
-    css_no_accent = re.sub(r':root \{[^}]*\}', '', css)
-    css_no_accent = re.sub(r'html\[data-accent="[^"]+"\] \{[^}]*\}', '', css_no_accent)
-    assert "#dbeafe" not in css_no_accent and "#1d4ed8" not in css_no_accent
+        assert m.group(1).replace(" ", "") == f"--accent:{hexv};"
+    assert "--accent:#2563eb" in css.replace(" ", "")
+    # 主题风格卡片样式：.theme-grid/.theme-card/.theme-swatch/.theme-check/
+    # .theme-name/.theme-en 都在 styles.css 里
+    for cls in (".theme-grid", ".theme-card", ".theme-swatch", ".theme-check", ".theme-name", ".theme-en"):
+        assert cls in css, cls
+    for g in ("#a7f3d0,#10b981", "#bfdbfe,#3b82f6", "#fed7aa,#f97316", "#ddd6fe,#8b5cf6", "#fecaca,#ef4444"):
+        assert g in tsx, g
     # 选择器在主题设置卡片里：标题 + 说明 + 5 张卡片 + 渐变色块 + 勾选
     other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
     notify_idx = tsx.index('{tab === "config" && subTab === "notify" && (')
@@ -252,8 +267,9 @@ def test_group_member_shows_masked_ip():
     assert 'className={(on ? "seg-on " : "") + "member-btn"}' in tsx
     assert '<span className="member-top">' in tsx
     assert '<span className="member-ip">{maskIp(a.public_ip)}</span>' in tsx
-    assert ".seg button.member-btn" in css and ".member-ip" in css
-    assert "flex-direction:column" in css
+    # 用户新代码删掉了成员按键的专用 CSS（.seg button.member-btn/.member-ip
+    # 的两列布局规则），按键仍是两行 span 结构，但按普通 seg 按钮渲染
+    assert ".seg button.member-btn" not in css and ".member-ip" not in css
 
 
 def test_group_time_section_only_interval():
@@ -286,10 +302,11 @@ def test_cards_not_draggable_when_settings_open():
 def test_fee_two_decimals_and_theme_font_and_stat_weight():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 费用精确到小数点后 2 位：fmtCost 辅助函数，3 处单账户费用 + 当前费用回退合计都用它
+    # 费用精确到小数点后 2 位：fmtCost 辅助函数，4 处单账户费用 + 当前费用回退合计都用它
+    #（列表视图新加 1 处，原 3 处变 4 处）
     assert "const fmtCost" in tsx
     assert "n.toFixed(2)" in tsx
-    assert tsx.count("fmtCost(a.billing_month_cost)") == 3
+    assert tsx.count("fmtCost(a.billing_month_cost)") == 4
     assert "fmtCost(v)} ${c}" in tsx
     # 状态详情（在线/排队）用主题色，不再是绿色
     assert 'var(--dot-green)" : undefined' not in tsx
@@ -332,13 +349,13 @@ def test_exchange_rate_readonly_no_input():
     assert '(document.getElementById("s-fx-rate")' not in tsx
 
 
-def test_subtabs_height_reduced_by_third():
+def test_subtabs_button_padding():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 设置子标签按钮高度降低约 1/3：上下内边距由 10px 降到 4px（桌面与手机端一致）
+    # 设置子标签按钮：用户新代码回到上下内边距 10px（降到 4px 的版本已改回）
     m = re.search(r"\.subtabs button \{[^}]*\}", css)
-    assert m and "padding:4px 20px" in m.group(0)
-    m2 = re.search(r"\.subtabs button \{[^}]*padding:4px 14px[^}]*\}", css)
-    assert m2, "mobile subtabs padding should be 4px 14px"
+    assert m and "padding:10px 20px" in m.group(0)
+    m2 = re.search(r"\.subtabs button \{[^}]*padding:10px 14px[^}]*\}", css)
+    assert m2, "mobile subtabs padding should be 10px 14px"
 
 
 def test_managed_domains_title_removed():
@@ -350,33 +367,39 @@ def test_managed_domains_title_removed():
     assert "setShowDdns(!showDdns)" in tsx
 
 
-def test_save_toast_bottom_right_theme_color():
+def test_save_toast_renders_and_autohides():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 自动保存后的提示框：右下角悬浮 toast，不再是顶部通栏 notice；
-    # 字体用主题色；5 秒自动隐藏的定时器仍在
+    # 自动保存后的提示框：{msg} 仍渲染为 toast 元素，不再是顶部通栏 notice；
+    # 5 秒自动隐藏的定时器仍在
     assert '<div className="toast">{msg}</div>' in tsx
     assert '<div className="notice">{msg}</div>' not in tsx
-    m = re.search(r"\.toast \{([^}]*)\}", css)
-    assert m, ".toast rule missing"
-    rule = m.group(1)
-    assert "position:fixed" in rule
-    assert "right:16px" in rule and "bottom:16px" in rule
-    assert "color:var(--accent-text)" in rule
     assert "setTimeout" in tsx and "5000" in tsx
+    # 用户新代码删掉了 .toast 的 CSS 规则（右下角悬浮定位 + 主题色字体），
+    # toast 目前按普通 div 渲染，不再固定在右下角
+    assert ".toast" not in css
 
 
 def test_header_lang_toggle_and_logout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 语言切换：图标式 中/En 切换键，点一下切语言，不再是下拉菜单；
-    # 当前语言主题色加粗（.lang-on），未选的灰色（.lang-off）
+    # 语言键是紧凑小按钮（padding 3px 7px，12px）；.lang-on/.lang-off 的
+    # 颜色规则已被用户新代码删掉，不再用 CSS 区分当前语言
     assert 'className="btn ghost lang-btn"' in tsx
     assert 'setLang(lang === "zh" ? "en" : "zh")' in tsx
     assert '>中</span>' in tsx and '>En</span>' in tsx
     assert 'langMenuOpen' not in tsx
-    assert ".lang-on { color:var(--accent-text)" in css
-    assert ".lang-off { color:var(--muted)" in css
+    assert ".lang-btn { padding:3px 7px; font-size:12px; }" in css
+    assert ".lang-on" not in css and ".lang-off" not in css
+    # 主题键与退出键是 9px 小图标（页眉与登录页各一处，ThemeIcon size={9}）；
+    # .theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
+    assert tsx.count("size={9}") == 2
+    assert ".theme-btn { padding:3px 4px;" in css
+    assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
+    # 登录页右上角同样是这排图标按钮（语言键 + 主题图标 + 退出图标，右对齐一行）
+    assert '<div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>' in tsx
+    assert 'aria-label={t("退出")}' in tsx
     # 退出登录图标在页眉最右边（主题按钮之后）：调 /api/auth/logout、
     # 清 token、回登录页
     assert 'aria-label={t("退出登录")}' in tsx
@@ -459,8 +482,11 @@ def test_add_domain_dialog():
     assert 'className="modal-overlay"' in tsx
     assert 'className="modal"' in tsx
     # 按钮放右下：触发按钮在卡片右下，对话框里的取消/添加也在右下
-    assert ".modal-overlay" in css and ".modal" in css
     assert 'justifyContent: "flex-end", marginTop: 12' in tsx
+    # 云端备份对话框也用同一套 modal 样式，CSS 已恢复：遮罩固定全屏、
+    # 弹框磨砂、点遮罩关闭（添加域名对话框同步恢复正常显示）
+    assert ".modal-overlay" in css and ".modal" in css
+    assert "position:fixed" in css and "z-index:200" in css
 
 
 def test_add_domain_no_group_select_and_new_group_domain_select():
@@ -485,14 +511,16 @@ def test_accounts_page_no_outer_card():
     assert "accounts.map((a) => (" in accounts
 
 
-def test_buttons_filled_with_accent():
+def test_buttons_accent_border_not_filled():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     btn = re.search(r"\.btn\s*\{([^}]*)\}", css)
     assert btn is not None
     body = btn.group(1)
-    # 主按钮用主题色填充（白字），不再是透明底 + 主题色边框
-    assert "background:var(--accent)" in body
-    assert "color:#fff" in body
+    # 主按钮回到透明底 + 主题色边框 + 蓝字（主题色填充的版本已改回）
+    assert "background:transparent" in body
+    assert "border:2px solid var(--accent)" in body
+    assert "color:#1d4ed8" in body
+    assert "background:var(--accent)" not in body
     # 删除实例仍是红色实心（内联样式，不受 .btn 影响）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert 'background: "#EA4335"' in tsx
@@ -573,13 +601,17 @@ def test_accounts_tab_renamed_to_instances():
     assert "账户管理" not in i18n
 
 
-def test_dash_footer_has_pause_resume_button():
+def test_dash_footer_no_pause_button_refresh_zero_off():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行概览实例状态卡片底部：调度状态旁有恢复/暂停调度按钮，
-    # 点一下调 POST /api/schedule/pause，调度暂停时能从页面上恢复
-    assert 'post("/api/schedule/pause"' in tsx
-    assert 't("恢复调度")' in tsx
-    assert 't("暂停调度")' in tsx
+    # 暂停调度按钮已被用户取消：运行概览不再有恢复/暂停调度按钮，
+    # 也不再调 POST /api/schedule/pause；关闭调度改用 API 刷新时间选“不刷新”（0），
+    # 选分钟数即恢复运行，后端 scheduler_paused 跟该选择同步
+    assert 'post("/api/schedule/pause"' not in tsx
+    assert 't("恢复调度")' not in tsx
+    assert 't("暂停调度")' not in tsx
+    assert '{ value: "0", label: t("不刷新")' in tsx
+    assert '不刷新=暂停调度，选分钟数=恢复运行' in tsx
+    assert 'scheduler_paused: sRefresh === "0" ? "1" : "0"' in tsx
 
 
 def test_two_line_labels_with_two_char_indent():
@@ -594,15 +626,19 @@ def test_two_line_labels_with_two_char_indent():
     # 负载均衡切换阀值（全局 3 处：主标签 + % + GB；分组 3 处同理）
     assert tsx.count('<TwoLineLabel parent="负载均衡"') == 6
     assert '<TwoLineLabel parent="负载均衡" child="切换阀值 *"' in tsx
-    assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' in tsx
+    # 分组侧的主标签已改成“切换模式”（三选一：百分比模式/流量模式/动态模式），
+    # 不再是裸的“切换阀值”
+    assert '<TwoLineLabel parent="负载均衡" child="切换模式"' in tsx
+    assert '<TwoLineLabel parent="负载均衡" child="切换阀值"' not in tsx
     # 定时轮巡子项标签缩进 2 字符（全局轮巡周期/自定义间隔，分组间隔切换周期/自定义间隔/开始时间）
     for label in ("轮巡周期", "间隔切换周期", "自定义间隔", "开始时间"):
         assert f'style={{{{ paddingLeft: "2em" }}}}>{{t("{label}")}}' in tsx, label
 
 
-def test_seg_selected_is_accent_filled():
-    # 选中项用主题色边框+浅底深色字（填充太难看已改回），未选中项不动（透明底、灰框、灰字）
-    assert ".seg button.seg-on { border:2px solid var(--accent); color:var(--accent-text); background:var(--accent-soft);" in CSS
+def test_seg_selected_is_accent_border():
+    # 选中项用主题色边框 + 加粗，不用填充色、不写死蓝字（填充与写死色都已取消），
+    # 未选中项不动（透明底、灰框、灰字）
+    assert ".seg button.seg-on { border:2px solid var(--accent); padding:7px 15px; font-weight:600; }" in CSS
     assert ".seg button { background:transparent; border:1px solid var(--seg-off); color:var(--muted);" in CSS
     # 填充已取消，选中成员按键里的 IP 不再用浅白字
     assert ".seg button.seg-on .member-ip" not in CSS
@@ -613,15 +649,17 @@ def test_controls_align_with_indented_labels():
     # 控件与缩进 2 字符的标签左对齐：Seg/输入框包在 paddingLeft 2em 的 div 里，
     # 阈值动作/阈值恢复整段缩进 2em；全局设置与分组设置都一样
     assert tsx.count('paddingLeft: "2em"') >= 12
-    # 全局：阈值 Seg、轮巡周期 Seg 包在缩进 div 里
-    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sDiffMode}' in tsx
+    # 全局：切换阀值三选一 Seg（sMode，百分比/固定流量/动态模式）、轮巡周期 Seg
+    # 包在缩进 div 里
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sMode}' in tsx
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sInterval}' in tsx
     # 全局：阈值动作/阈值恢复整段缩进
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
     # API 刷新时间按键区与上面轮巡周期按键区左对齐（同缩进 2em）
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={sRefresh}' in tsx
-    # 分组：差值 Seg、间隔 Seg 包在缩进 div 里
-    assert '<div style={{ paddingLeft: "2em" }}><Seg value={diffMode}' in tsx
+    # 分组：差值 Seg（动态模式时值为 "dynamic"，否则跟 diffMode）、间隔 Seg
+    # 包在缩进 div 里
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string}' in tsx
     assert '<div style={{ paddingLeft: "2em" }}><Seg value={interval}' in tsx
 
 
@@ -638,11 +676,14 @@ def test_parent_child_hierarchy_global():
 def test_theme_accents_are_light():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 5 种主题色全部改浅（600 -> 500）：按钮/边框/选中填充用的 accent 更浅
+    # 5 种主题色全部改浅（600 -> 500）：html[data-accent] 规则里的 --accent 用 500 档
     for hexv in ("#10b981", "#3b82f6", "#f97316", "#8b5cf6", "#ef4444"):
         assert hexv in css.lower(), hexv
-    for old in ("#059669", "#2563eb", "#ea580c", "#7c3aed", "#dc2626"):
+    # 其余旧 600 档色值已不在 CSS 里；#2563eb 只剩 :root 的 fallback（JS 运行前）
+    # 与 .icon-btn.blue 的写死蓝，不再是主题 accent
+    for old in ("#059669", "#ea580c", "#7c3aed", "#dc2626"):
         assert old not in css.lower(), old
+    assert "--accent:#2563eb" in css.replace(" ", "")
     # 主题卡片渐变色块同步改浅
     for g in ("#a7f3d0,#10b981", "#bfdbfe,#3b82f6", "#fed7aa,#f97316", "#ddd6fe,#8b5cf6", "#fecaca,#ef4444"):
         assert g in tsx, g
@@ -669,16 +710,46 @@ def test_settings_cards_use_parent_child_layout():
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
 
 
-def test_nav_and_subtabs_selected_are_accent_filled():
+def test_nav_and_subtabs_selected_are_accent_border():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 顶部导航与设置子标签选中态用主题色填充白字（与主按钮、Seg 选中一致），不再是浅底
+    # 顶部导航与设置子标签选中态回到主题色边框样式（主题色填充已改回），
+    # 不用填充色、不写死白字；选中仍加粗
     m = re.search(r"nav button\.active\s*\{([^}]*)\}", css)
     assert m, "nav button.active missing"
     body = m.group(1).replace(" ", "")
-    assert "background:var(--accent)" in body
-    assert "color:#fff" in body
+    assert "border:2pxsolidvar(--accent)" in body
+    assert "background:var(--accent)" not in body
+    assert "font-weight:600" in body
     m2 = re.search(r"\.subtabs button\.active\s*\{([^}]*)\}", css)
     assert m2, ".subtabs button.active missing"
     body2 = m2.group(1).replace(" ", "")
-    assert "background:var(--accent)" in body2
-    assert "color:#fff" in body2
+    assert "border-color:var(--accent)" in body2
+    assert "background:var(--accent)" not in body2
+    assert "font-weight:600" in body2
+
+
+def test_backup_card_cloud_button_local_button_and_dialog():
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    # 云端备份是按钮（不是滑动开关），放在本地备份前面；选中（已启用）时
+    # 用 seg-on 样式（主题色边框 + 加粗），点一下切换 webdav_enabled
+    assert 'title={t("云端备份")}' in tsx
+    assert 'className={wdEnabled ? "seg-on" : ""}' in tsx
+    assert 'saveSettings({ webdav_enabled: wdEnabled ? "0" : "1" })' in tsx
+    # 云端备份按钮在本地备份按钮前面
+    assert tsx.index('t("云端备份")') < tsx.index('t("本地备份")')
+    # 下载备份改名本地备份，点一下下载
+    assert 'title={t("本地备份")}' in tsx
+    assert '本地备份: "Local backup"' in i18n
+    # 卡片右上角有云端备份设置按钮（⚙），点一下弹出云端备份对话框
+    assert 'title={t("云端备份设置")}' in tsx
+    assert "showWdDialog" in tsx
+    assert 'className="modal-overlay"' in tsx
+    # 对话框里是 WebDAV 配置（地址/用户名/密码）+ 测试/上传/从云端恢复 + 状态
+    assert 't("云端备份设置")' in tsx
+    assert 'id="wd-url"' in tsx and 'id="wd-user"' in tsx and 'id="wd-pass"' in tsx
+    # 旧的 inline 开关与 inline 表单已取消：卡片里不再有启用云端备份的 Toggle
+    assert 'label={t("启用云端备份")}' not in tsx
+    # modal 样式存在（云端备份对话框与添加域名对话框共用）
+    assert ".modal-overlay" in css and ".modal" in css

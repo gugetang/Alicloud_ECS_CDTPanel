@@ -308,6 +308,9 @@ def get_settings() -> dict[str, str]:
         for r in conn.execute("SELECT key, value FROM settings"):
             stored[r["key"]] = r["value"]
     out.update(stored)
+    # 清理时间归一化：库里非法值（如备份恢复带入的）读出来也按 03:00 算，
+    # 调度器与前端永远拿到合法 HH:MM；写路径由 api._validate_settings 归一化。
+    out["cleanup_time"] = norm_cleanup_time(out.get("cleanup_time"))
     # API 刷新时间合并迁移：旧库只存了 check_interval_minutes 时，
     # 把旧值作为 api_refresh_minutes（新字段），避免旧间隔丢失。
     if "api_refresh_minutes" not in stored and "check_interval_minutes" in stored:
@@ -386,11 +389,26 @@ def list_evicted_account_ids() -> set[int]:
     return out
 
 
-# 数据保留期（调度循环每天清理一次，见 scheduler._maybe_prune_daily）：
+# 数据保留期（调度循环每天清理一次，见 scheduler._maybe_cleanup_daily）：
 # 事件留 90 天且最多 5000 条；流量采样留 90 天。
 EVENTS_RETENTION_DAYS = 90
 EVENTS_MAX_ROWS = 5000
 TRAFFIC_SAMPLES_RETENTION_DAYS = 90
+
+# 数据清理固定时间默认值（HH:MM）
+CLEANUP_TIME_DEFAULT = "03:00"
+
+# 数据目录临时文件后缀：清理时删除（只删这三种，logo/密钥/库文件不动）
+CLEANUP_TEMP_SUFFIXES = (".tmp", ".bak")
+CLEANUP_TEMP_SUFFIX = "~"
+
+
+def norm_cleanup_time(value: object) -> str:
+    """清理时间归一化：合法 HH:MM 原样返回（去空白），否则回默认值 03:00。"""
+    v = str(value or "").strip()
+    if re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
+        return v
+    return CLEANUP_TIME_DEFAULT
 
 
 def prune_old_data(now: int | None = None) -> dict:
@@ -415,6 +433,81 @@ def prune_old_data(now: int | None = None) -> dict:
         conn.commit()
     return {"events_deleted": n_events_old + n_events_over,
             "traffic_samples_deleted": n_samples}
+
+
+def _db_file_path() -> Path:
+    """当前主库文件路径（PRAGMA database_list，不依赖全局 DATA_DIR，
+    测试用 tmpdb 时也指向临时库）。"""
+    conn = connect()
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row is not None and row[2]:
+        return Path(row[2])
+    return cfg.DB_PATH
+
+
+def run_cleanup(now: int | None = None, ran_at: str | None = None) -> dict:
+    """定时清理（每天固定时间一次，见 scheduler._maybe_cleanup_daily，
+    也可由 POST /api/maintenance/cleanup 手动触发）：
+
+    1. prune_old_data：删过期事件/流量采样；
+    2. VACUUM：删行后 SQLite 文件不自动缩小，VACUUM 重建回收空间；
+    3. PRAGMA wal_checkpoint(TRUNCATE)：把 WAL 落盘并截断，清 cdt.db-wal；
+    4. 删除数据目录下的临时文件（*.tmp、*.bak、*~）。
+
+    ran_at：显示用的“YYYY-MM-DD HH:MM”（调用方按设置时区传，见调度器
+    与手动接口；直接调用时用本地时间）。结果写 flags.cleanup_last
+    （JSON，供 /api/status 前端显示）并记一条 cleanup 事件；返回结果字典
+    （含删行数、回收字节数、检查点、临时文件）。
+    """
+    now = now if now is not None else int(time.time())
+    ran_at = ran_at or time.strftime("%Y-%m-%d %H:%M", time.localtime(now))
+    pruned = prune_old_data(now=now)
+    db_path = _db_file_path()
+    size_before = db_path.stat().st_size if db_path.is_file() else 0
+    conn = connect()
+    with _lock:
+        # 先提交可能挂起的事务：VACUUM 不能在事务内执行
+        conn.commit()
+        conn.execute("VACUUM")
+        conn.commit()
+        # WAL 模式下 VACUUM 的结果先落在 WAL 里，检查点落盘后主库文件才缩小，
+        # 所以 size_after 必须在检查点之后再量
+        row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        conn.commit()
+        size_after = db_path.stat().st_size if db_path.is_file() else 0
+    wal = {"busy": int(row[0]) if row else 0,
+           "log": int(row[1]) if row else 0,
+           "checkpointed": int(row[2]) if row else 0}
+    # 临时文件：只删数据目录（库文件所在目录）下的 *.tmp / *.bak / *~
+    tmp_deleted: list[str] = []
+    data_dir = db_path.parent
+    if data_dir.is_dir():
+        for p in sorted(data_dir.iterdir()):
+            if p.is_file() and (p.suffix in CLEANUP_TEMP_SUFFIXES
+                                or p.name.endswith(CLEANUP_TEMP_SUFFIX)):
+                try:
+                    p.unlink()
+                    tmp_deleted.append(p.name)
+                except OSError:
+                    pass
+    result = {
+        "ran_at": ran_at,
+        "events_deleted": pruned["events_deleted"],
+        "traffic_samples_deleted": pruned["traffic_samples_deleted"],
+        "temp_files_deleted": len(tmp_deleted),
+        "temp_files": tmp_deleted,
+        "db_size_before": size_before,
+        "db_size_after": size_after,
+        "db_size_reclaimed": max(0, size_before - size_after),
+        "wal_checkpoint": wal,
+    }
+    set_flag("cleanup_last", json.dumps(result, ensure_ascii=False))
+    add_event("cleanup", "数据清理完成",
+              f"事件 {result['events_deleted']} 条、流量采样 "
+              f"{result['traffic_samples_deleted']} 条、临时文件 "
+              f"{result['temp_files_deleted']} 个、回收 "
+              f"{result['db_size_reclaimed']} 字节")
+    return result
 
 
 def add_event(kind: str, title: str, detail: str = "",
@@ -525,7 +618,7 @@ def create_group(data: dict) -> dict:
         vals[cols.index("interval_start_time")] = _norm_start_time(data.get("interval_start_time"))
     # 新分组排最后（旧库已有分组 priority 全 0 时 max+1 也成立）
     _mx = conn.execute("SELECT COALESCE(MAX(priority), -1) FROM groups").fetchone()
-    vals[-1] = (_mx[0] if _mx else -1) + 1
+    vals[cols.index("priority")] = (_mx[0] if _mx else -1) + 1
     # 创建分组时可选一个已添加的域名（一个域名只能被选取一次）：先校验该域名
     # 存在且未被其他分组选取，建组后直接绑过来
     domain_id = data.get("domain_id")

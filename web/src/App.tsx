@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 
@@ -80,14 +80,14 @@ function Ico({ label, children }: { label: string; children: any }) {
 }
 
 // 主题图标：亮色=太阳，暗色=月亮，跟随系统=显示器。
-function ThemeIcon({ theme }: { theme: string }) {
+function ThemeIcon({ theme, size = 18 }: { theme: string; size?: number }) {
   if (theme === "dark") {
-    return (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>);
+    return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>);
   }
   if (theme === "system") {
-    return (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>);
+    return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>);
   }
-  return (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>);
+  return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>);
 }
 
 // 流量用量条颜色：绿 <80%、黄 ≥80%、红 ≥保护阈值，未知为灰。
@@ -402,6 +402,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   const [pw, setPw] = useState("");
   const [msg, setMsg] = useState(oauthMsg || "");
   const [busy, setBusy] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
   // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
   // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
@@ -460,7 +461,41 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   };
 
   return (
-    <div className="auth-wrap">
+    <>
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+        <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
+          <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
+          <span className="lang-sep">/</span>
+          <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
+        </button>
+        <div className="theme-menu">
+          <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
+            <ThemeIcon theme={theme} size={9} />
+          </button>
+          {themeMenuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setThemeMenuOpen(false)} />
+              <div className="menu">
+                {(["light", "dark", "system"] as const).map((v) => (
+                  <button key={v} className={theme === v ? "sel" : ""} onClick={() => { setTheme(v); setThemeMenuOpen(false); }}>
+                    <span className="menu-ico"><ThemeIcon theme={v} /></span>
+                    <span>{t(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")}</span>
+                    <span className="menu-check">{theme === v ? "✓" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <button className="btn ghost theme-btn" aria-label={t("退出")} title={t("退出")} onClick={() => { if (window.history.length > 1) window.history.back(); else window.close(); }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
+      </div>
+      <div className="auth-wrap">
       <div className="card">
         <div className="auth-title">{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
         <label className="req">{t("登录密码 *")}</label>
@@ -483,21 +518,9 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
           {t("使用 GitHub 登录")}
         </button>
-        <div className="row" style={{ justifyContent: "center", marginTop: 16, gap: 8 }}>
-          <button className="btn ghost btn-sm auth-util" title={t("语言")} onClick={() => setLang(lang === "zh" ? "en" : "zh")}>
-            <span className={lang === "zh" ? "lang-on" : "lang-off"}>中</span>
-            <span className="lang-sep">/</span>
-            <span className={lang === "en" ? "lang-on" : "lang-off"}>En</span>
-          </button>
-          <button className="btn ghost btn-sm auth-util" title={t("跟随系统")} onClick={() => setTheme("system")}>
-            {t("跟随系统")}{theme === "system" ? " ✓" : ""}
-          </button>
-          <button className="btn ghost btn-sm auth-util" title={t("退出")} onClick={() => { if (window.history.length > 1) window.history.back(); else window.close(); }}>
-            {t("退出")}
-          </button>
-        </div>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -523,36 +546,22 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
-  // 动态切换间隔（分钟）：后端存分钟；30/60/90/120 为预设，0=自定义；未填默认 30
+  // 动态切换间隔（分钟）：后端存分钟；30/60/90 为预设，0=自定义；未填默认 30
   const _gdm = Number(g.dynamic_interval_minutes ?? 0) || 0;
-  const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90, 120].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
-  const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90, 120].includes(_gdm) ? _gdm : 30));
+  const [dynInterval, setDynInterval] = useState(_gdm > 0 && [30, 60, 90].includes(_gdm) ? String(_gdm) : _gdm > 0 ? "0" : "30");
+  const [dynCustVal, setDynCustVal] = useState(String(_gdm > 0 && ![30, 60, 90].includes(_gdm) ? _gdm : 30));
   // 分组级阈值策略：空=跟随系统
   const [gExcl, setGExcl] = useState((g.exclusion_action as string) ?? "");
   const [gRecovery, setGRecovery] = useState((g.recovery_action as string) ?? "");
   // 负载均衡/定时轮巡是否跟随系统：相关参数全为空即跟随系统（后端 NULL=继承全局）
   const lbFollowGlobal = g.switch_diff_mode == null && g.switch_diff_pct == null && g.switch_diff_gb == null && g.dynamic_interval_minutes == null;
   const timeFollowGlobal = g.interval_hours == null && g.custom_interval_minutes == null && g.interval_start_time == null;
-  // 负载均衡跟随系统/自定义切换：跟随系统时参数全部置空（继承全局），自定义时
-  // 参数填入当前全局值（对话框出现，用户可改）
-  const setLbFollowGlobal = (follow: boolean) => {
+  // 切换参数统一跟随系统/自定义：跟随系统时定时轮巡与负载均衡参数全部置空
+  // （继承全局），自定义时两组参数都填入当前全局值（配置对话框出现，用户可改）
+  const switchFollowGlobal = timeFollowGlobal && lbFollowGlobal;
+  const setSwitchFollowGlobal = (follow: boolean) => {
     if (follow) {
-      savePatch({ switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null });
-    } else {
-      const m = (settings.switch_diff_mode as string) || "percent";
-      const pct = Number(settings.switch_diff_pct ?? 10) || 10;
-      const gb = Number(settings.switch_diff_gb ?? 10) || 10;
-      const dyn = Math.max(30, Number(settings.dynamic_interval_minutes ?? 30) || 30);
-      setDiffMode(m); setDiffPct(String(pct)); setDiffGb(String(gb));
-      setDynInterval([30, 60, 90, 120].includes(dyn) ? String(dyn) : "0");
-      setDynCustVal(String([30, 60, 90, 120].includes(dyn) ? 30 : dyn));
-      savePatch({ switch_diff_mode: m, switch_diff_pct: pct, switch_diff_gb: gb, dynamic_interval_minutes: dyn });
-    }
-  };
-  // 定时轮巡跟随系统/自定义切换
-  const setTimeFollowGlobal = (follow: boolean) => {
-    if (follow) {
-      savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null });
+      savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null, switch_diff_mode: null, switch_diff_pct: null, switch_diff_gb: null, dynamic_interval_minutes: null });
     } else {
       const hrs = Number(settings.interval_hours ?? 6) || 6;
       const cmins = Number(settings.custom_interval_minutes ?? 0) || 0;
@@ -562,7 +571,14 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
       setCustUnit(u);
       setCustVal(String(u === "day" ? cmins / 1440 : u === "hour" ? cmins / 60 : cmins));
       setStartTime(st);
-      savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st });
+      const m = (settings.switch_diff_mode as string) || "percent";
+      const pct = Number(settings.switch_diff_pct ?? 10) || 10;
+      const gb = Number(settings.switch_diff_gb ?? 10) || 10;
+      const dyn = Math.max(30, Number(settings.dynamic_interval_minutes ?? 30) || 30);
+      setDiffMode(m); setDiffPct(String(pct)); setDiffGb(String(gb));
+      setDynInterval([30, 60, 90].includes(dyn) ? String(dyn) : "0");
+      setDynCustVal(String([30, 60, 90].includes(dyn) ? 30 : dyn));
+      savePatch({ interval_hours: hrs, custom_interval_minutes: cmins, interval_start_time: st, switch_diff_mode: m, switch_diff_pct: pct, switch_diff_gb: gb, dynamic_interval_minutes: dyn });
     }
   };
   // 分组设置区是否展开（卡片右上角 ⚙ 开关，默认展开）
@@ -608,14 +624,16 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
           { value: "load_balance", label: t("负载均衡") },
         ]} onChange={(m) => run(() => put(`/api/groups/${g.id}`, { switch_mode: m }), t("已切换模式"))} />
       </div>
+      <div style={{ marginTop: 12 }}>
+        <label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
+        <div style={{ paddingLeft: "2em" }}><Seg value={switchFollowGlobal ? "global" : "custom"} options={[
+          { value: "global", label: t("跟随系统") },
+          { value: "custom", label: t("自定义") },
+        ]} onChange={(v) => setSwitchFollowGlobal(v === "global")} /></div>
+      </div>
       {g.switch_mode === "time" ? (
         <div style={{ marginTop: 12 }}>
-          <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
-            <div style={{ paddingLeft: "2em" }}><Seg value={timeFollowGlobal ? "global" : "custom"} options={[
-              { value: "global", label: t("跟随系统") },
-              { value: "custom", label: t("自定义") },
-            ]} onChange={(v) => setTimeFollowGlobal(v === "global")} /></div></div>
-          {!timeFollowGlobal && (<>
+          {!switchFollowGlobal && (<>
           <div className="form2" style={{ marginTop: 12 }}>
             <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("间隔切换周期")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
@@ -642,12 +660,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("切换参数")}</label>
-            <div style={{ paddingLeft: "2em" }}><Seg value={lbFollowGlobal ? "global" : "custom"} options={[
-              { value: "global", label: t("跟随系统") },
-              { value: "custom", label: t("自定义") },
-            ]} onChange={(v) => setLbFollowGlobal(v === "global")} /></div></div>
-          {!lbFollowGlobal && (<>
+          {!switchFollowGlobal && (<>
           <TwoLineLabel parent="负载均衡" child="切换模式" />
           <div style={{ paddingLeft: "2em" }}><Seg value={(g.switch_mode === "dynamic" ? "dynamic" : diffMode) as string} options={[
             { value: "percent", label: t("百分比模式"), title: t("使用率差值 ≥ 阀值% 时，切到剩余流量最多的服务器") },
@@ -660,7 +673,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, dragPro
                 <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                    { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
+                    { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义") },
                   ]} onChange={(v) => { setDynInterval(v); savePatch({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(dynCustVal) || 30) : Number(v) }); }} /></div></div>
               </div>
@@ -912,7 +925,7 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
         <div><label>{t("当前密码")}</label><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder={t("首次设置留空")} /></div>
         <div><label>{t("新密码")}</label><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("至少 6 位")} /></div>
       </div>
-      <div className="row" style={{ marginTop: 8, paddingLeft: "2em" }}>
+      <div className="row" style={{ marginTop: 8 }}>
         <button className="btn" onClick={changePw} disabled={busy} title={t("修改密码")}>{t("修改密码")}</button>
       </div></div>
       <h3 style={{ marginTop: 20 }}>{t("指纹登录")}</h3>
@@ -955,6 +968,7 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   const [busy, setBusy] = useState(false);
   const [fileName, setFileName] = useState("");
   const [wdStatus, setWdStatus] = useState<Any | null>(null);
+  const [showWdDialog, setShowWdDialog] = useState(false);
 
   const wdEnabled = settings?.webdav_enabled === "1";
   const wdConfigured = Boolean(settings?.webdav_configured);
@@ -1061,40 +1075,48 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
   };
 
   return (
-    <div className="card"><h2>{t("备份与恢复")}</h2>
-      <div className="row" style={{ paddingLeft: "2em" }}>
-        <button className="btn" onClick={download} disabled={busy} title={t("下载备份")}>{t("下载备份")}</button>
+    <div className="card">
+      <div className="row"><h2 style={{ margin: 0 }}>{t("备份与恢复")}</h2>
+        <span className="spacer" />
+        <button className="btn ghost" title={t("云端备份设置")} onClick={() => setShowWdDialog(true)}>⚙️</button>
+      </div>
+      <div className="row" style={{ paddingLeft: "2em", marginTop: 12 }}>
+        <div className="seg">
+          <button type="button" className={wdEnabled ? "seg-on" : ""} title={t("云端备份")} onClick={() => saveSettings({ webdav_enabled: wdEnabled ? "0" : "1" })}>{t("云端备份")}</button>
+        </div>
+        <button className="btn" onClick={download} disabled={busy} title={t("本地备份")}>{t("本地备份")}</button>
         <input type="file" id="backup-file" accept=".json,application/json"
           style={{ flex: 1 }} onChange={(e) => setFileName(e.target.files?.[0]?.name || "")} />
         <button className="btn" onClick={restore} disabled={busy || !fileName} title={t("恢复备份")}>{t("恢复备份")}</button>
       </div>
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
-      <div style={{ marginTop: 16 }}>
-        <div className="row" style={{ paddingLeft: "2em", alignItems: "center" }}>
-          <b>{t("云端备份（WebDAV）")}</b>
-          <Toggle checked={wdEnabled} label={t("启用云端备份")} onChange={(v) => saveSettings({ webdav_enabled: v ? "1" : "0" })} />
-          <span className="muted">{t("启用云端备份")}</span>
+      {showWdDialog && (
+        <div className="modal-overlay" onClick={() => setShowWdDialog(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>{t("云端备份设置")}</h3>
+            <div style={{ marginTop: 12 }}>
+              <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("WebDAV 地址")}</label>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://…/backups/cdt-backup.json" style={{ width: "100%" }} onBlur={saveWd} /></div>
+                <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("填备份文件的完整地址，例如 Nextcloud / 坚果云 / 群晖的 WebDAV 文件地址。")}</div></div>
+              <div style={{ marginTop: 12 }}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("用户名")}</label>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
+              <div style={{ marginTop: 12 }}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("密码")}</label>
+                <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
+            </div>
+            <div className="row" style={{ paddingLeft: "2em", marginTop: 16 }}>
+              <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
+              <button className="btn" onClick={wdUpload} disabled={busy} title={t("上传到云端")}>{t("上传到云端")}</button>
+              <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists} title={t("从云端恢复")}>{t("从云端恢复")}</button>
+            </div>
+            <p className="muted" style={{ paddingLeft: "2em" }}>
+              {!wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
+            </p>
+            <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="btn ghost" onClick={() => setShowWdDialog(false)}>{t("关闭")}</button>
+            </div>
+          </div>
         </div>
-        {wdEnabled && (<>
-          <div className="form2" style={{ marginTop: 8 }}>
-            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("WebDAV 地址")}</label>
-              <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} placeholder="https://…/backups/cdt-backup.json" style={{ width: "100%" }} onBlur={saveWd} /></div>
-              <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("填备份文件的完整地址，例如 Nextcloud / 坚果云 / 群晖的 WebDAV 文件地址。")}</div></div>
-            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("用户名")}</label>
-              <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: 240 }} onBlur={saveWd} /></div></div>
-            <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("密码")}</label>
-              <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
-          </div>
-          <div className="row" style={{ paddingLeft: "2em", marginTop: 12 }}>
-            <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
-            <button className="btn" onClick={wdUpload} disabled={busy} title={t("上传到云端")}>{t("上传到云端")}</button>
-            <button className="btn" onClick={wdDownload} disabled={busy || !wdStatus?.exists} title={t("从云端恢复")}>{t("从云端恢复")}</button>
-          </div>
-          <p className="muted" style={{ paddingLeft: "2em" }}>
-            {!wdStatus ? t("云端状态未知") : !wdStatus.configured ? t("未配置 WebDAV 地址") : wdStatus.exists ? t("云端已有备份：{size}，{modified}", { size: fmtSize(wdStatus.size ?? 0), modified: wdStatus.modified || "" }) : t("云端暂无备份")}
-          </p>
-        </>)}
-      </div>
+      )}
     </div>
   );
 }
@@ -1373,6 +1395,28 @@ export default function App() {
     await run(async () => put("/api/settings", patch), t("已保存成功"));
   };
 
+  // 字节数显示：B / KB / MB（数据清理回收量用）
+  const fmtSize = (b: number) => {
+    const n = Number(b) || 0;
+    if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${n} B`;
+  };
+
+  // 数据清理：立即清理一次，成功显示清理结果并刷新状态
+  const doCleanupNow = async () => {
+    setBusy(true); setMsg("");
+    try {
+      const r = await post("/api/maintenance/cleanup", {}) as Any;
+      setMsg(t("已清理：事件 {e} 条、流量采样 {s} 条、临时文件 {f} 个、回收 {size}", {
+        e: r.events_deleted ?? 0, s: r.traffic_samples_deleted ?? 0,
+        f: r.temp_files_deleted ?? 0, size: fmtSize(r.db_size_reclaimed ?? 0),
+      }));
+      await load();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
   // DDNS 设置（Cloudflare Token + 时区）：Token 留空保持不变，只有填了
   // 新值才提交；改动自动保存。
   const ddnsPatch = () => {
@@ -1464,6 +1508,8 @@ export default function App() {
   const [sExcl, setSExcl] = useState("none");
   const [sRecovery, setSRecovery] = useState("start");
   const [sDiffMode, setSDiffMode] = useState("percent");
+  // 切换阀值三选一的有效模式：percent / gb / dynamic（动态模式时全局 switch_mode 为 dynamic）
+  const [sMode, setSMode] = useState("percent");
   const [sInterval, setSInterval] = useState("6");
   const [sCustVal, setSCustVal] = useState("0");
   const [sCustUnit, setSCustUnit] = useState("minute");
@@ -1476,13 +1522,14 @@ export default function App() {
     setSExcl(settings.exclusion_action ?? "none");
     setSRecovery(settings.threshold_recovery_action ?? "start");
     setSDiffMode(settings.switch_diff_mode ?? "percent");
+    setSMode(settings.switch_mode === "dynamic" ? "dynamic" : (settings.switch_diff_mode ?? "percent"));
     const cm = Number(settings.custom_interval_minutes ?? 0) || 0;
     const ih0 = Number(settings.interval_hours ?? 6) || 6;
     // 轮巡周期只留 3/6/12/自定义：自定义分钟数>0 时选“自定义”，否则把
     // 已取消的 1/2/4/24 小时映射到最近的保留值。
     setSInterval(cm > 0 ? "0" : ["3", "6", "12"].includes(String(ih0)) ? String(ih0) : ih0 <= 2 ? "3" : ih0 <= 4 ? "6" : "12");
     const dyn = Number(settings.dynamic_interval_minutes ?? 30) || 30;
-    setSDynInterval(["30", "60", "90", "120"].includes(String(dyn)) ? String(dyn) : "0");
+    setSDynInterval(["30", "60", "90"].includes(String(dyn)) ? String(dyn) : "0");
     setSDynCustVal(String(Math.max(30, dyn)));
     const cu = cm > 0 && cm % 1440 === 0 ? "day" : cm > 0 && cm % 60 === 0 ? "hour" : "minute";
     setSCustUnit(cu);
@@ -1536,6 +1583,12 @@ export default function App() {
   useEffect(() => {
     setDrEnabled(settings.daily_report_enabled !== "0");
     setDrTime(String(settings.daily_report_time ?? "00:00"));
+  }, [settings]);
+
+  // ---------- 数据清理（其它设置）：每天固定时间自动清理一次 ----------
+  const [cleanupTime, setCleanupTime] = useState("03:00");
+  useEffect(() => {
+    setCleanupTime(String(settings.cleanup_time ?? "03:00"));
   }, [settings]);
 
   // ---------- 分组新建表单 ----------
@@ -1612,7 +1665,7 @@ export default function App() {
             </button>
             <div className="theme-menu">
               <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); }}>
-                <ThemeIcon theme={theme} />
+                <ThemeIcon theme={theme} size={9} />
               </button>
               {themeMenuOpen && (
                 <>
@@ -1634,7 +1687,7 @@ export default function App() {
               setToken(null);
               setAuthState("login");
             }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                 <polyline points="16 17 21 12 16 7" />
                 <line x1="21" y1="12" x2="9" y2="12" />
@@ -1773,8 +1826,9 @@ export default function App() {
           ) : (
           <table><thead><tr><th></th><th>{t("服务器")}</th><th>{t("站点")}</th><th>{t("地域")}</th><th>IP</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
-              <tr key={a.id as number} {...dragProps("account", a.id as number)}
-                style={{ cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
+              <Fragment key={a.id as number}>
+              <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
+                style={{ cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className="pill">{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
@@ -1783,8 +1837,17 @@ export default function App() {
                 <td><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
-                <td><ActionButtons a={a} /></td>
+                <td><div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                  <button className="btn ghost" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}>⚙️</button>
+                  <ActionButtons a={a} />
+                </div></td>
               </tr>
+              {cardSettingsId === a.id && (
+                <tr><td colSpan={9} style={{ padding: "0 8px 12px" }}>
+                  <CardSettings a={a} />
+                </td></tr>
+              )}
+              </Fragment>
             ))}</tbody></table>
           )}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
@@ -1950,17 +2013,18 @@ export default function App() {
             </div>
             <div className="form2">
               <div><TwoLineLabel parent="负载均衡" child="切换阀值 *" req />
-                <div style={{ paddingLeft: "2em" }}><Seg value={sDiffMode} options={[
+                <div style={{ paddingLeft: "2em" }}><Seg value={sMode} options={[
                   { value: "percent", label: t("百分比（%）") },
                   { value: "gb", label: t("固定流量（GB）") },
-                ]} onChange={(v) => { setSDiffMode(v); saveParamSettings({ switch_diff_mode: v }); }} /></div></div>
-              {sDiffMode === "percent" ? (
+                  { value: "dynamic", label: t("动态模式"), title: t("每到间隔切到剩余流量最多的服务器，不看流量差值") },
+                ]} onChange={(v) => { if (v === "dynamic") { setSMode("dynamic"); saveParamSettings({ switch_mode: "dynamic" }); } else { setSMode(v); setSDiffMode(v); saveParamSettings({ switch_mode: "load_balance", switch_diff_mode: v }); } }} /></div></div>
+              {sMode === "percent" ? (
                 <div><TwoLineLabel parent="负载均衡" child="切换阀值 *（%）" req /><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_pct ?? 10)} id="s-diff" onBlur={() => saveParamSettings()} /></div></div>
-              ) : (
+              ) : sMode === "gb" ? (
                 <div><TwoLineLabel parent="负载均衡" child="切换阀值（GB）" /><div style={{ paddingLeft: "2em" }}><input defaultValue={String(settings.switch_diff_gb ?? 10)} id="s-diffgb" onBlur={() => saveParamSettings()} /></div></div>
-              )}
+              ) : null}
             </div>
-            <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
+            {sMode !== "dynamic" && (<div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>)}
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
@@ -1996,13 +2060,14 @@ export default function App() {
                   ]} onChange={changeCustUnit} />
                 </div></div></div>)}
             </div>
+            {sMode === "dynamic" && (<>
             <h3 style={{ marginTop: 20 }}>{t("动态模式")}</h3>
             <div>
               <div className="form2">
                 <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
-                    { value: "90", label: t("90 分钟") }, { value: "120", label: t("120 分钟") },
+                    { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义") },
                   ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
               </div>
@@ -2011,6 +2076,7 @@ export default function App() {
                   <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: 120 }} /></div></div>)}
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
             </div>
+            </>)}
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[
@@ -2065,6 +2131,22 @@ export default function App() {
             </div>
             </div>
           </div>
+          <div className="card"><h2>{t("数据清理")}</h2>
+            <div style={{ paddingLeft: "2em" }}>
+              <label className="lbl">{t("清理时间")}</label>
+              <div><input type="time" value={cleanupTime} onChange={(e) => setCleanupTime(e.target.value)} onBlur={() => saveSettings({ cleanup_time: cleanupTime || "03:00" })} /></div>
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                {(status?.cleanup as Any) ? t("上次清理 {at}：事件 {e} 条、流量采样 {s} 条、临时文件 {f} 个、回收 {size}", {
+                  at: (status?.cleanup as Any).ran_at ?? "", e: (status?.cleanup as Any).events_deleted ?? 0,
+                  s: (status?.cleanup as Any).traffic_samples_deleted ?? 0, f: (status?.cleanup as Any).temp_files_deleted ?? 0,
+                  size: fmtSize((status?.cleanup as Any).db_size_reclaimed ?? 0),
+                }) : t("尚未清理")}
+              </div>
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+                <button className="btn" onClick={doCleanupNow}>{t("立即清理")}</button>
+              </div>
+            </div>
+          </div>
         </>
       )}
 
@@ -2114,7 +2196,16 @@ export default function App() {
         </div>
       )}
       <footer style={{ marginTop: 24, padding: "12px 0", textAlign: "center" }}>
-        <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13 }}>GitHub: gugetang/Alicloud_ECS_CDTPanel</a>
+        <div className="row" style={{ justifyContent: "center", gap: 24 }}>
+          <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
+            {t("项目地址")}
+          </a>
+          <a href="mailto:alicloudadmin@gmail.com" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="22,6 12,13 2,6" /></svg>
+            {t("联系邮箱")} alicloudadmin@gmail.com
+          </a>
+        </div>
       </footer>
     </div>
   );

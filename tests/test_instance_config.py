@@ -231,8 +231,10 @@ def test_daily_report_follows_global_switch(tmpdb, monkeypatch):
     tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is False
     assert calls == []
-    # 全局开了就推
+    # 全局开了就推（_maybe_send_daily_report 以传入的 settings 为准，
+    # 改库后要重取，不能用开之前的旧字典）
     tmpdb.set_settings({"daily_report_enabled": "1"})
+    s = tmpdb.get_settings()
     tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
     assert calls == [[a["id"]]]
