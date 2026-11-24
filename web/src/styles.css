@@ -19,11 +19,15 @@ html[data-accent="nebula"] { --accent:#8b5cf6; }
 html[data-accent="crimson"] { --accent:#ef4444; }
 html[data-theme="dark"] {
   --bg:#0b1220; --card:rgba(71,85,105,0.5); --card2:rgba(71,85,105,0.5);
+  /* 表格 sticky 首列专用：--card 的 100% 不透明版，滑动时不透出下面滚过的文字 */
+  --card-solid:rgb(71,85,105);
   --border:rgba(148,163,184,0.35); --text:#e6edf7; --muted:#8ea0bf;
   --input:rgba(11,21,38,0.55); --seg-off:#9AA0A6;
 }
 html[data-theme="light"] {
   --bg:#ffffff; --card:rgba(255,255,255,0.3); --card2:rgba(255,255,255,0.3);
+  /* 表格 sticky 首列专用：--card 的 100% 不透明版，滑动时不透出下面滚过的文字 */
+  --card-solid:#ffffff;
   --border:rgba(37,99,235,0.25); --text:#0f172a; --muted:#64748b;
   --input:rgba(255,255,255,0.75); --seg-off:#9AA0A6;
 }
@@ -112,10 +116,25 @@ html[data-theme="dark"] .modal.modal-wd { background:rgba(71,85,105,0.9); }
 .theme-name { display:block; font-weight:600; color:var(--text); }
 .theme-en { display:block; color:var(--muted); font-size:12px; }
 html[data-theme="light"] .pill.red { background:#fee2e2; color:#b91c1c; }
-table { width:100%; border-collapse:collapse; font-size:14px; }
-/* M-02：表格所有尺寸都可横向滚动，首列 sticky 不跟内容滚走。 */
+table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; }
+/* M-02：表格所有尺寸都可横向滚动，首列 sticky 不跟内容滚走。
+   border-collapse 必须用 separate：collapse 下 sticky 单元格在部分
+   浏览器（尤其移动端）上固定失效、底色也盖不住滚过的内容；separate +
+   border-spacing:0 外观与 collapse 一致（只有单元格底边框）。 */
 table { display:block; overflow-x:auto; }
-table th:first-child, table td:first-child { position:sticky; left:0; background:var(--card); z-index:1; }
+/* 首列固定：底色用 --card-solid（--card 的 100% 不透明版），滑动时下面
+   滚过的内容完全不透出来；保留毛玻璃 backdrop-filter（与其他卡片同款）。
+   thead 的 th 比 tbody 的 td 再高一级，表头盖过滚过的行。 */
+table th:first-child, table td:first-child { position:-webkit-sticky; position:sticky; left:0; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
+table thead th:first-child { z-index:3; }
+/* 跨列的展开行（如实例设置面板）不是数据列，不固定 */
+table td[colspan] { position:static; }
+/* 实例管理列表：首列是拖动排序列（⠿），第二列才是名称列。通用规则只固定
+   了首列，名称列仍会跟着滑走，所以两列都固定：拖动列定宽 32px 贴左，
+   名称列贴在拖动列右边（left:32px），底色同样 100% 不透明。 */
+.accounts-table th:first-child, .accounts-table td:first-child { width:32px; min-width:32px; max-width:32px; }
+.accounts-table th:nth-child(2), .accounts-table td:nth-child(2) { position:-webkit-sticky; position:sticky; left:32px; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
+.accounts-table thead th:nth-child(2) { z-index:3; }
 th,td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
 th { color:var(--muted); font-weight:500; font-size:13px; }
 .bar { height:6px; background:#1e293b; border-radius:3px; margin-top:6px; overflow:hidden; }

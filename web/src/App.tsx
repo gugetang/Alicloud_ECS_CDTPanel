@@ -2145,7 +2145,7 @@ export default function App() {
           ))}
           </div>
           ) : (
-          <table><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
+          <table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
               <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
