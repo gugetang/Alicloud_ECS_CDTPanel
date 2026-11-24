@@ -174,3 +174,77 @@ def test_update_run_endpoint_without_socket(client, monkeypatch):
     assert r.status_code == 200
     assert r.json()["started"] is False
     assert "docker compose pull" in r.json()["manual"]
+
+
+# ---- 面板更新通知（TG/Email）：每个版本只推一次 ----
+
+class _FakeNotifier:
+    def __init__(self, settings, enabled=True):
+        self.s = settings
+        self.enabled_flag = enabled
+        self.sent = []
+        self.last_errors = {}
+
+    def send(self, event, title, body, channel=None, force=False):
+        if not self.enabled_flag:
+            return []
+        self.sent.append((event, title, body))
+        return ["telegram"]
+
+
+def _update_status(monkeypatch, available, latest="abc1234", current="old0000"):
+    import app.update as updater_mod
+    monkeypatch.setattr(
+        updater_mod, "status",
+        lambda: {"current_version": current, "latest_version": latest if available else current,
+                 "latest_message": "feat: new version", "latest_date": "2026-11-24T00:00:00Z",
+                 "update_available": available, "checked_at": 0.0,
+                 "ok": True, "error": None, "running": False, "last_run": None})
+
+
+def test_maybe_notify_update_no_update(monkeypatch, tmp_path):
+    import app.db as dbmod
+    import app.scheduler as sched
+    dbmod.close()
+    dbmod.init_db(db_path=tmp_path / "t.db")
+    _update_status(monkeypatch, available=False)
+    assert sched._maybe_notify_update({}) is False
+    assert not dbmod.get_flag("update_notified_version")
+
+
+def test_maybe_notify_update_sends_once_per_version(monkeypatch, tmp_path):
+    import app.db as dbmod
+    import app.scheduler as sched
+    dbmod.close()
+    dbmod.init_db(db_path=tmp_path / "t.db")
+    fake = _FakeNotifier({})
+    monkeypatch.setattr(sched, "Notifier", lambda settings: fake)
+    _update_status(monkeypatch, available=True, latest="abc1234")
+    # 第一次：推送
+    assert sched._maybe_notify_update({}) is True
+    assert len(fake.sent) == 1
+    assert fake.sent[0][0] == "update_available"
+    assert "abc1234"[:7] in fake.sent[0][2]
+    assert dbmod.get_flag("update_notified_version") == "abc1234"
+    # 第二次：同一版本不再推
+    assert sched._maybe_notify_update({}) is False
+    assert len(fake.sent) == 1
+    # 新版本出来：再推一次
+    _update_status(monkeypatch, available=True, latest="def5678")
+    assert sched._maybe_notify_update({}) is True
+    assert len(fake.sent) == 2
+    assert dbmod.get_flag("update_notified_version") == "def5678"
+
+
+def test_maybe_notify_update_disabled_does_not_mark(monkeypatch, tmp_path):
+    import app.db as dbmod
+    import app.scheduler as sched
+    dbmod.close()
+    dbmod.init_db(db_path=tmp_path / "t.db")
+    fake = _FakeNotifier({}, enabled=False)
+    monkeypatch.setattr(sched, "Notifier", lambda settings: fake)
+    _update_status(monkeypatch, available=True, latest="abc1234")
+    # 开关关闭：不推，也不记已推（打开开关后还能推）
+    assert sched._maybe_notify_update({}) is False
+    assert fake.sent == []
+    assert not dbmod.get_flag("update_notified_version")

@@ -437,8 +437,9 @@ function PasswordField({ value, onChange, placeholder, onKeyDown, inputRef, auto
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative" }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", pointerEvents: "none" }}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
       <input ref={inputRef} type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} onKeyDown={onKeyDown} autoComplete={autoComplete} style={{ paddingRight: 40 }} />
+        placeholder={placeholder} onKeyDown={onKeyDown} autoComplete={autoComplete} style={{ paddingLeft: 38, paddingRight: 40 }} />
       <button type="button" aria-label={show ? t("隐藏密码") : t("显示密码")} title={show ? t("隐藏密码") : t("显示密码")}
         onClick={() => setShow(!show)}
         style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, display: "flex", alignItems: "center" }}>
@@ -646,13 +647,16 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme, accent, setAccen
           {(info.site_logo as boolean) ? (
             <img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", flex: "none" }} />
           ) : null}
-          <div className="auth-title" style={{ margin: 0 }}>{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
+          <div className="auth-title" style={{ margin: 0 }}>{(info.site_name as string) || "CDT 面板"}</div>
         </div>
-        <label className="req">{t("管理员账号 *")}</label>
-        <input ref={usernameRef} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("管理员账号")}
-          autoComplete="username" onKeyDown={(e) => { if (e.key === "Enter") pwRef.current?.focus(); }} />
-        <label className="req">{t("登录密码 *")}</label>
-        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef} autoComplete="current-password"
+        <label className="req">{t("用户名 *")}</label>
+        <div className="input-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+          <input ref={usernameRef} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("请输入用户名")}
+            autoComplete="username" onKeyDown={(e) => { if (e.key === "Enter") pwRef.current?.focus(); }} />
+        </div>
+        <label className="req">{t("密码 *")}</label>
+        <PasswordField value={pw} onChange={setPw} placeholder={t("请输入密码")} inputRef={pwRef} autoComplete="current-password"
           onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
         <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, cursor: "pointer", fontSize: 14 }}>
@@ -660,6 +664,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme, accent, setAccen
           {t("记住账号密码")}
         </label>
         <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy} title={t("登录")}>{t("登录")}</button>
+        <div className="auth-divider">{t("或使用以下方式登录")}</div>
         {info.webauthn && (
           <button className="oauth-btn" title={t("指纹登录")} onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
             {t("指纹登录")}{webauthnSupported ? "" : t("（当前浏览器不支持）")}
@@ -2639,8 +2644,8 @@ export default function App() {
             setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} run={run} />
           <div className="card"><h2>{t("通知事件")}</h2>
             <p className="muted">{t("应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。")}</p>
-            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery", "instance_start", "instance_stop", "threshold_alarm"] as const).map((k) => {
-              const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复"), instance_start: t("实例启动"), instance_stop: t("实例停机"), threshold_alarm: t("阈值报警") } as Any)[k] as string;
+            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery", "instance_start", "instance_stop", "threshold_alarm", "update_available"] as const).map((k) => {
+              const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复"), instance_start: t("实例启动"), instance_stop: t("实例停机"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />
@@ -2671,13 +2676,14 @@ export default function App() {
       )}
       <footer>
         <div className="row" style={{ justifyContent: "center", gap: 24 }}>
+          <span style={{ color: "var(--muted)", fontSize: 13 }}>AlicloudECS_CDT © 2026 | v1.0.0</span>
           <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
             {t("项目地址")}
           </a>
-          <a href="mailto:alicloudadmin@gmail.com" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><polyline points="22,6 12,13 2,6" /></svg>
-            {t("联系邮箱")} alicloudadmin@gmail.com
+          <a href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+            TG @AliLang_AgentBot
           </a>
         </div>
       </footer>

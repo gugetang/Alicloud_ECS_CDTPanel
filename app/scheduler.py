@@ -946,6 +946,53 @@ def _persist_threshold_recovery(settings: dict, accounts: list[dict],
     return done
 
 
+def _maybe_notify_update(settings: dict) -> bool:
+    """发现面板新版本时推送一次到 TG/Email（每个版本只推一次）。
+
+    每轮（60 秒）都检查一次：update.status() 自带 1 小时 GitHub 缓存，
+    开销只是一次字典查找。满足以下条件才推：
+    - update_available 为真（当前版本不是 dev 且与最新 SHA 不同）；
+    - 该最新版本还没推过（flags.update_notified_version != latest）。
+    推完把最新 SHA 记到 flags.update_notified_version；下次再有更新
+    （SHA 变了）才再推。开关关闭时不推也不记（Notifier.send 会拦）。
+    调度暂停时也检查（与每日财报同款位置），只为让更新通知不受调度影响。
+    返回 True 表示本次推送了更新通知。
+    """
+    from . import update as updater
+
+    try:
+        st = updater.status()
+    except Exception as exc:  # noqa: BLE001 - 检查失败不影响调度
+        log.warning("面板更新检查失败（跳过）: %s", exc)
+        return False
+    if not st.get("update_available"):
+        return False
+    latest = st.get("latest_version") or ""
+    if not latest:
+        return False
+    if db.get_flag("update_notified_version") == latest:
+        return False
+    title = "面板有新版本"
+    body = (
+        f"当前版本：{(st.get('current_version') or '')[:7] or '—'}\n"
+        f"最新版本：{latest[:7]}\n"
+        f"{(st.get('latest_message') or '').splitlines()[0] if st.get('latest_message') else ''}\n"
+        "请到面板右上角铃铛点“立即更新”。"
+    ).strip()
+    notifier = Notifier(settings)
+    sent = notifier.send("update_available", title, body)
+    if sent:
+        db.set_flag("update_notified_version", latest)
+        db.add_event("update_available", title, body)
+        return True
+    if getattr(notifier, "last_errors", None):
+        db.add_event("error", "更新通知发送失败",
+                     f"{title}："
+                     + "; ".join(f"{k}：{v}" for k, v in
+                                 notifier.last_errors.items()))
+    return False
+
+
 def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     """每天在 daily_report_time（默认 00:00，可配）推送一次每日财报。
 
@@ -1077,6 +1124,11 @@ def _loop() -> None:
             _maybe_send_daily_report(settings, _now())
         except Exception as exc:  # noqa: BLE001
             log.exception("每日财报检查失败: %s", exc)
+        try:
+            # 面板更新通知：每轮检查一次，有新版本且未推过时推 TG/Email
+            _maybe_notify_update(settings)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("面板更新通知检查失败: %s", exc)
         # 不刷新（API 刷新时间=0）相当于关闭调度：与暂停一样只等 60 秒，
         # 不跑轮次、不做 DDNS 检查、不推每日财报（只更新财报检查时刻）。
         if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:

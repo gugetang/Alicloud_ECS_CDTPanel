@@ -298,8 +298,15 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
 .instance-form { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 /* 登录 / 首次设置页：居中窄卡片 */
 .auth-wrap { max-width:420px; margin:60px auto 0; }
+/* 登录窗口：输入框内左侧图标（用户名人像、密码锁），图标不抢焦点 */
+.input-ico { position:relative; }
+.input-ico > svg { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+.input-ico > input { padding-left:38px; }
+/* 登录窗口：第三方登录分隔线（或使用以下方式登录） */
+.auth-divider { display:flex; align-items:center; gap:12px; margin:20px 0 4px; color:var(--muted); font-size:13px; white-space:nowrap; }
+.auth-divider::before, .auth-divider::after { content:""; flex:1; border-top:1px solid var(--border); }
 .auth-wrap .card { padding:24px; }
-.auth-title { font-size:22px; font-weight:700; margin:0 0 4px; }
+.auth-title { font-size:26px; font-weight:700; margin:0 0 4px; }
 .oauth-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; background:transparent; border:1px solid var(--border); color:var(--text); border-radius:10px; padding:9px 16px; cursor:pointer; font-size:14px; margin-top:8px; }
 .oauth-btn:hover { font-weight:600; border-color:var(--accent); }
 .oauth-btn:disabled { opacity:.5; cursor:default; }

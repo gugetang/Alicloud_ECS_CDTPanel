@@ -1711,12 +1711,20 @@ def test_login_logo_left_admin_account_remember():
     # logo 与标题同一行：logo 高 36，标题在同一 flex 行里
     assert '<div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>' in tsx
     assert '<img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", flex: "none" }} />' in tsx
-    assert '<div className="auth-title" style={{ margin: 0 }}>{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>' in tsx
+    assert '<div className="auth-title" style={{ margin: 0 }}>{(info.site_name as string) || "CDT 面板"}</div>' in tsx
+    assert '{t("登录")} {(info.site_name' not in tsx  # 标题只留站点名，“登录”二字已删
     assert 'textAlign: "center", marginBottom: 12' not in tsx  # 旧的居中独占一行已删
-    # 账号框在密码框上面：账号标签/输入在“登录密码”之前，带 username 自动填充
+    # 账号框在密码框上面：账号标签/输入在“密码”之前，带 username 自动填充；
+    # 输入框内有左侧图标（用户名人像、密码锁），登录按钮与第三方登录之间
+    # 有“或使用以下方式登录”分隔线
     login = tsx.index("function LoginScreen")
-    assert tsx.index('{t("管理员账号 *")}', login) < tsx.index('{t("登录密码 *")}', login)
+    assert tsx.index('{t("用户名 *")}', login) < tsx.index('{t("密码 *")}', login)
+    assert 'placeholder={t("请输入用户名")}' in tsx
+    assert 'placeholder={t("请输入密码")}' in tsx
     assert 'autoComplete="username"' in tsx
+    assert '<div className="input-ico">' in tsx
+    assert '<div className="auth-divider">{t("或使用以下方式登录")}</div>' in tsx
+    assert tsx.index('<div className="auth-divider">', login) > tsx.index('title={t("登录")}>{t("登录")}</button>', login)
     assert 'autoComplete="current-password"' in tsx
     # 登录请求同时发账号和密码
     assert 'post("/api/auth/login", { username: account, password })' in tsx
@@ -1840,6 +1848,22 @@ def test_domains_table_loose_padding():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     assert '<table className="domains-table">' in tsx
     assert ".domains-table th, .domains-table td { padding:14px 12px; }" in css
+
+
+def test_notify_event_toggle_update_available():
+    # 通知事件里有“面板更新”开关（有更新时推 TG/Email，每个版本只推一次）；
+    # 后端事件键与默认开关都已接好
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '"update_available"] as const' in tsx
+    assert 'update_available: t("面板更新")' in tsx
+    assert 'settings[`notify_${k}`]' in tsx
+    settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
+    assert '"notify_update_available": "1"' in settings
+    assert '"update_available": "notify_update_available"' in settings
+    sched = (ROOT / "app" / "scheduler.py").read_text(encoding="utf-8")
+    assert "def _maybe_notify_update(settings: dict) -> bool:" in sched
+    assert 'db.get_flag("update_notified_version")' in sched
+    assert 'notifier.send("update_available", title, body)' in sched
 
 
 def test_header_bell_and_palette_icons():

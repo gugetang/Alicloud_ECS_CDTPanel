@@ -283,6 +283,10 @@ export const EN: Record<string, string> = {
   创建管理员并进入: "Create admin and enter",
   "稍后设置，直接进入": "Set up later, enter directly",
   请输入密码: "Please enter the password",
+  "用户名 *": "Username *",
+  请输入用户名: "Please enter username",
+  "密码 *": "Password *",
+  或使用以下方式登录: "Or log in with",
   "管理员账号 *": "Admin account *",
   管理员账号: "Admin account",
   请输入管理员账号: "Please enter the admin account",
@@ -587,5 +591,4 @@ export const EN: Record<string, string> = {
   "暂无日志。": "No logs yet.",
   // 页脚
   项目地址: "Project",
-  联系邮箱: "Contact email",
 };

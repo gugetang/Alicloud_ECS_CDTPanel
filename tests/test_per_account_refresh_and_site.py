@@ -143,12 +143,15 @@ def test_frontend_site_and_refresh_and_footer():
     # 页眉：有 logo 时显示在标题左边；简介非空时替代默认副标题
     assert '<img src="/api/settings/logo"' in tsx
     assert "settings?.site_intro" in tsx
-    # 页脚：GitHub 图标 + 项目地址超链、信封图标 + 联系邮箱超链
+    # 页脚：AlicloudECS_CDT © 2026 | v1.0.0 + 项目地址超链 + TG 超链，联系邮箱已删
+    assert "AlicloudECS_CDT © 2026 | v1.0.0" in tsx
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
-    assert 't("联系邮箱")' in tsx
-    assert "alicloudadmin@gmail.com" in tsx
-    assert "mailto:alicloudadmin@gmail.com" in tsx
+    assert "https://t.me/AliLang_AgentBot" in tsx
+    assert "TG @AliLang_AgentBot" in tsx
+    assert 't("联系邮箱")' not in tsx
+    assert "alicloudadmin@gmail.com" not in tsx
+    assert "mailto:" not in tsx
     assert "GitHub: gugetang/Alicloud_ECS_CDTPanel" not in tsx
     for k in ("站点信息", "站点 logo", "上传 logo", "删除 logo", "站点简介",
               "上传失败", "删除失败"):
@@ -156,12 +159,12 @@ def test_frontend_site_and_refresh_and_footer():
 
 
 def test_footer_links_no_underline():
-    # 页脚两个超链（项目地址、联系邮箱）不带下划线
+    # 页脚两个超链（项目地址、TG）不带下划线
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     import re
-    for m in re.finditer(r'<a href="(?:https://github\.com/gugetang/Alicloud_ECS_CDTPanel|mailto:alicloudadmin@gmail\.com)"[^>]*>', tsx):
+    for m in re.finditer(r'<a href="(?:https://github\.com/gugetang/Alicloud_ECS_CDTPanel|https://t\.me/AliLang_AgentBot)"[^>]*>', tsx):
         assert 'textDecoration: "none"' in m.group(0), m.group(0)
 
 
