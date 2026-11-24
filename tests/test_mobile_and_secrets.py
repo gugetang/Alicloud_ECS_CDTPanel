@@ -459,9 +459,12 @@ def test_subtabs_button_padding():
 def test_managed_domains_title_removed():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 域名管理页“受管理域名 {count}”大标题已删（与账户管理/分组标题一致），
-    # 右上角 ⚙（DDNS 设置开关）保留
+    # 右上角 ⚙（DDNS 设置开关）保留；它是 icon-btn（30×30，与其它齿轮同款），
+    # 不是 btn ghost + emoji
     assert 't("受管理域名 {count}"' not in tsx
     assert 'title={t("DDNS 设置")}' in tsx
+    assert '<button className="icon-btn" title={t("DDNS 设置")}' in tsx
+    assert '<button className="btn ghost" title={t("DDNS 设置")}' not in tsx
     assert "setShowDdns(!showDdns)" in tsx
 
 
@@ -1169,8 +1172,11 @@ def test_backup_card_cloud_button_local_button_and_dialog():
     assert 'title={t("点击下载到本地")}' in tsx
     assert 'className="btn" onClick={download}' in tsx
     assert '本地备份: "Local backup"' in i18n
-    # 卡片右上角有云端备份设置按钮（⚙），点一下弹出云端备份对话框
+    # 卡片右上角有云端备份设置按钮（⚙），点一下弹出云端备份对话框；
+    # 它是 icon-btn（30×30，与其它卡片设置齿轮同款），不是 btn ghost + emoji
     assert 'title={t("云端备份设置")}' in tsx
+    assert '<button className="icon-btn" title={t("云端备份设置")}' in tsx
+    assert '<button className="btn ghost" title={t("云端备份设置")}' not in tsx
     assert "showWdDialog" in tsx
     assert 'className="modal-overlay"' in tsx
     # 对话框里是 WebDAV 配置（地址/用户名/密码/备份目录）+ 测试/上传/从云端恢复 + 状态
