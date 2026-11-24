@@ -52,8 +52,6 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:16px; backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); }
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
-/* 手机端卡片折叠的展开按钮：桌面端不显示，窄屏才出现 */
-.card-expand { display:none; }
 .muted { color:var(--muted); font-size:13px; }
 .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
@@ -182,6 +180,13 @@ header .icon-btn { width:36px; height:36px; }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+/* 列表视图操作列（实例/域名）：齿轮 + 图标按钮横排不换行，按钮不收缩；
+   列宽不够时由表格横向滚动承接（table 已有 overflow-x:auto）。 */
+.list-actions { flex-wrap:nowrap; white-space:nowrap; }
+.list-actions > * { flex:none; }
+.list-actions .icon-btn { flex:none; }
+/* 实例卡片底部操作按钮：状态文字再长也贴右，换行后仍靠右。 */
+.card-actions { margin-left:auto; flex:none; }
 .spacer { flex:1; }
 input,select,textarea { background:var(--input); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; width:100%; }
 label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
@@ -260,13 +265,7 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   nav { margin-bottom:14px; }
   nav button { padding:10px 14px; }
   .card { padding:14px; margin-bottom:12px; }
-  /* 手机端卡片默认折叠：只留名字/状态/流量/费用；实例管理卡片的实例 ID、
-     IP、阈值、操作按钮和总览卡片的站点默认隐藏；点右上角 ▾ 展开（卡片带
-     .expanded 时全部显示）。 */
-  .card-expand { display:inline-flex; }
-  .card:not(.expanded) .stat-detail { display:none; }
-  /* M-04：手机卡片默认显示操作按钮（以前折叠隐藏）；实例 ID/站点/
-     阈值仍默认隐藏，点 ▾ 展开。IP 用 .stat-ip 类，不再随折叠隐藏。 */
+  /* 手机端卡片细节（实例 ID/站点/阈值）全部直接显示，不再折叠隐藏。 */
   .grid3 { gap:12px; }
   .grid2 { gap:12px; }
   /* M-05：手机端指标改 1 列（以前 2 列挤在一起）。 */

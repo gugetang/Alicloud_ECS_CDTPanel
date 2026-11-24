@@ -1426,17 +1426,6 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   // 卡片设置面板：卡片右上角 ⚙ 按钮打开，面板内最下面是删除实例
   const [cardSettingsId, setCardSettingsId] = useState<number | null>(null);
-  // 手机端卡片折叠：默认只显示名字/状态/流量/费用；实例管理卡片的实例 ID、
-  // IP、阈值、操作按钮和总览卡片的站点默认隐藏，点卡片右上角的 ▾ 展开显示
-  // 全部（仅窄屏生效）。
-  const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
-  const toggleCardExpand = (id: number) => {
-    setExpandedCards((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
   // IP 显示：只显示 A.B 段（C.D 用 * 代替），不提供点按显示完整 IP；
   // 点旁边的 ⧉ 复制完整 IP。面板是明文 HTTP，navigator.clipboard 在非安全
   // 上下文不可用，复制失败时回退到 textarea + execCommand。
@@ -1751,7 +1740,7 @@ export default function App() {
         onClick={() => accountAction(a, action)}>{icon}</button>
     );
     return (
-      <div className="row" style={{ gap: 6 }}>
+      <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
         {btn("refresh", t("刷新"), false,
           <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
         {btn("start", t("启动"), !stopped,
@@ -2073,11 +2062,10 @@ export default function App() {
             {viewMode === "card" ? (
               <div className="grid2" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
-                  <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
+                  <div className="card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
                       <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
                       <div className="row" style={{ gap: 6 }}>
-                        <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                         <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                       </div>
                     </div>
@@ -2128,14 +2116,13 @@ export default function App() {
           {acctViewMode === "card" ? (
           <div className="grid2">
           {accounts.map((a) => (
-            <div className={`card${expandedCards.has(a.id as number) ? " expanded" : ""}`} key={a.id as number}
+            <div className="card" key={a.id as number}
               style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
                 <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
                   <span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>
                 ))}{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
                 <div className="row" style={{ gap: 6 }}>
-                  <button className="btn ghost card-expand" title={expandedCards.has(a.id as number) ? t("收起") : t("展开全部")} onClick={() => toggleCardExpand(a.id as number)}>{expandedCards.has(a.id as number) ? "▴" : "▾"}</button>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                 </div>
               </div>
@@ -2172,7 +2159,7 @@ export default function App() {
                 <td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
-                <td><div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                   <ActionButtons a={a} />
                 </div></td>
@@ -2230,13 +2217,13 @@ export default function App() {
                 <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
                 <td>{editing ? (
-                  <div className="row" style={{ gap: 6 }}>
+                  <div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
                     <button className="icon-btn" title={t("取消")} onClick={() => setEditDomId(null)}>
                       <Ico label={t("取消")}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Ico>
                     </button>
                   </div>
                 ) : (
-                  <div className="row" style={{ gap: 6 }}>
+                  <div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
                     <button className="icon-btn" title={t("编辑")} onClick={() => { setEditDomId(d.id as number); setEditDomName(d.name as string); setEditDomGroup(d.group_id ? String(d.group_id) : ""); }}>
                       <Ico label={t("编辑")}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></Ico>
                     </button>
