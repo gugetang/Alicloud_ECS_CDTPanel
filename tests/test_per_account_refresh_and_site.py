@@ -144,10 +144,10 @@ def test_frontend_site_and_refresh_and_footer():
     assert '<img src="/api/settings/logo"' in tsx
     assert "settings?.site_intro" in tsx
     # 页脚：AlicloudECS_CDT © 2026 | 版本号 + 项目地址超链 + TG 超链，联系邮箱已删；
-    # 版本号跟随当前版本（upd.current_version 短 SHA，未加载时回退 v1.0.0）；
+    # 版本号跟随当前版本（标签版完整显示，如 v1.1.0；SHA 才截 7 位；未加载时回退 v1.0.0）；
     # 页脚三项文字都是黑色字体（var(--text)），TG 是超链指向 @AliLang_AgentBot，
     # 但只显示“Telegram”四个字，不显示 @AliLang_AgentBot（那是后台配置）
-    assert "AlicloudECS_CDT © 2026 | {upd?.current_version ? String(upd.current_version).slice(0, 7) : \"v1.0.0\"}" in tsx
+    assert "AlicloudECS_CDT © 2026 | {upd?.current_version ? shortVersion(upd.current_version) : \"v1.0.0\"}" in tsx
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
     assert "https://t.me/AliLang_AgentBot" in tsx
@@ -175,6 +175,22 @@ def test_footer_links_no_underline():
     import re
     for m in re.finditer(r'<a href="(?:https://github\.com/gugetang/Alicloud_ECS_CDTPanel|https://t\.me/AliLang_AgentBot)"[^>]*>', tsx):
         assert 'textDecoration: "none"' in m.group(0), m.group(0)
+
+
+def test_footer_version_shows_tag_not_sha():
+    # 页脚与铃铛的当前版本显示标签版（v1.1.0、v1.1.0-2-g53f14a3）完整显示，
+    # 不再截成 7 位；提交 SHA 才取前 7 位（2026-11-24 用户问“不是应该显示 v1.1.0？”）。
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'const shortVersion' in tsx
+    assert 'v.startsWith("v") ? v : v.slice(0, 7)' in tsx
+    # 页脚与铃铛的当前版本都走 shortVersion，不再直接 slice(0, 7)
+    assert 'shortVersion(upd.current_version)' in tsx
+    assert 'String(upd.current_version).slice(0, 7)' not in tsx
+    assert '(upd.current_version || "").slice(0, 7)' not in tsx
+    # 最新版本仍是提交 SHA，保持截 7 位
+    assert '(upd.latest_version || "").slice(0, 7)' in tsx
 
 
 def test_site_logo_buttons_right_icons():

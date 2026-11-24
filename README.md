@@ -187,5 +187,5 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 
 ## 贡献者
 
-- Alilang
-- Muse AI
+- [<img src="https://github.com/gugetang.png" height="28" style="border-radius:50%" alt="Alilang"> Alilang](https://github.com/gugetang)
+- [<img src="docs/assets/muse-ai-logo.jpg" height="28" alt="Muse AI"> Muse AI](https://www.muse.ai)

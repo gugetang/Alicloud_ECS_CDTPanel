@@ -52,9 +52,16 @@ def test_current_version_defaults_to_dev(monkeypatch):
     assert updater.current_version() == "dev"
 
 
+def test_current_commit_defaults_to_dev(monkeypatch):
+    monkeypatch.delenv("CDT_COMMIT_SHA", raising=False)
+    assert updater.current_commit() == "dev"
+
+
 def test_status_no_update_when_dev(monkeypatch):
-    # 当前版本是 dev（镜像未注入版本号）时无法比较，不谎报有更新
+    # 提交 SHA 是 dev（镜像未注入）时无法比较，不谎报有更新；
+    # 显示版本号是标签版，不参与更新判断
     monkeypatch.delenv("CDT_VERSION", raising=False)
+    monkeypatch.delenv("CDT_COMMIT_SHA", raising=False)
     _fake_latest(monkeypatch, sha="abc1234")
     s = updater.status()
     assert s["current_version"] == "dev"
@@ -63,7 +70,9 @@ def test_status_no_update_when_dev(monkeypatch):
 
 
 def test_status_update_available_when_sha_differs(monkeypatch):
-    monkeypatch.setenv("CDT_VERSION", "old0000")
+    # 更新判断用提交 SHA：显示版是标签（如 v1.0.0）也不影响判断
+    monkeypatch.setenv("CDT_VERSION", "v1.0.0")
+    monkeypatch.setenv("CDT_COMMIT_SHA", "old0000")
     _fake_latest(monkeypatch, sha="abc1234")
     s = updater.status()
     assert s["update_available"] is True
@@ -72,7 +81,8 @@ def test_status_update_available_when_sha_differs(monkeypatch):
 
 
 def test_status_no_update_when_same_sha(monkeypatch):
-    monkeypatch.setenv("CDT_VERSION", "abc1234")
+    monkeypatch.setenv("CDT_VERSION", "v1.1.0-2-gabc1234")
+    monkeypatch.setenv("CDT_COMMIT_SHA", "abc1234")
     _fake_latest(monkeypatch, sha="abc1234")
     assert updater.status()["update_available"] is False
 
@@ -83,6 +93,7 @@ def test_check_latest_failure_is_graceful(monkeypatch):
         raise RuntimeError("network down")
     monkeypatch.setattr(updater, "_fetch_latest", boom)
     monkeypatch.delenv("CDT_VERSION", raising=False)
+    monkeypatch.delenv("CDT_COMMIT_SHA", raising=False)
     s = updater.status()
     assert s["ok"] is False
     assert "network down" in (s["error"] or "")
@@ -154,12 +165,13 @@ def test_update_endpoints_require_login(client):
 def test_update_status_endpoint(client, monkeypatch):
     h = auth_headers(client)
     _fake_latest(monkeypatch, sha="abc1234")
-    monkeypatch.setenv("CDT_VERSION", "old0000")
+    monkeypatch.setenv("CDT_VERSION", "v1.0.0")
+    monkeypatch.setenv("CDT_COMMIT_SHA", "old0000")
     r = client.get("/api/update/status", headers=h)
     assert r.status_code == 200
     body = r.json()
     assert body["update_available"] is True
-    assert body["current_version"] == "old0000"
+    assert body["current_version"] == "v1.0.0"
     assert body["latest_version"] == "abc1234"
     # 强制刷新走同一接口
     r = client.post("/api/update/check", headers=h)

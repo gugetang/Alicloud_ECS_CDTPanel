@@ -151,6 +151,12 @@ const fmtCost = (v: number | string | null | undefined) => {
 // 流量“已用 / 额度 GiB”后面加的百分比（用后端已算好的 usage_rate，2 位小数；
 // 流量未知、usage_rate 为 null 时不加括号）。
 const trafficPct = (a: Any) => a.usage_rate != null ? ` (${Number(a.usage_rate).toFixed(2)}%)` : "";
+// 版本号显示：标签版（如 v1.1.0、v1.1.0-2-g53f14a3）完整显示；
+// 提交 SHA（十六进制，不以 v 开头）只取前 7 位；"dev" 原样显示。
+const shortVersion = (v: string | null | undefined) => {
+  if (!v) return "";
+  return v.startsWith("v") ? v : v.slice(0, 7);
+};
 const maskIp = (ip: string | null | undefined) => {
   if (!ip) return "—";
   const parts = String(ip).split(".");
@@ -2058,7 +2064,7 @@ export default function App() {
                     <div className="menu" style={{ minWidth: 260 }}>
                       <div style={{ padding: "8px 10px", fontSize: 14 }}>
                         <div style={{ fontWeight: 700 }}>{t("发现新版本")}</div>
-                        <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{(upd.current_version || "").slice(0, 7) || "—"}</div>
+                        <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{shortVersion(upd.current_version) || "—"}</div>
                         <div className="muted">{t("最新版本")}：{(upd.latest_version || "").slice(0, 7) || "—"}</div>
                         {upd.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
                         {upd.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
@@ -2688,7 +2694,7 @@ export default function App() {
       )}
       <footer>
         <div className="row" style={{ justifyContent: "center", gap: 24 }}>
-          <span style={{ color: "var(--text)", fontSize: 13 }}>AlicloudECS_CDT © 2026 | {upd?.current_version ? String(upd.current_version).slice(0, 7) : "v1.0.0"}</span>
+          <span style={{ color: "var(--text)", fontSize: 13 }}>AlicloudECS_CDT © 2026 | {upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0"}</span>
           <a href="https://github.com/gugetang/Alicloud_ECS_CDTPanel" target="_blank" rel="noreferrer" style={{ color: "var(--text)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
             {t("项目地址")}

@@ -1,8 +1,11 @@
 """面板在线更新：查 GitHub 最新版本，并用 Docker socket 拉镜像重建容器。
 
 版本来源：镜像构建时注入的环境变量 CDT_VERSION（Dockerfile 里
-CDT_VERSION=$VERSION，工作流传 github.sha；未注入时为 "dev"，此时
-无法判断是否有更新，status 会如实返回 update_available=false）。
+CDT_VERSION=$VERSION，工作流用 git describe --tags --always 算出，
+如 v1.1.0、v1.1.0-2-g53f14a3；未注入时为 "dev"，此时无法判断是否有
+更新，status 会如实返回 update_available=false）。更新判断不用显示
+版本号，而用提交 SHA：CDT_COMMIT_SHA（工作流传 git rev-parse HEAD），
+与 GitHub 最新提交比对，显示版与判断版分开。
 最新版本来源：GitHub API（GET /repos/gugetang/Alicloud_ECS_CDTPanel/commits/main），
 直连 HTTPS（不走通知代理），失败只影响状态显示、绝不让接口报错；结果
 在内存里缓存 1 小时（未登录 GitHub 限额 60 次/小时）。
@@ -33,7 +36,13 @@ _run_state: dict[str, Any] = {"running": False, "last": None}
 
 
 def current_version() -> str:
+    """显示用版本号（标签版，如 v1.1.0、v1.1.0-2-g53f14a3；未注入时 "dev"）。"""
     return os.environ.get("CDT_VERSION", "dev")
+
+
+def current_commit() -> str:
+    """判断更新用的提交 SHA（工作流传 git rev-parse HEAD；未注入时 "dev"）。"""
+    return os.environ.get("CDT_COMMIT_SHA", "dev")
 
 
 def _fetch_latest() -> dict[str, Any]:
@@ -70,11 +79,13 @@ def check_latest(force: bool = False) -> dict[str, Any]:
 
 def status() -> dict[str, Any]:
     cur = current_version()
+    commit = current_commit()
     res = check_latest()
     latest = res.get("latest") or {}
     latest_sha = latest.get("sha")
-    # 当前版本是 "dev"（镜像未注入版本号）时无法比较，不谎报有更新
-    update_available = bool(cur and cur != "dev" and latest_sha and cur != latest_sha)
+    # 更新判断用提交 SHA（显示版本号是标签版，如 v1.1.0-2-g53f14a3，不能直接比 SHA）；
+    # 提交 SHA 是 "dev"（镜像未注入）时无法比较，不谎报有更新
+    update_available = bool(commit and commit != "dev" and latest_sha and commit != latest_sha)
     return {
         "current_version": cur,
         "latest_version": latest_sha,
