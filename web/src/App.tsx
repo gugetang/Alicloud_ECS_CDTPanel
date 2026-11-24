@@ -1411,6 +1411,19 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
 export default function App() {
   const [tab, setTab] = useState<Tab>("dash");
   const [subTab, setSubTab] = useState<SubTab>("settings");
+  // 手机端导航横向滑动：当前选中的标签不在可见区时自动滑到可见位置
+  // （只在横向可滚动时起作用，桌面端一行放得下，不动）。
+  const navRef = useRef<HTMLElement | null>(null);
+  const subtabsRef = useRef<HTMLDivElement | null>(null);
+  const scrollActiveIntoView = (container: HTMLElement | null) => {
+    const el = container?.querySelector("button.active") as HTMLElement | null;
+    if (!el || !container) return;
+    const r = el.getBoundingClientRect();
+    const cr = container.getBoundingClientRect();
+    if (r.left < cr.left || r.right > cr.right) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  };
+  useEffect(() => { scrollActiveIntoView(navRef.current); }, [tab]);
+  useEffect(() => { scrollActiveIntoView(subtabsRef.current); }, [subTab]);
   const [status, setStatus] = useState<Any | null>(null);
   const [accounts, setAccounts] = useState<Any[]>([]);
   const [domains, setDomains] = useState<Any[]>([]);
@@ -2017,11 +2030,11 @@ export default function App() {
         </div>
         <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。"))}</p>
       </header>
-      <nav>{TABS.map(([k, label]) => (
+      <nav ref={navRef}>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
       ))}</nav>
       {tab === "config" && (
-        <div className="subtabs">{SUB_TABS.map(([k, label]) => (
+        <div className="subtabs" ref={subtabsRef}>{SUB_TABS.map(([k, label]) => (
           <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{t(label)}</button>
         ))}</div>
       )}
@@ -2417,23 +2430,7 @@ export default function App() {
             )}
             {sMode !== "dynamic" && (<div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>)}
             </>)}
-            <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-              <label className="lbl">{t("阈值动作")}</label>
-              <Seg value={sExcl} options={[
-                { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
-                { value: "stop_charging", label: t("节省停机"), title: t("停机并停止计费，节省费用") },
-                { value: "stop", label: t("停机"), title: t("普通停机，停机后继续计费") },
-              ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
-            </div>
-            <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-              <label className="lbl">{t("阈值恢复")}</label>
-              <Seg value={sRecovery} options={[
-                { value: "start", label: t("恢复时拉起（默认）"), title: t("流量恢复后自动拉起实例") },
-                { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
-              ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
-            </div>
-            {sRunMode === "time" && (<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>)}
-            <div>
+            <div style={{ marginTop: 12 }}>
             {sRunMode === "time" && (<div className="form2">
               <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
                 <div style={{ paddingLeft: "2em" }}><Seg value={sInterval} options={[
@@ -2452,6 +2449,21 @@ export default function App() {
                   ]} onChange={changeCustUnit} />
                 </div></div></div>)}
             </div>)}
+            <div style={{ marginTop: 12, paddingLeft: "2em" }}>
+              <label className="lbl">{t("阈值动作")}</label>
+              <Seg value={sExcl} options={[
+                { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
+                { value: "stop_charging", label: t("节省停机"), title: t("停机并停止计费，节省费用") },
+                { value: "stop", label: t("停机"), title: t("普通停机，停机后继续计费") },
+              ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
+            </div>
+            <div style={{ marginTop: 12, paddingLeft: "2em" }}>
+              <label className="lbl">{t("阈值恢复")}</label>
+              <Seg value={sRecovery} options={[
+                { value: "start", label: t("恢复时拉起（默认）"), title: t("流量恢复后自动拉起实例") },
+                { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
+              ]} onChange={(v) => { setSRecovery(v); saveParamSettings({ threshold_recovery_action: v }); }} />
+            </div>
             <div style={{ marginTop: 12 }}>
               <label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>
               <div style={{ paddingLeft: "2em" }}><Seg value={sRefresh} options={[

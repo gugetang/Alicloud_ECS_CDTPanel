@@ -215,6 +215,37 @@ def test_nav_restructure_domains_top_level_logs_in_settings():
     assert 'tab === "config" && subTab === "logs"' in tsx
 
 
+def test_mobile_nav_horizontal_scroll():
+    # 手机端主导航与子导航一行横向滑动、不换行：按钮不收缩、不换行，
+    # 滚动条隐藏、触摸滑动顺滑；当前选中的标签自动滑到可见位置；桌面端不动。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert 'nav { margin-bottom:14px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain;' in css
+    assert 'nav::-webkit-scrollbar { display:none; }' in css
+    assert 'nav button { padding:10px 14px; flex:none; white-space:nowrap; }' in css
+    assert '.subtabs { overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; overscroll-behavior-x:contain; }' in css
+    assert '.subtabs::-webkit-scrollbar { display:none; }' in css
+    assert '.subtabs button { flex:none; padding:10px 14px; white-space:nowrap; }' in css
+    # 桌面端主导航仍换行（基础规则不变）
+    assert 'nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }' in css
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<nav ref={navRef}>' in tsx
+    assert '<div className="subtabs" ref={subtabsRef}>' in tsx
+    assert 'scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" })' in tsx
+
+
+def test_global_settings_rotation_before_threshold_and_no_heading():
+    # 全局设置页：轮巡周期（B）在阈值动作/阈值恢复（A）上面，A/B 互换位置；
+    # B 上面的“定时轮巡”小标题（C）整行删掉；分组卡片里的同名段落不动。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    g = tsx[tsx.index('{tab === "config" && subTab === "settings" && ('):tsx.index('{tab === "config" && subTab === "other" && (')]
+    assert g.index('{t("轮巡周期")}') < g.index('{t("阈值动作")}') < g.index('{t("阈值恢复")}') < g.index('API 刷新时间 *（分钟）')
+    assert '<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>' not in g
+    # 显示条件不变：轮巡周期仍只在定时轮巡模式下显示，阈值动作/恢复仍始终显示
+    assert 'sRunMode === "time" && (<div className="form2">' in g
+    # 选项与保存逻辑不变
+    assert 'interval_hours' in g and 'exclusion_action' in g and 'threshold_recovery_action' in g
+
+
 def test_api_refresh_own_row_and_site_settings_tab():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 全局的 API 刷新时间单独占一行，移到轮巡周期下面（不在两列 form2 里）；
@@ -225,7 +256,6 @@ def test_api_refresh_own_row_and_site_settings_tab():
     api_idx = tsx.index('API 刷新时间 *（分钟）')
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('轮巡周期') < api_idx
-    assert tsx.index('<h3 style={{ marginTop: 20 }}>{t("定时轮巡")}</h3>') < api_idx
     # 站点设置是设置页的第三个子标签（在账号设置后面、通知设置前面、日志统计前面），
     # 只剩货币结算与主题设置；登录与安全、备份与恢复已移到新开的“账号设置”
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
