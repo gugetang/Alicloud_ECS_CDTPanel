@@ -505,6 +505,12 @@ def test_save_toast_bottom_right_theme_color():
     assert "color:var(--accent)" in rule
 
 
+def test_toast_mobile_bottom_not_top():
+    """手机端 Toast 放底部通栏，不盖住顶栏（标题/小铃铛/导航）。"""
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".toast { top:auto; bottom:12px; right:12px; left:12px; max-width:none; }" in css
+
+
 def test_logs_title_same_size_bold_and_detail_numbers_accent():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 日志行标题（如“调度完成”）与后面详情同大（详情 .muted 是 13px）并加粗

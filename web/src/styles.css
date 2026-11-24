@@ -387,8 +387,9 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
 .toast-error { border-color:var(--danger, #b91c1c); color:var(--danger, #b91c1c); }
 .toast-close { background:transparent; border:none; color:inherit; font-size:18px; line-height:1; cursor:pointer; padding:2px 4px; }
 @media (max-width: 800px) {
-  /* M-10：手机端 Toast 放顶部，避免被拇指/输入法遮住。 */
-  .toast { top:12px; bottom:auto; right:12px; left:12px; max-width:none; }
+  /* M-10：手机端 Toast 放底部通栏，不盖住顶栏（标题/小铃铛/导航）。
+     以前放顶部 top:12px，弹出来正好压住顶栏；底部和桌面端右下角一致。 */
+  .toast { top:auto; bottom:12px; right:12px; left:12px; max-width:none; }
   /* M-08：手机端对话框也用 dvh，避免浏览器地址栏伸缩导致溢出。 */
   .modal { max-height:calc(100dvh - 40px); }
   .modal-overlay { padding:12px; }
