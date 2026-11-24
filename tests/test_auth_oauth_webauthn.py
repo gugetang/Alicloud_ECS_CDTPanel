@@ -174,3 +174,139 @@ def test_login_username_checked(client):
         assert client.post("/api/auth/login", json={"username": "随便填", "password": cur}).status_code == 200
     finally:
         db.set_flag("admin_name", name)
+
+
+# ---------------------------------------------------------------------------
+# 回归：指纹登录（WebAuthn）与 GitHub 登录
+# ---------------------------------------------------------------------------
+import base64 as _b64
+import hashlib as _hashlib
+import json as _json
+
+import cbor2 as _cbor2
+from cryptography.hazmat.primitives import hashes as _hashes
+from cryptography.hazmat.primitives.asymmetric import ec as _ec
+
+
+def _b64e(b: bytes) -> str:
+    return _b64.urlsafe_b64encode(b).decode().rstrip("=")
+
+
+def test_webauthn_full_roundtrip(client):
+    """软件认证器走完注册+登录：注册带 transports 时登录 begin 不能 500，
+    登录 finish 必须校验通过并返回可用 token。"""
+    h = auth_headers(client)
+    host = "cdt.kadi.eu.org"
+    origin = "https://cdt.kadi.eu.org"
+    hh = {"Host": host, "Origin": origin, "X-Forwarded-Proto": "https",
+          "X-Forwarded-For": "1.2.3.4", **h}
+    # 注册
+    r = client.post("/api/auth/webauthn/register/begin", json={}, headers=hh)
+    assert r.status_code == 200, r.text
+    opts = r.json()
+    assert opts["rp"]["id"] == host
+    priv = _ec.generate_private_key(_ec.SECP256R1())
+    pub = priv.public_key().public_numbers()
+    cose_key = {1: 2, 3: -7, -1: 1, -2: pub.x.to_bytes(32, "big"),
+                -3: pub.y.to_bytes(32, "big")}
+    cred_id = os.urandom(16)
+    rp_hash = _hashlib.sha256(host.encode()).digest()
+    auth_data = (rp_hash + bytes([0x45]) + (0).to_bytes(4, "big")
+                 + b"\x00" * 16 + len(cred_id).to_bytes(2, "big") + cred_id
+                 + _cbor2.dumps(cose_key))
+    client_data = {"type": "webauthn.create", "challenge": opts["challenge"],
+                   "origin": origin, "crossOrigin": False}
+    client_data_json = _json.dumps(client_data, separators=(",", ":")).encode()
+    att_obj = _cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth_data})
+    credential = {"id": _b64e(cred_id), "rawId": _b64e(cred_id), "type": "public-key",
+                  "response": {"clientDataJSON": _b64e(client_data_json),
+                               "attestationObject": _b64e(att_obj),
+                               "transports": ["internal"]}}
+    r = client.post("/api/auth/webauthn/register/finish",
+                    json={"credential": credential, "label": "指纹"}, headers=hh)
+    assert r.status_code == 200, r.text
+    # 登录 begin：transports 是字符串存库的，旧代码在这里 500
+    r = client.post("/api/auth/webauthn/authenticate/begin", json={},
+                    headers={"Host": host, "Origin": origin,
+                             "X-Forwarded-Proto": "https",
+                             "X-Forwarded-For": "1.2.3.4"})
+    assert r.status_code == 200, r.text
+    opts = r.json()
+    assert opts["allowCredentials"][0]["transports"] == ["internal"]
+    # 登录 finish：WebAuthn 断言签名是 DER 编码，直接传给校验
+    client_data = {"type": "webauthn.get", "challenge": opts["challenge"],
+                   "origin": origin, "crossOrigin": False}
+    client_data_json = _json.dumps(client_data, separators=(",", ":")).encode()
+    auth_data = rp_hash + bytes([0x05]) + (1).to_bytes(4, "big")
+    sig = priv.sign(auth_data + _hashlib.sha256(client_data_json).digest(),
+                    _ec.ECDSA(_hashes.SHA256()))
+    credential = {"id": _b64e(cred_id), "rawId": _b64e(cred_id), "type": "public-key",
+                  "response": {"clientDataJSON": _b64e(client_data_json),
+                               "authenticatorData": _b64e(auth_data),
+                               "signature": _b64e(sig)}}
+    r = client.post("/api/auth/webauthn/authenticate/finish",
+                    json={"credential": credential},
+                    headers={"Host": host, "Origin": origin,
+                             "X-Forwarded-Proto": "https",
+                             "X-Forwarded-For": "1.2.3.4"})
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    assert client.get("/api/status",
+                      headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+
+def test_github_login_redirect_uri_https_without_forwarded_proto(client):
+    """反代没带 X-Forwarded-Proto 时，GitHub 回调地址也得是 https，
+    不能回退成 http（否则 GitHub 报 redirect_uri_mismatch）。"""
+    h = auth_headers(client)
+    client.put("/api/settings", json={
+        "github_oauth_client_id": "Iv1.test123",
+        "github_oauth_client_secret": "secret-test"}, headers=h)
+    r = client.get("/api/auth/oauth/github/login",
+                   headers={"Host": "cdt.kadi.eu.org", "X-Forwarded-For": "1.2.3.4"},
+                   follow_redirects=False)
+    assert r.status_code == 302
+    assert ("redirect_uri=https%3A%2F%2Fcdt.kadi.eu.org%2Fapi%2Fauth%2F"
+            "oauth%2Fgithub%2Fcallback") in r.headers["location"]
+    # Referer 是本站登录页时也一样
+    r = client.get("/api/auth/oauth/github/login",
+                   headers={"Host": "cdt.kadi.eu.org",
+                            "Referer": "https://cdt.kadi.eu.org/"},
+                   follow_redirects=False)
+    assert r.status_code == 302
+    assert "redirect_uri=https%3A%2F%2Fcdt.kadi.eu.org" in r.headers["location"]
+
+
+def test_github_callback_reuses_login_redirect_uri(client):
+    """回调换 token 必须用登录时发给 GitHub 的那个 redirect_uri，
+    跳回的地址也用登录时那个 origin（回调的 Referer 是 github.com，
+    不能拿它现算）。"""
+    from unittest.mock import patch
+    from urllib.parse import parse_qs, urlparse
+
+    h = auth_headers(client)
+    client.put("/api/settings", json={
+        "github_oauth_client_id": "Iv1.test123",
+        "github_oauth_client_secret": "secret-test"}, headers=h)
+    r = client.get("/api/auth/oauth/github/login",
+                   headers={"Host": "cdt.kadi.eu.org", "X-Forwarded-For": "1.2.3.4"},
+                   follow_redirects=False)
+    assert r.status_code == 302
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    with patch("app.oauth.exchange_code",
+               return_value={"access_token": "tok"}) as m_ex, \
+         patch("app.oauth.fetch_userinfo",
+               return_value={"sub": "123", "email": "a@b.c", "name": "octo"}):
+        r = client.get(
+            f"/api/auth/oauth/github/callback?code=code123&state={state}",
+            headers={"Host": "cdt.kadi.eu.org",
+                     "Referer": "https://github.com/"},
+            follow_redirects=False)
+    assert r.status_code == 302, r.text
+    loc = r.headers["location"]
+    assert loc.startswith("https://cdt.kadi.eu.org/?token="), loc
+    token = loc.split("token=")[1]
+    assert client.get("/api/status",
+                      headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert m_ex.call_args.args[4] == (
+        "https://cdt.kadi.eu.org/api/auth/oauth/github/callback")

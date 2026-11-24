@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import ipaddress
 import logging
 import os
 import secrets
 import time
+import urllib.parse
 from typing import Any
 
 import httpx
@@ -310,12 +312,37 @@ def _rp_id(request: Request) -> str:
     return (request.headers.get("host") or "localhost").split(":")[0]
 
 
+def _is_public_domain(host: str) -> bool:
+    """Host 是不是公网域名（不是 localhost / IP）：是则默认走 https。"""
+    h = host.split(":")[0].lower()
+    if h in ("localhost", "") or "." not in h:
+        return False
+    try:
+        ipaddress.ip_address(h)
+        return False
+    except ValueError:
+        return True
+
+
 def _origin(request: Request) -> str:
     origin = request.headers.get("origin")
     if origin:
         return origin.rstrip("/")
+    # 整页导航（如点 GitHub 登录按钮跳登录接口）没有 Origin 头，但
+    # Referer 就是本站登录页；只采纳与 Host 同源的 Referer，避免用上外站地址。
+    referer = request.headers.get("referer") or ""
+    if referer:
+        parts = urllib.parse.urlparse(referer)
+        host = request.headers.get("host") or ""
+        if parts.scheme in ("http", "https") and parts.netloc == host:
+            return f"{parts.scheme}://{parts.netloc}"
     host = request.headers.get("host") or "localhost:1999"
-    scheme = request.headers.get("x-forwarded-proto", "http")
+    scheme = request.headers.get("x-forwarded-proto")
+    if not scheme:
+        # 反代没带 X-Forwarded-Proto 时：公网域名默认 https（面板部署在
+        # 带 TLS 的反代后面），本机/IP 默认 http。以前这里一律回退 http，
+        # GitHub OAuth 应用若按 https 注册，回调地址就会对不上而登录失败。
+        scheme = "https" if _is_public_domain(host) else "http"
     return f"{scheme}://{host}"
 
 
@@ -428,17 +455,21 @@ def oauth_callback(provider: str, request: Request):
     if err:
         return RedirectResponse(
             f"{origin}/?oauth_error={err}", status_code=302)
-    if not code or not oauth.take_state(state, provider):
+    state_rec = oauth.take_state(state, provider)
+    if not code or not state_rec:
         return RedirectResponse(
             f"{origin}/?oauth_error=invalid_state", status_code=302)
+    # 换 token 和跳回都用登录时记下的地址，不再现算：回调是从 GitHub 跳
+    # 回来的，Referer/头和登录时不一样，现算可能算出另一个地址。
+    redirect_uri = state_rec["redirect_uri"]
+    origin = state_rec["origin"]
     settings = db.get_settings()
     client_id = (settings.get(f"{provider}_oauth_client_id") or "").strip()
     client_secret = decrypt_secret(
         settings.get(f"{provider}_oauth_client_secret") or "")
     try:
         tok = oauth.exchange_code(
-            provider, code, client_id, client_secret,
-            _oauth_redirect_uri(request, provider))
+            provider, code, client_id, client_secret, redirect_uri)
         info = oauth.fetch_userinfo(provider, tok["access_token"])
     except Exception as e:
         return RedirectResponse(
@@ -549,14 +580,26 @@ def webauthn_register_finish(body: dict, _: bool = Depends(_admin_required),
 def webauthn_authenticate_begin(request: Request):
     from webauthn import generate_authentication_options
     from webauthn.helpers import options_to_json
-    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+    from webauthn.helpers.structs import (
+        AuthenticatorTransport, PublicKeyCredentialDescriptor)
 
     creds = db.list_webauthn_credentials()
     if not creds:
         raise HTTPException(400, "尚未注册指纹，请先用密码登录后注册")
     allow = []
     for c in creds:
-        transports = [t for t in (c.get("transports") or "").split(",") if t]
+        # 库里存的是 "internal,usb" 这样的字符串；py_webauthn 的
+        # options_to_json 会对每个 transport 调 .value，传字符串会
+        # 直接 500，所以要先转成 AuthenticatorTransport 枚举。
+        transports = []
+        for t in (c.get("transports") or "").split(","):
+            t = t.strip()
+            if not t:
+                continue
+            try:
+                transports.append(AuthenticatorTransport(t))
+            except ValueError:
+                continue
         allow.append(PublicKeyCredentialDescriptor(
             id=_b64url_decode(c["credential_id"]),
             transports=transports or None))
