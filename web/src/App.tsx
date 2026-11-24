@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { get, post, put, del, getToken, setToken, getRememberedUsername, setRememberedUsername } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
@@ -1618,6 +1618,32 @@ export default function App() {
   const [upd, setUpd] = useState<any>(null);
   const [updMenuOpen, setUpdMenuOpen] = useState(false);
   const [updBusy, setUpdBusy] = useState(false);
+  // 页眉下拉菜单默认右对齐；点开前先量按钮位置，右对齐会超出屏幕左边缘时改左对齐
+  // （手机上顶栏按钮换行到左边缘，语言/主题/风格菜单按右对齐会伸出屏幕外）。
+  const [menuLeft, setMenuLeft] = useState<Record<string, boolean>>({});
+  const flipMenu = (key: string, w: number, e: { currentTarget: HTMLElement }) => {
+    setMenuLeft((m) => ({ ...m, [key]: e.currentTarget.getBoundingClientRect().right - w < 8 }));
+  };
+  // 更新弹窗是可拖动窗口：打开时按铃铛位置落在屏幕内，拖标题区可移动。
+  const [updPos, setUpdPos] = useState<{ left: number; top: number } | null>(null);
+  const updMenuRef = useRef<HTMLDivElement | null>(null);
+  const updDragRef = useRef<{ px: number; py: number; left: number; top: number } | null>(null);
+  const onUpdDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!updPos) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updDragRef.current = { px: e.clientX, py: e.clientY, left: updPos.left, top: updPos.top };
+  };
+  const onUpdDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = updDragRef.current;
+    const el = updMenuRef.current;
+    if (!d || !el) return;
+    const w = el.offsetWidth;
+    setUpdPos({
+      left: Math.min(Math.max(d.left + e.clientX - d.px, -(w - 60)), window.innerWidth - 60),
+      top: Math.min(Math.max(d.top + e.clientY - d.py, 0), window.innerHeight - 60),
+    });
+  };
+  const onUpdDragEnd = () => { updDragRef.current = null; };
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -2097,16 +2123,27 @@ export default function App() {
           <div className="row">
             {/* 铃铛常驻显示：有更新时带红点角标，没更新时点开能看当前/最新版本、手动检查更新。 */}
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={() => { setUpdMenuOpen(!updMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setAccentMenuOpen(false); }}>
+              <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={(e) => {
+                if (!updMenuOpen) {
+                  // 打开时按铃铛位置落点：右边缘贴铃铛，左右夹在屏幕内（手机上铃铛在左边缘，弹窗不再伸出屏幕外）。
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const w = Math.min(320, window.innerWidth - 16);
+                  setUpdPos({ left: Math.min(Math.max(r.right - w, 8), window.innerWidth - w - 8), top: Math.min(Math.max(r.bottom + 6, 8), window.innerHeight - 160) });
+                }
+                setUpdMenuOpen(!updMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setAccentMenuOpen(false);
+              }}>
                 <BellIcon size={18} />
                 {upd?.update_available && <span className="bell-dot" />}
               </button>
               {updMenuOpen && (
                 <>
                   <div className="menu-backdrop" onClick={() => setUpdMenuOpen(false)} />
-                  <div className="menu" style={{ minWidth: 260 }}>
-                    <div style={{ padding: "8px 10px", fontSize: 14 }}>
-                      <div style={{ fontWeight: 700 }}>{upd?.update_available ? t("发现新版本") : t("面板更新")}</div>
+                  <div ref={updMenuRef} className="menu upd-window" style={updPos ? { position: "fixed", left: updPos.left, top: updPos.top, width: "min(320px, calc(100vw - 16px))", minWidth: 0 } : { minWidth: 260 }}>
+                    <div style={{ padding: "8px 10px", fontSize: 14, cursor: "grab", touchAction: "none", userSelect: "none" }} onPointerDown={onUpdDragStart} onPointerMove={onUpdDragMove} onPointerUp={onUpdDragEnd} onPointerCancel={onUpdDragEnd}>
+                      <div style={{ display: "flex", alignItems: "center", fontWeight: 700 }}>
+                        <span>{upd?.update_available ? t("发现新版本") : t("面板更新")}</span>
+                        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true" style={{ marginLeft: "auto", color: "var(--muted)" }}><circle cx="2.5" cy="3" r="1.3" /><circle cx="7.5" cy="3" r="1.3" /><circle cx="2.5" cy="8" r="1.3" /><circle cx="7.5" cy="8" r="1.3" /><circle cx="2.5" cy="13" r="1.3" /><circle cx="7.5" cy="13" r="1.3" /></svg>
+                      </div>
                       <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{shortVersion(upd?.current_version) || "—"}</div>
                       <div className="muted">{t("最新版本")}：{(upd?.latest_version || "").slice(0, 7) || "—"}</div>
                       {upd?.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
@@ -2133,13 +2170,13 @@ export default function App() {
                 )}
             </div>
             <div className="theme-menu">
-              <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
+              <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={(e) => { flipMenu("lang", 200, e); setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
               </button>
               {langMenuOpen && (
                 <>
                   <div className="menu-backdrop" onClick={() => setLangMenuOpen(false)} />
-                  <div className="menu">
+                  <div className={menuLeft.lang ? "menu menu-left" : "menu"}>
                     <button className={lang === "zh" ? "sel" : ""} onClick={() => { setLang("zh"); setLangMenuOpen(false); }}>
                       <span>简体中文</span>
                       <span className="menu-check">{lang === "zh" ? "✓" : ""}</span>
@@ -2153,13 +2190,13 @@ export default function App() {
               )}
             </div>
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
+              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={(e) => { flipMenu("theme", 200, e); setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <ThemeIcon theme={theme} size={18} />
               </button>
               {themeMenuOpen && (
                 <>
                   <div className="menu-backdrop" onClick={() => setThemeMenuOpen(false)} />
-                  <div className="menu">
+                  <div className={menuLeft.theme ? "menu menu-left" : "menu"}>
                     {(["light", "dark", "system"] as const).map((v) => (
                       <button key={v} className={theme === v ? "sel" : ""} onClick={() => { setTheme(v); setThemeMenuOpen(false); }}>
                         <span className="menu-ico"><ThemeIcon theme={v} /></span>
@@ -2172,13 +2209,13 @@ export default function App() {
               )}
             </div>
         <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题风格")} title={t("主题风格")} onClick={() => { setAccentMenuOpen(!accentMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setUpdMenuOpen(false); }}>
+              <button className="btn ghost theme-btn" aria-label={t("主题风格")} title={t("主题风格")} onClick={(e) => { flipMenu("accent", 200, e); setAccentMenuOpen(!accentMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setUpdMenuOpen(false); }}>
             <PaletteIcon size={18} />
           </button>
           {accentMenuOpen && (
             <>
                   <div className="menu-backdrop" onClick={() => setAccentMenuOpen(false)} />
-                  <div className="menu">
+                  <div className={menuLeft.accent ? "menu menu-left" : "menu"}>
                     {ACCENTS.map((a) => (
                       <button key={a.id} className={accent === a.id ? "sel" : ""} onClick={() => setAccent(a.id)}>
                         <span className="menu-swatch" style={{ background: a.gradient }} />

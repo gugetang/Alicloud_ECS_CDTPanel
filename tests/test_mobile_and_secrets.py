@@ -2154,6 +2154,26 @@ def test_header_bell_and_palette_icons():
     assert 'post("/api/update/run", {})' in tsx
     assert 'post("/api/update/check", {})' in tsx
     assert 'get("/api/update/status")' in tsx
+    # 更新弹窗是可拖动窗口：fixed 定位、打开时按铃铛位置夹在屏幕内、拖标题区移动；
+    # 标题区抓手（grab 光标、touch-action:none、不可选中文本）。
+    assert 'className="menu upd-window"' in tsx
+    assert 'position: "fixed"' in tsx and 'setUpdPos' in tsx
+    assert 'getBoundingClientRect' in tsx
+    assert 'onPointerDown={onUpdDragStart}' in tsx
+    assert 'onPointerMove={onUpdDragMove}' in tsx
+    assert 'onPointerUp={onUpdDragEnd}' in tsx
+    assert 'cursor: "grab"' in tsx and 'touchAction: "none"' in tsx
+    assert '.upd-window { right:auto; }' in css
+    # 其余页眉下拉（语言/主题/风格）：点开前按按钮位置判断，右对齐会出屏幕
+    # 左边缘时改左对齐；手机端菜单宽不超过屏幕宽减 24px。
+    assert 'flipMenu("lang", 200, e)' in tsx
+    assert 'flipMenu("theme", 200, e)' in tsx
+    assert 'flipMenu("accent", 200, e)' in tsx
+    assert 'className={menuLeft.lang ? "menu menu-left" : "menu"}' in tsx
+    assert 'className={menuLeft.theme ? "menu menu-left" : "menu"}' in tsx
+    assert 'className={menuLeft.accent ? "menu menu-left" : "menu"}' in tsx
+    assert '.menu-left { left:0; right:auto; }' in css
+    assert 'max-width:calc(100vw - 24px)' in css
     # 调色板：退出按钮前面，页眉与登录页各一处
     assert tsx.count('<PaletteIcon size={18} />') == 2
     assert tsx.count('aria-label={t("主题风格")}') == 2
