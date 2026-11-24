@@ -646,6 +646,18 @@ def _check_group_exists(gid) -> None:
         raise ValueError(f"分组 {gid} 不存在")
 
 
+def _next_group_id(conn) -> int:
+    """新建分组的 id：补最小空缺（删掉的 id 由后面的新建补上）。
+
+    如只有 id=2，新建得 1；1、2、4 都有，新建得 3；都没有，得 1。
+    分组数很少，直接读全部 id 在内存里找。"""
+    used = {r[0] for r in conn.execute("SELECT id FROM groups").fetchall()}
+    nid = 1
+    while nid in used:
+        nid += 1
+    return nid
+
+
 def create_group(data: dict) -> dict:
     data = _norm_group_threshold(data)
     data = _norm_dynamic_interval(data)
@@ -685,14 +697,17 @@ def create_group(data: dict) -> dict:
                 raise ValueError("域名不存在")
             if row["group_id"] is not None:
                 raise ValueError("该域名已被其他分组选取")
-        cur = conn.execute(
-            f"INSERT INTO groups({','.join(cols)}, created_at) "
-            f"VALUES({','.join('?' * len(cols))}, ?)", (*vals, now))
+        # id 自动补位：删掉的 id 由后面的新建补上（只有 id=2 时新建得 1）。
+        # 在锁里算 id、紧接着插，保证并发新建也不会撞 id。
+        nid = _next_group_id(conn)
+        conn.execute(
+            f"INSERT INTO groups(id, {','.join(cols)}, created_at) "
+            f"VALUES(?, {','.join('?' * len(cols))}, ?)", (nid, *vals, now))
         if domain_id not in (None, ""):
             conn.execute("UPDATE domains SET group_id=? WHERE id=?",
-                         (cur.lastrowid, int(domain_id)))
+                         (nid, int(domain_id)))
         conn.commit()
-        return get_group(cur.lastrowid)
+        return get_group(nid)
 
 
 def _norm_start_time(value) -> str | None:
@@ -775,6 +790,11 @@ def delete_group(gid: int) -> None:
                 "ORDER BY group_id", (aid,)).fetchall()]
             conn.execute("UPDATE accounts SET group_id=? WHERE id=?",
                          (rest[0] if rest else None, aid))
+        # 删组同时清掉该组的调度旗标（night_done:<gid> 等），否则新建
+        # 分组补位拿到这个 id 时会继承旧组的“今晚已切过/上次切换时间”。
+        for key in (f"night_done:{gid}", f"fixed_done:{gid}",
+                    f"last_time_switch:{gid}"):
+            conn.execute("DELETE FROM flags WHERE key=?", (key,))
         conn.execute("DELETE FROM groups WHERE id=?", (gid,))
         conn.commit()
 
