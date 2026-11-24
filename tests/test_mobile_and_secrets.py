@@ -355,6 +355,15 @@ def test_group_member_shows_masked_ip():
     assert ".member-ip { display:block;" in css
 
 
+def test_dash_summary_left_group_counts_status_label_not_only_evicted():
+    # 运行概览实例状态汇总的“离队”计数：不仅算已跳出（a.evicted），也要算
+    # 未被任何分组选中（status_label === "离队"）的实例；否则后者哪都不算，
+    # 总数对不上（2026-11-24 用户截图：3 台里 1 在线 + 1 排队，离队却显示 0，
+    # SWAS-KR 明明是离队；这里没改）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 't("离队 {count}", { count: accounts.filter((a) => a.evicted || a.status_label === "离队").length })' in tsx
+
+
 def test_group_settings_stay_open_after_save():
     # 分组卡片设置区的展开状态放父级（按分组 id 记）：GroupCard 的 key 里含可变
     # 设置字段，保存后 key 变了卡片会重挂载，展开状态放卡片本地会在每次保存后

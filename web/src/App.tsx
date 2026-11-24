@@ -2169,7 +2169,7 @@ export default function App() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 12px", marginTop: 8 }}>
                 <div>{dotEl("green")}{t("在线状态 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
                 <div>{dotEl("yellow")}{t("排队 {count}", { count: accounts.filter((a) => a.status_dot === "yellow").length })}</div>
-                <div>{dotEl("gray")}{t("离队 {count}", { count: accounts.filter((a) => a.evicted).length })}</div>
+                <div>{dotEl("gray")}{t("离队 {count}", { count: accounts.filter((a) => a.evicted || a.status_label === "离队").length })}</div>
                 <div>{dotEl("red")}{t("停机 {count}", { count: accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length })}</div>
                 {accounts.some((a) => a.status_label === "未参与") && (
                   <div>{dotEl("gray")}{t("未参与 {count}", { count: accounts.filter((a) => a.status_label === "未参与").length })}</div>
