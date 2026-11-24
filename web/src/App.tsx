@@ -2683,8 +2683,8 @@ export default function App() {
             setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} run={run} />
           <div className="card"><h2>{t("通知事件")}</h2>
             <p className="muted">{t("应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。")}</p>
-            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery", "instance_start", "instance_stop", "threshold_alarm", "update_available"] as const).map((k) => {
-              const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复"), instance_start: t("实例启动"), instance_stop: t("实例停机"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
+            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery", "instance_start", "instance_stop", "threshold_alarm", "update_available", "eip_replace"] as const).map((k) => {
+              const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复"), instance_start: t("实例启动"), instance_stop: t("实例停机"), threshold_alarm: t("阈值报警"), update_available: t("面板更新"), eip_replace: t("更换 EIP") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />

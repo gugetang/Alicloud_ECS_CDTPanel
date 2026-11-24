@@ -2098,7 +2098,7 @@ def test_notify_event_toggle_update_available():
     # 通知事件里有“面板更新”开关（有更新时推 TG/Email，每个版本只推一次）；
     # 后端事件键与默认开关都已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '"update_available"] as const' in tsx
+    assert '"update_available", "eip_replace"] as const' in tsx
     assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
@@ -2108,6 +2108,22 @@ def test_notify_event_toggle_update_available():
     assert "def _maybe_notify_update(settings: dict) -> bool:" in sched
     assert 'db.get_flag("update_notified_version")' in sched
     assert 'notifier.send("update_available", title, body)' in sched
+
+
+def test_notify_event_toggle_eip_replace():
+    # 通知事件里有“更换 EIP”开关（换 EIP 成功时推 TG/Email，失败走 error 事件）；
+    # 后端事件键与默认开关都已接好
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '"eip_replace"] as const' in tsx
+    assert 'eip_replace: t("更换 EIP")' in tsx
+    assert 'settings[`notify_${k}`]' in tsx
+    settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
+    assert '"notify_eip_replace": "1"' in settings
+    assert '"eip_replace": "notify_eip_replace"' in settings
+    api = (ROOT / "app" / "api.py").read_text(encoding="utf-8")
+    assert '"eip_replace", "EIP 已更换"' in api
+    assert '"error", "更换 EIP 失败"' in api
+    assert '"eip_replace": "notify_eip_replace"' in api
 
 
 def test_header_bell_and_palette_icons():

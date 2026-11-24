@@ -246,3 +246,64 @@ def test_client_associate_uses_ecs_instance_type():
     assert action == "AssociateEipAddress"
     assert params["InstanceType"] == "EcsInstance"
     assert params["AllocationId"] == NEW_ALLOC
+
+
+class FakeNotifier:
+    """假通知器：记录 send 调用，并按真实开关规则过滤。"""
+    sent: list = []
+
+    def __init__(self, settings):
+        self.s = settings
+
+    def enabled(self, event):
+        from app.settings import EVENT_TOGGLE_KEYS
+        key = EVENT_TOGGLE_KEYS.get(event)
+        return self.s.get(key, "1") == "1" if key else True
+
+    def send(self, event, title, body, channel=None, force=False):
+        if not self.enabled(event):
+            return []
+        FakeNotifier.sent.append((event, title, body))
+        return ["telegram"]
+
+
+def test_replace_eip_success_sends_push(client, accounts, headers):
+    FakeNotifier.sent = []
+    p1, p2, p3 = _patches()
+    with p1, p2, p3, patch("app.api.Notifier", FakeNotifier):
+        r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+    assert r.status_code == 200, r.text
+    assert FakeNotifier.sent == [
+        ("eip_replace", "EIP 已更换",
+         f"EIP-HK-1 EIP 已更换：{OLD_IP} → {NEW_IP}；DNS 已切：example.com")]
+
+
+def test_replace_eip_push_toggle_off(client, accounts, headers):
+    FakeNotifier.sent = []
+    r = client.put("/api/settings", json={"notify_eip_replace": "0"}, headers=headers)
+    assert r.status_code == 200
+    try:
+        p1, p2, p3 = _patches()
+        with p1, p2, p3, patch("app.api.Notifier", FakeNotifier):
+            r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+        assert r.status_code == 200, r.text
+        assert FakeNotifier.sent == []
+    finally:
+        client.put("/api/settings", json={"notify_eip_replace": "1"}, headers=headers)
+
+
+def test_replace_eip_failure_sends_error_push(client, accounts, headers):
+    FakeAliyun.fail_on = "associate"
+    FakeNotifier.sent = []
+    p1, p2, p3 = _patches()
+    with p1, p2, p3, patch("app.api.Notifier", FakeNotifier):
+        r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+    assert r.status_code == 400
+    assert any(e == "error" and t == "更换 EIP 失败"
+               for e, t, _b in FakeNotifier.sent)
+
+
+def test_notify_events_include_eip_replace(client, headers):
+    r = client.get("/api/notify", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["events"]["eip_replace"] is True
