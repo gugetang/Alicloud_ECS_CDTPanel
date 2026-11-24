@@ -739,14 +739,19 @@ def test_group_card_ddns_toggle_only():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
     # 分组卡片与服务器卡片同一布局：右上只有 ⚙（与服务器卡片一样的 icon-btn
-    # 齿轮 SVG，不再是 btn ghost + ⚙️ emoji），删除移到设置区底部（红色实心，
-    # 与服务器卡片的删除实例一样）；右下只剩一个 DDNS 开关（恢复以前那种），
-    # 刷新/重启按钮已取消，启动/停机合并成这一个开关
+    # 齿轮 SVG，不再是 btn ghost + ⚙️ emoji）；DDNS 开关移到卡片右上角
+    # （标题行，⚙ 左边）；删除分组是卡片右下角的红色垃圾桶图标（不再是
+    # 设置区底部的红色实心文字按钮）；刷新/重启按钮已取消，启动/停机合并
+    # 成 DDNS 这一个开关
     assert '<button className="icon-btn" title={t("分组设置")}' in group_card
     assert "⚙️" not in group_card
     assert 'className="icon-btn danger" title={t("删除")}' not in group_card
-    assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' in group_card
+    # 删除是红色垃圾桶图标（右下角），不是红色实心文字按钮
+    assert '<button className="icon-btn danger" title={t("删除分组")}' in group_card
+    assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}' in group_card
+    # DDNS 开关在标题行（⚙ 左边），带悬停状态提示
+    assert '<span title={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}' in group_card
     # 只有 DDNS 开关：用现成的 Toggle 开关组件，状态一眼可辨（开=主题色，
     # 关=灰色）；开=取消暂停（paused: 0），关=暂停（paused: 1），域名指向
     # 0.0.0.0、不分配实例（后端 engine.py 已是这个逻辑）；关时先弹确认
@@ -1287,9 +1292,10 @@ def test_server_cards_one_per_row_no_wrap():
     assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
     assert '<div className="grid3">' in tsx  # 顶上总览卡片仍三列
     assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }" in css
-    # 指标三列按内容自适应宽度（auto）+ 两端对齐：等宽 1fr 只有约 167px，
-    # 流量值（179–195px）与实例 ID（207px）放不下会换行；auto 列按最宽内容定宽
-    assert ".stats { display:grid; grid-template-columns:repeat(3,auto); justify-content:space-between; gap:10px 16px; margin-top:12px; }" in css
+    # 指标三列等宽 1fr 撑满卡片：卡片一行一个后每列约 370px，流量值
+    # （179–195px）与实例 ID（207px）放得下；之前 auto + 两端对齐在宽卡片
+    # 上把三列推到两端、中间留大片空白显空（用户 2026-11-24 截图反馈）。
+    assert ".stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }" in css
     # 实例管理卡片原来的五项一行（.stats.five）同样放不下，已改成三列
     assert ".stats.five" not in css and "stats five" not in tsx
     # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
@@ -1652,3 +1658,70 @@ def test_login_logo_left_admin_account_remember():
     assert "password" not in api.lower()
     assert "setRememberedUsername(account)" in tsx
     assert "setRememberedUsername(null)" in tsx
+
+
+def test_list_value_columns_not_bold_and_overview_padding():
+    # 列表值加粗（.overview-table/.accounts-table td 700）之后，用户截图指出
+    # 地域/站点/流量/阈值这几列的值不该加粗（名称、ID、IP、费用保持加粗）；
+    # 运行概览列表同时行距放宽（默认 10px 8px 太挤）。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 基础加粗规则仍在：两张列表的 td 默认 700
+    assert ".overview-table td, .accounts-table td { font-weight:700; }" in css
+    # 地域/站点/流量/阈值列不加粗（nth-child 按表头列序）：
+    # 运行概览：地域(2)/站点(4)/流量(5)；实例管理：地域(4)/站点(6)/流量(7)/阈值(9)
+    assert ".overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5)," in css
+    assert ".accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }" in css
+    # 运行概览列表行距放宽：14px 12px（默认 th,td 是 10px 8px）
+    assert ".overview-table th, .overview-table td { padding:14px 12px; }" in css
+
+
+def test_server_card_stats_three_equal_columns():
+    # 服务器卡片统计区太空：之前 auto + 两端对齐（space-between）在宽卡片
+    # （一行一个）上把三列推到两端、中间留出大片空白；改成三列等宽 1fr 撑满
+    # 卡片宽度——每列约 370px，流量值（179–195px）与实例 ID（207px）放得下。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }" in css
+    # .stats 不再用 space-between（手机端单列 .stats 1fr 不受影响，见媒体查询）
+    import re as _re
+    m = _re.search(r"\.stats \{[^}]*\}", css)
+    assert m is not None and "space-between" not in m.group(0)
+
+
+def test_group_card_labels_match_group_name_font_size():
+    # 分组卡片：顶上的组名称是 14px（<b style fontSize:14>），下面设置区
+    # 的“分组名称 *”等标签走全局 label 规则只有 13px，比标题小一号；
+    # 分组卡片内的标签统一改成 14px，与组名称同字号。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert 'className="card group-card"' in tsx
+    assert ".group-card label { font-size:14px; }" in css
+    # 组名称本身仍是 14px（不动），全局 label 规则仍是 13px（只分组卡片覆盖）
+    assert '<b style={{ fontSize: 14 }}>{g.name as string}</b>' in tsx
+    assert "label { display:block; font-size:13px;" in css
+
+
+def test_group_card_ddns_switch_top_right_delete_icon_bottom_right():
+    # 分组卡片：DDNS 开关从卡片右下角移到卡片右上角（标题行，⚙ 左边）；
+    # 删除分组从设置区里的红色实心文字按钮改成卡片右下角的红色垃圾桶图标。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # DDNS 开关在标题行：组名 <b> 之后、⚙ 之前；悬停提示显示开关状态
+    assert '<span title={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}' in tsx
+    assert tsx.count('<Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)}') == 1
+    # 标题行里 Toggle 在 ⚙ 前面（同一行内顺序）
+    hdr = tsx[tsx.index('<b style={{ fontSize: 14 }}>{g.name as string}</b>'):]
+    assert hdr.index("<Toggle checked={ddnsOn}") < hdr.index('title={t("分组设置")}')
+    # 卡片右下角是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
+    assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx
+    assert '<Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6"' in tsx
+    # 设置区里不再有红色实心“删除分组”文字按钮（删除实例仍是红色实心，不动）
+    group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
+    assert '{t("删除分组")}\n        </button>' not in group_card
+
+
+def test_domains_table_loose_padding():
+    # 域名管理表格太紧凑：行距放宽到与运行概览列表同款（14px 12px）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert '<table className="domains-table">' in tsx
+    assert ".domains-table th, .domains-table td { padding:14px 12px; }" in css

@@ -677,10 +677,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
   // 分组内成员：与“选择成员实例”区同一口径（group_ids 多对多）
   const members = accounts.filter((a) => { const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number); return gids.includes(g.id as number); });
-  // 分组操作：右下角只留一个 DDNS 开关（以前那种）：
-  // 开=取消暂停，调度把域名指向分组 IP 池当前工作的实例 IP；
-  // 关=暂停分组，域名指向 0.0.0.0、不分配实例（后端 engine.py 已是这个逻辑）。
-  // 刷新/重启按钮已取消；启动/停机合并成这一个开关。
+  // 分组 DDNS 开关在卡片右上角（标题行，⚙ 左边）；开=取消暂停，调度把域名
+  // 指向分组 IP 池当前工作的实例 IP；关=暂停分组，域名指向 0.0.0.0、不分配
+  // 实例（后端 engine.py 已是这个逻辑）。刷新/重启按钮已取消；启动/停机合并
+  // 成这一个开关。删除分组是卡片右下角的红色垃圾桶图标（带确认）。
   const [gBusy, setGBusy] = useState(false);
   const ddnsOn = !g.paused;
   const toggleDdns = async (on: boolean) => {
@@ -702,7 +702,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
   };
 
   return (
-    <div className="card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
+    <div className="card group-card" style={{ marginBottom: 12, cursor: showSettings ? "default" : "grab", ...(dragOver ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragging ? { opacity: 0.5 } : {}) }} {...(showSettings ? {} : (gDragProps || {}))}>
       <div className="row"><b style={{ fontSize: 14 }}>{g.name as string}</b>
         {/* 模式标签显示顶层模式：跟随系统时显示全局的运行模式（不是“跟随系统”），
             动态是负载均衡的子模式，顶栏显示负载均衡（与顶层 Seg 同款映射：
@@ -711,6 +711,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
             （动态模式/百分比/固定流量），见 groupModeLabel。 */}
         <span className="pill">{effMode === "time" ? t("定时轮巡") : t("负载均衡")}</span>
         <span className="spacer" />
+        <span title={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")} style={{ display: "inline-flex", alignItems: "center" }}><Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)} label={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")} /></span>
         <button className="icon-btn" title={t("分组设置")} onClick={onToggleSettings}><Ico label={t("分组设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
       </div>
       {showSettings && (<>
@@ -872,12 +873,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
       </div>
       </>)}
-      <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-        <button className="btn" title={t("删除分组")} style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
-          onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
-          {t("删除分组")}
-        </button>
-      </div>
       </>)}
       <h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>
       <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
@@ -914,9 +909,11 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           );
         })}
       </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8, alignItems: "center" }}>
-        <span className="muted" style={{ fontSize: 13 }}>{ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}</span>
-        <Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)} label={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")} />
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+        <button className="icon-btn danger" title={t("删除分组")}
+          onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
+          <Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+        </button>
       </div>
     </div>
   );
@@ -2209,7 +2206,7 @@ export default function App() {
             <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
-          <table><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
+          <table className="domains-table"><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
               const editing = editDomId === d.id;
