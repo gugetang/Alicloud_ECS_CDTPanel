@@ -135,6 +135,11 @@ table td[colspan] { position:static; }
 .accounts-table th:first-child, .accounts-table td:first-child { width:32px; min-width:32px; max-width:32px; }
 .accounts-table th:nth-child(2), .accounts-table td:nth-child(2) { position:-webkit-sticky; position:sticky; left:32px; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
 .accounts-table thead th:nth-child(2) { z-index:3; }
+/* 列表值加粗，与卡片指标值（.stat b，12px/700）一致：只加粗两张列表的
+   值列。表头 th 不动；拖动列（⠿）和操作列不是值，不加粗；跨列的展开行
+   （实例设置面板）不是数据列，也不加粗。 */
+.overview-table td, .accounts-table td { font-weight:700; }
+.accounts-table td:first-child, .accounts-table td:last-child, table td[colspan] { font-weight:400; }
 th,td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
 th { color:var(--muted); font-weight:500; font-size:13px; }
 .bar { height:6px; background:#1e293b; border-radius:3px; margin-top:6px; overflow:hidden; }
