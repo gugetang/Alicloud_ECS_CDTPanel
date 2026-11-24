@@ -1549,8 +1549,6 @@ export default function App() {
   // 概览视图：卡片 / 列表
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [acctViewMode, setAcctViewMode] = useState<"card" | "list">("card");
-  // 域名管理页 DDNS 设置卡片是否展开（右上角 ⚙ 开关）
-  const [showDdns, setShowDdns] = useState(true);
   // 域名管理页：正在编辑的行（null=无），行内表单
   const [editDomId, setEditDomId] = useState<number | null>(null);
   const [editDomName, setEditDomName] = useState("");
@@ -2316,9 +2314,7 @@ export default function App() {
       {tab === "domains" && (
         <>
         <div className="card">
-          <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
-            <button className="icon-btn blue" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}><Ico label={t("DDNS 设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
-          </div>
+          <div style={{ marginBottom: 12 }}><b style={{ fontSize: 16 }}>{t("域名列表")}</b></div>
           <div className="table-wrap"><table className="domains-table"><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
@@ -2391,7 +2387,6 @@ export default function App() {
             </div>
           )}
         </div>
-        {showDdns && (
         <div className="card"><h2>{t("DDNS 设置")}</h2>
           <div className="form2" style={{ paddingLeft: "2em" }}>
             <div><label className="req">{t("域名 *")}</label>
@@ -2409,7 +2404,6 @@ export default function App() {
               </select></div>
           </div>
         </div>
-        )}
         </>
       )}
 

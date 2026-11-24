@@ -457,16 +457,16 @@ def test_subtabs_button_padding():
     assert m2, "mobile subtabs padding should be 10px 14px"
 
 
-def test_managed_domains_title_removed():
+def test_managed_domains_title_is_domain_list_and_no_ddns_gear():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 域名管理页“受管理域名 {count}”大标题已删（与账户管理/分组标题一致），
-    # 右上角 ⚙（DDNS 设置开关）保留；它是 icon-btn（30×30，与其它齿轮同款），
-    # 不是 btn ghost + emoji
+    # 域名管理页卡片左上角标题是“域名列表”，父项字体 16px（与分组名同款）；
+    # 旧的“受管理域名 {count}”大标题已删；右上角 DDNS 设置 ⚙ 已取消，
+    # DDNS 设置卡片常显（不再有 showDdns 开关）
     assert 't("受管理域名 {count}"' not in tsx
-    assert 'title={t("DDNS 设置")}' in tsx
-    assert '<button className="icon-btn blue" title={t("DDNS 设置")}' in tsx
-    assert '<button className="btn ghost" title={t("DDNS 设置")}' not in tsx
-    assert "setShowDdns(!showDdns)" in tsx
+    assert '<div style={{ marginBottom: 12 }}><b style={{ fontSize: 16 }}>{t("域名列表")}</b></div>' in tsx
+    assert 'title={t("DDNS 设置")}' not in tsx
+    assert "showDdns" not in tsx
+    assert "setShowDdns" not in tsx
 
 
 def test_save_toast_renders_and_autohides():
@@ -1928,12 +1928,12 @@ def test_icon_button_size_30px_global():
     assert ".icon-btn { width:36px; height:36px; }" not in css
     # 设置齿轮按钮全局：图标显蓝色（icon-btn blue，#2563eb）、边框默认灰色
     # （.icon-btn 底色 var(--seg-off)）、大小与删除按钮一样 30×30
+    # （DDNS 设置齿轮已取消，DDNS 设置卡片常显）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    for t in ("卡片设置", "分组设置", "DDNS 设置", "云端备份设置"):
+    for t in ("卡片设置", "分组设置", "云端备份设置"):
         assert f'<button className="icon-btn blue" title={{t("{t}")}}' in tsx
     assert '<button className="icon-btn" title={t("卡片设置")}' not in tsx
     assert '<button className="icon-btn" title={t("分组设置")}' not in tsx
-    assert '<button className="icon-btn" title={t("DDNS 设置")}' not in tsx
     assert '<button className="icon-btn" title={t("云端备份设置")}' not in tsx
     assert ".icon-btn.blue { color:#2563eb; }" in css
 

@@ -93,6 +93,7 @@ export const EN: Record<string, string> = {
   日志统计: "Log statistics",
   全局设置: "Global Settings",
   域名管理: "Domain Management",
+  域名列表: "Domain List",
   通知设置: "Notification Settings",
   "掌握账户流量、VPS 状态和域名分配。": "Track account traffic, VPS status, and domain allocation.",
   "管理中国站与国际站账户，按需覆盖全局调度参数。": "Manage China and global site accounts, overriding global scheduling parameters as needed.",
