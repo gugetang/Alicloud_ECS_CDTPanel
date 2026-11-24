@@ -1843,14 +1843,17 @@ def test_group_card_ddns_switch_top_right_delete_icon_in_settings():
     # 删除按钮是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
     assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx
     assert '<Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6"' in tsx
-    # 删除按钮在设置区里（showSettings 块内、选择成员实例之前），
-    # 不在卡片底部：域名选择之后不再有删除按钮
+    # 删除按钮在卡片框体右下角（域名选择之后、卡片结束之前），
+    # 但只在设置展开时显示（showSettings 包裹），收起时不显示
+    # （2026-11-24 用户要求：位置在框体右下，点设置展开才显示，收起不显示）
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
     del_idx = group_card.index('<button className="icon-btn danger" title={t("删除分组")}')
-    assert del_idx > group_card.index("{showSettings && (")
-    assert del_idx < group_card.index('{t("选择成员实例")}')
     after_dom = group_card.index('{t("域名选择")}')
-    assert '<button className="icon-btn danger" title={t("删除分组")}' not in group_card[after_dom:]
+    assert del_idx > after_dom
+    assert del_idx > group_card.index("{showSettings && (")
+    assert group_card.index('{t("选择成员实例")}') < del_idx
+    # 删除按钮行被 {showSettings && ( 包裹（在域名选择之后、卡片结束之前）
+    assert "{showSettings && (\n      <div className=\"row\" style={{ justifyContent: \"flex-end\", marginTop: 12 }}>\n        <button className=\"icon-btn danger\" title={t(\"删除分组\")}" in group_card
     # 设置区里不再有红色实心“删除分组”文字按钮（删除实例也已改成图标，不在设置区里）
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}\n        </button>' not in group_card
