@@ -27,6 +27,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ github.sha }}
           tags: |
             ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
             ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ github.sha }}
