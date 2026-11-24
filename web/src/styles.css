@@ -173,14 +173,18 @@ html[data-theme="dark"] .switch { background:#475569; }
 html[data-theme="dark"] .switch.on { background:var(--accent); }
 /* 主题菜单（页眉）：图标按钮 + 下拉菜单，选中项浅蓝底、右侧打勾。 */
 .theme-menu { position:relative; }
-/* 页眉图标按钮与语言按钮：必须用 .btn.xxx 双类选择器——单类写会被后面
-   的 .btn（padding:7px 14px、font-size:14px）按同优先级后写覆盖，导致
-   中/En 按钮比后面两个图标按钮大；双类优先级更高，手机端 .btn 的
-   padding:10px 16px 同样盖不掉。紧凑尺寸：3px 4px 内边距、9px 图标/字，
-   三个按钮同高（9 + 3 + 3 + 2 边框 = 17px）。 */
-.btn.theme-btn { padding:3px 4px; display:flex; align-items:center; }
-/* 页眉语言按钮：与图标按钮同高，紧凑尺寸；当前语言用主题色，未选的用灰色 */
-.btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }
+/* 页眉图标按钮与语言按钮：圆角正方形 36×36，内容居中。必须用 .btn.xxx
+   双类选择器——单类写会被后面的 .btn（padding:7px 14px、font-size:14px）
+   按同优先级后写覆盖；双类优先级更高，手机端 .btn 的 padding:10px 16px
+   同样盖不掉。图标/文字按 36px 按钮等比放大（主题图标 14→18px、
+   退出图标 9→16px、语言字 9→14px），居中不挤压。 */
+.btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
+/* 页眉语言按钮：与图标按钮同大（36×36 圆角正方形），当前语言用主题色，未选的用灰色 */
+.btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
+/* 页眉顶栏固定：站点名称、介绍与右上角三个图标按钮一起固定在页面顶部，
+   滑动时始终可见；导航仍随页面滚动。sticky 保留在文档流里，不用额外给
+   页面顶部留空间；底色用实色 --bg，滚动上来的内容不透出来。 */
+header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:8px; }
 /* 语言按钮只显示当前语言（中 或 En），用主题色高亮；点按钮开下拉菜单选语言 */
 .lang-on { color:var(--accent); }
 .menu-backdrop { position:fixed; inset:0; z-index:40; }

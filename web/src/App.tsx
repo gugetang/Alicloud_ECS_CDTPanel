@@ -544,7 +544,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
         </div>
         <div className="theme-menu">
           <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
-            <ThemeIcon theme={theme} size={14} />
+            <ThemeIcon theme={theme} size={18} />
           </button>
           {themeMenuOpen && (
             <>
@@ -562,7 +562,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
           )}
         </div>
         <button className="btn ghost theme-btn" aria-label={t("退出")} title={t("退出")} onClick={() => { if (window.history.length > 1) window.history.back(); else window.close(); }}>
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
             <polyline points="16 17 21 12 16 7" />
             <line x1="21" y1="12" x2="9" y2="12" />
@@ -1974,7 +1974,7 @@ export default function App() {
             </div>
             <div className="theme-menu">
               <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
-                <ThemeIcon theme={theme} size={14} />
+                <ThemeIcon theme={theme} size={18} />
               </button>
               {themeMenuOpen && (
                 <>
@@ -1996,7 +1996,7 @@ export default function App() {
               setToken(null);
               setAuthState("login");
             }}>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                 <polyline points="16 17 21 12 16 7" />
                 <line x1="21" y1="12" x2="9" y2="12" />
