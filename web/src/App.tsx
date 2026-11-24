@@ -1095,6 +1095,9 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
   const [busy, setBusy] = useState(false);
   const [secMsg, setSecMsg] = useState("");
   const [credsError, setCredsError] = useState("");
+  const [bound, setBound] = useState<{ google: boolean; github: boolean }>({
+    google: !!settings.google_oauth_bound, github: !!settings.github_oauth_bound,
+  });
   const loadCreds = async () => {
     try { setCreds(await get("/api/auth/webauthn/list") as Any[]); setCredsError(""); }
     catch (e) { setCreds([]); setCredsError(String((e as Error).message)); }
@@ -1151,6 +1154,17 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
     setMsg(t("已保存成功"));
   };
 
+  const unbindOAuth = async (provider: "google" | "github") => {
+    if (!confirm(t("解绑后该渠道需要重新登录绑定，确定解绑吗？"))) return;
+    setBusy(true); setSecMsg("");
+    try {
+      await post(`/api/auth/oauth/${provider}/unbind`, {});
+      setBound({ ...bound, [provider]: false });
+      setSecMsg(t("已解绑"));
+    } catch (e) { setSecMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+
   return (
     <div className="card"><h2>{t("登录与安全")}</h2>
       <h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("修改密码")}</h3>
@@ -1180,11 +1194,23 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
       <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
         <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" key={String(settings.google_oauth_configured)} defaultValue={settings.google_oauth_configured ? SECRET_MASK : ""} placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.google_oauth_configured)); saveGoogleOAuth(); }} /></div>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        {bound.google ? (<>
+          <span className="muted">{t("已绑定 Google 账号")}</span><span className="spacer" />
+          <button className="btn ghost" disabled={busy} onClick={() => unbindOAuth("google")}>{t("解绑")}</button>
+        </>) : (<span className="muted">{t("未绑定：下次用 Google 登录会自动绑定")}</span>)}
       </div></div>
       <h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("GitHub 登录")}</h3>
       <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
         <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" key={String(settings.github_oauth_configured)} defaultValue={settings.github_oauth_configured ? SECRET_MASK : ""} placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.github_oauth_configured)); saveGithubOAuth(); }} /></div>
+      </div>
+      <div className="row" style={{ marginTop: 8 }}>
+        {bound.github ? (<>
+          <span className="muted">{t("已绑定 GitHub 账号")}</span><span className="spacer" />
+          <button className="btn ghost" disabled={busy} onClick={() => unbindOAuth("github")}>{t("解绑")}</button>
+        </>) : (<span className="muted">{t("未绑定：下次用 GitHub 登录会自动绑定")}</span>)}
       </div></div>
       {secMsg && <p style={{ color: "#f87171", marginTop: 12, paddingLeft: "2em" }}>{secMsg}</p>}
     </div>

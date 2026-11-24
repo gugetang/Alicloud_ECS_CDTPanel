@@ -321,6 +321,13 @@ export const EN: Record<string, string> = {
   "（未配置）": "(not configured)",
   "Google / GitHub 登录需先在全局设置“登录方式”里填入对应 OAuth 应用的 Client ID / Secret。": "Google / GitHub sign-in requires entering the corresponding OAuth app's Client ID / Secret in Global Settings > Login & Security.",
   "该 Google / GitHub 账号与已绑定的管理员身份不一致": "This Google / GitHub account does not match the bound admin identity",
+  "已绑定 Google 账号": "Google account bound",
+  "已绑定 GitHub 账号": "GitHub account bound",
+  "未绑定：下次用 Google 登录会自动绑定": "Not bound: the next Google sign-in will bind automatically",
+  "未绑定：下次用 GitHub 登录会自动绑定": "Not bound: the next GitHub sign-in will bind automatically",
+  解绑: "Unbind",
+  已解绑: "Unbound",
+  "解绑后该渠道需要重新登录绑定，确定解绑吗？": "After unbinding, this provider needs to sign in again to bind. Unbind?",
   "登录验证已过期，请重试": "Sign-in verification expired, please try again",
   "第三方登录失败（{err}）": "Third-party sign-in failed ({err})",
   // 分组
