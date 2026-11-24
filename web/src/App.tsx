@@ -2275,10 +2275,10 @@ export default function App() {
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                   <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
                 </div>
-                {a.status_detail ? <div className="muted status-detail" style={{ paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                 {cardSettingsId === a.id && <CardSettings a={a} />}
               </div>
-              <div className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12 }}>
+              <div className="row server-card-foot" style={{ justifyContent: "space-between", paddingTop: 12, alignItems: "center" }}>
+                {a.status_detail ? <div className="muted status-detail" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span className="spacer" />}
                 <div className="card-actions"><ActionButtons a={a} /></div>
               </div>
             </div>

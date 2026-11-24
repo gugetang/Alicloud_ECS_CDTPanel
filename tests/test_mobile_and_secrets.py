@@ -672,9 +672,15 @@ def test_theme_lines_alignment_dash_left_accounts_left():
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
     # 服务器卡片状态详情在可滚动中间区（server-card-body）里，不再用 marginTop: auto 钉底
     assert 'marginTop: "auto", paddingTop: 6' not in tsx
-    # 账户管理：状态详情行移到可滚动中间区里（指标下面），操作按钮单独一行固定在卡片底部靠右；
-    # 不再是状态与按钮同一行
-    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12 }}>' in tsx
+    # 实例管理卡片：状态详情与操作按钮同一行（详情在左、按钮在右），
+    # 这是对之前“状态详情放中间区、按钮单独一行固定底部”的反转（2026-11-24 用户截图要求）
+    assert 'className="row server-card-foot" style={{ justifyContent: "space-between", paddingTop: 12, alignItems: "center" }}>' in tsx
+    # foot 行里先是状态详情、后是操作按钮（同一行，详情在左、按钮在右）
+    foot = tsx.split('className="row server-card-foot"')[1][:600]
+    assert 'className="muted status-detail"' in foot
+    assert '<ActionButtons a={a} />' in foot
+    assert foot.index('status-detail') < foot.index('<ActionButtons a={a} />')
+    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12 }}>' not in tsx
     assert 'marginTop: 4, color: (a.status_dot' not in tsx
     assert 'justifyContent: "flex-end", marginTop: 12 }}><ActionButtons' not in tsx
 
