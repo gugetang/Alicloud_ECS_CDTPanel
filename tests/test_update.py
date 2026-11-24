@@ -153,6 +153,31 @@ def test_create_kwargs_from_inspect():
     assert kw["detach"] is True
 
 
+def test_create_kwargs_drops_version_env():
+    """在线更新重建容器时，不把旧镜像的版本标记带过去：CDT_VERSION /
+    CDT_COMMIT_SHA 是镜像构建时注入的，旧容器 inspect 的 Env 里也有；
+    原样带过去会盖住新镜像自己的值，新容器永远报旧提交，更新铃铛一直消不掉。"""
+    attrs = {
+        "Name": "/Alicloud_ECS_CDTPanel",
+        "Config": {
+            "Env": ["TZ=Asia/Shanghai", "CDT_DATA_DIR=/data", "CDT_PROXY_ONLY=1",
+                    "CDT_VERSION=v1.1.0-9-g61eb351", "CDT_COMMIT_SHA=61eb3510000000000000000000000000000000"],
+            "Cmd": None,
+            "Entrypoint": ["/entrypoint.sh"],
+        },
+        "HostConfig": {
+            "PortBindings": {"1999/tcp": [{"HostIp": "", "HostPort": "1999"}]},
+            "Binds": ["/opt/docker/cdt-alicloud_ecs_cdtpanel:/data"],
+            "RestartPolicy": {"Name": "unless-stopped"},
+            "NetworkMode": "default",
+            "Init": True,
+        },
+    }
+    kw = updater._create_kwargs(attrs)
+    assert kw["environment"] == ["TZ=Asia/Shanghai", "CDT_DATA_DIR=/data", "CDT_PROXY_ONLY=1"]
+    assert not any(e.startswith(("CDT_VERSION=", "CDT_COMMIT_SHA=")) for e in kw["environment"])
+
+
 def test_update_endpoints_require_login(client):
     # 未设置管理员时放行（首次向导）；设置管理员后未登录要 401
     h = auth_headers(client)
