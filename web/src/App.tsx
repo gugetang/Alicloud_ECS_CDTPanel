@@ -2481,13 +2481,13 @@ export default function App() {
       {tab === "config" && subTab === "settings" && (
         <>
           <div className="card"><h2>{t("参数设置")}</h2><p className="muted">{t("账户未配置覆盖值时，使用以下全局设置。")}</p>
-            <div className="notice" style={{ marginBottom: 0 }}><b>{t("切换模式按分组设置，请到「分组管理」选择。")}</b>
+            <div className="notice" style={{ marginBottom: 0, marginLeft: "2em" }}><b>{t("切换模式按分组设置优先，请到「分组管理」选择。")}</b>
               {t("一个分组只选一种模式（定时轮巡 / 负载均衡 / 动态模式），不同分组可以选不同模式。这里的时间/差值参数是")}
               <b>{t("新建分组的默认值")}</b>
-              {t("，分组里未填的项继承这里的值。旧的全局切换模式只作默认值与无分组 legacy 回退，不再直接控制分组。")}
+              {t("，分组里未填的项继承这里的值。")}
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>{t("去分组管理")}</button>
             </div>
-            <div className="form2" style={{ paddingLeft: "2em" }}>
+            <div className="form2" style={{ paddingLeft: "2em", gridTemplateColumns: "1fr" }}>
               <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>

@@ -1654,9 +1654,23 @@ def test_global_settings_run_mode_above_lb():
     assert 'setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");' in tsx
     # 负载均衡切换方式里仍有动态模式（未动）
     assert '{ value: "dynamic", label: t("动态模式")' in tsx
-    # 顶部两列（月度流量额度/流量保护阈值）是子项，整体缩进 2 字符，
-    # 标签与输入框都对齐在子项位置（2026-11-24 用户截图要求）
-    assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
+    # 顶部两框（月度流量额度/流量保护阈值）是子项，整体缩进 2 字符，
+    # 标签与输入框都对齐在子项位置（2026-11-24 用户截图要求）；
+    # 两框改成分行显示（单列，不再左右两列）
+    assert '<div className="form2" style={{ paddingLeft: "2em", gridTemplateColumns: "1fr" }}>' in tsx
+
+
+def test_param_notice_text_and_indent_and_quota_stacked():
+    # 参数设置顶部提示框：文案按用户 2026-11-24 要求改写（加“优先”，
+    # 删“旧的全局切换模式只作默认值与无分组 legacy 回退”一句）；框体整体
+    # 缩进 2em（与下面的两框对齐）；月度流量额度/流量保护阈值两框分行显示
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<div className="notice" style={{ marginBottom: 0, marginLeft: "2em" }}>' in tsx
+    assert 't("切换模式按分组设置优先，请到「分组管理」选择。")' in tsx
+    assert 't("，分组里未填的项继承这里的值。")' in tsx
+    assert "旧的全局切换模式只作默认值" not in tsx
+    assert "legacy 回退" not in tsx
+    assert '<div className="form2" style={{ paddingLeft: "2em", gridTemplateColumns: "1fr" }}>' in tsx
 
 
 def test_stat_values_uniform_weight():
