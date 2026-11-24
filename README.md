@@ -184,8 +184,3 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 [<img src="docs/assets/alibabacloud-icon.svg" height="28" alt="Alibaba Cloud"> Alibaba Cloud](https://www.alibabacloud.com)
 
 [<img src="docs/assets/muse-ai-logo.jpg" height="28" alt="Muse AI"> Muse AI](https://www.muse.ai)
-
-## 贡献者
-
-- Alilang
-- Muse AI
