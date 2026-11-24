@@ -21,7 +21,7 @@ def client():
 
 def auth_headers(client):
     for pw in ("newpass123", "secret123"):
-        r = client.post("/api/auth/login", json={"password": pw})
+        r = client.post("/api/auth/login", json={"username": "管理员", "password": pw})
         if r.status_code == 200:
             return {"Authorization": f"Bearer {r.json()['token']}"}
     r = client.post("/api/auth/setup", json={"admin_name": "管理员", "password": "secret123"})

@@ -1,17 +1,50 @@
 const TOKEN_KEY = "cdt-token";
+const REMEMBER_USERNAME_KEY = "cdt-remember-username";
 
+/** 读 token：先看 sessionStorage（本次会话登录），再看 localStorage（记住登录）。 */
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
 }
 
-export function setToken(token: string | null): void {
+/**
+ * 存 token：persistent=true（勾选“记住账号密码”）存 localStorage，关闭
+ * 浏览器后仍登录；false 存 sessionStorage，关闭浏览器后失效。
+ * 传 null 时两种存储都清除（退出登录）。
+ */
+export function setToken(token: string | null, persistent = true): void {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (token) {
+      if (persistent) {
+        localStorage.setItem(TOKEN_KEY, token);
+        sessionStorage.removeItem(TOKEN_KEY);
+      } else {
+        sessionStorage.setItem(TOKEN_KEY, token);
+        localStorage.removeItem(TOKEN_KEY);
+      }
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(TOKEN_KEY);
+    }
+  } catch { /* 忽略 */ }
+}
+
+/** 记住的管理员账号（只存账号，不存密码；密码靠浏览器自动填充）。 */
+export function getRememberedUsername(): string {
+  try {
+    return localStorage.getItem(REMEMBER_USERNAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setRememberedUsername(name: string | null): void {
+  try {
+    if (name) localStorage.setItem(REMEMBER_USERNAME_KEY, name);
+    else localStorage.removeItem(REMEMBER_USERNAME_KEY);
   } catch { /* 忽略 */ }
 }
 

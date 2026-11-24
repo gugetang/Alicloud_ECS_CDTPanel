@@ -353,9 +353,16 @@ def auth_login(body: dict, request: Request):
     key = request.client.host if request.client else "unknown"
     if login_locked(key):
         raise HTTPException(429, "登录失败次数过多，请 15 分钟后再试")
+    # 管理员账号校验：已设置 admin_name 时必须一致（不一致与密码错误
+    # 返回同一条提示，不泄露是哪一项错了）；未设置时（老用户）只校验密码。
+    username = (body.get("username") or body.get("admin_name") or "").strip()
+    configured_name = (db.get_flag("admin_name") or "").strip()
+    if configured_name and username != configured_name:
+        record_login_fail(key)
+        raise HTTPException(401, "账号或密码错误")
     if not verify_password(body.get("password") or "", stored):
         record_login_fail(key)
-        raise HTTPException(401, "密码错误")
+        raise HTTPException(401, "账号或密码错误")
     clear_login_fails(key)
     return {"token": new_session()}
 
