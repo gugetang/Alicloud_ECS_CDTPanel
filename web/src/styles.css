@@ -224,6 +224,11 @@ header .btn, header .icon-btn { min-height:30px; }
    .theme-card.sel、.menu .sel）本来就是主题色边框 + 加粗，只补悬停。 */
 .btn:hover { font-weight:600; border-color:var(--accent); }
 .btn.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+/* .btn.ghost 必须有自己的 :hover 规则：它与 .btn:hover 同优先级（0,2,0），
+   但写在 .btn:hover 之后，border 简写会盖掉悬停的主题色边框，导致
+   ghost 按钮（检测连接 / 发送测试通知 / 发送测试财报 / 自动发现等）
+   悬停时边框不变灰。双类 + 伪类优先级更高，且写在后面，悬停必生效。 */
+.btn.ghost:hover { font-weight:600; border-color:var(--accent); }
 .btn:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 /* 列表视图操作列（实例/域名）：齿轮 + 图标按钮横排不换行，按钮不收缩；
@@ -234,6 +239,19 @@ header .btn, header .icon-btn { min-height:30px; }
 /* 实例卡片底部操作按钮：状态文字再长也贴右，换行后仍靠右。 */
 .card-actions { margin-left:auto; flex:none; }
 .spacer { flex:1; }
+/* 每日推送：电脑端推送时间输入框与测试按钮同行显示（标签 + 时间框在左，
+   按钮组在右）；手机端上下分行（标签 + 时间框一行，按钮组下一行右对齐）。
+   只适用于电脑端，手机端不动。 */
+.daily-push-row { align-items:center; }
+.daily-push-row > label { margin:0; flex:none; }
+.daily-push-row input[type="time"] { width:auto; flex:none; }
+@media (max-width:800px) {
+  .daily-push-row { flex-direction:column; align-items:stretch; }
+  .daily-push-row > label { margin:12px 0 4px; }
+  .daily-push-row input[type="time"] { width:100%; }
+  .daily-push-row > .spacer { display:none; }
+  .daily-push-row > .row { justify-content:flex-end; }
+}
 input,select,textarea { background:var(--input); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; width:100%; }
 label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
 /* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（GiB）） */

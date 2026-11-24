@@ -212,10 +212,11 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
     # 2. 停止中 red_pulse：Stopping（顺延定义，用户未要求，闪烁红点）
     # 3. 停机/离线 red：Stopped 或状态未知/查询不到；若同时已跳出，detail 同时写“已跳出且已停机”
     # 4. 已跳出 gray：Running 且达保护阈值（被踢出池子，不再参与 DDNS）
-    # 5. 在线 green：Running、未踢出、流量已知、且正被某个域名指向（正在服务）
-    # 6. 未参与 gray：Running、未踢出、但未选中参与 DDNS（分组管理里可点选加入）
-    # 7. 排队中 yellow：Running、未踢出、已选中参与、可分配、但当前未被任何域名指向（池内排队待命）
-    # 8. 未知 gray：Running 但流量未知（保守不动）
+    # 5. 离队 gray：Running、未踢出、但未被任何分组选中（不在任何分组里，不参与域名分配）
+    # 6. 在线 green：Running、未踢出、流量已知、且正被某个域名指向（正在服务）
+    # 7. 未参与 gray：Running、未踢出、但未选中参与 DDNS（分组管理里可点选加入）
+    # 8. 排队中 yellow：Running、未踢出、已选中参与、可分配、但当前未被任何域名指向（池内排队待命）
+    # 9. 未知 gray：Running 但流量未知（保守不动）
     # status_dot 枚举：green | yellow | gray | red | green_pulse | red_pulse
     if serving_map is None and serving_ids is None:
         serving_map, queue_ranks = _status_context(None, settings, evicted_ids)
@@ -226,7 +227,10 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         serving_map = serving_map or _sm
     out["serving"] = a["id"] in serving_map
     out["serving_domain"] = serving_map.get(a["id"]) or None
-    out["queue_rank"] = queue_ranks.get(a["id"]) if out["serving"] is False else None
+    # 未被任何分组选中的实例不在任何池子里，没有排队位次
+    out["queue_rank"] = (queue_ranks.get(a["id"])
+                         if out["serving"] is False and (out.get("group_ids") or [])
+                         else None)
     status = (a.get("instance_status") or "").strip()
     evicted_note = (f"；同时已跳出池子（使用率 {rate}% ≥ 阈值 {threshold:.0f}%）"
                     if evicted and rate is not None else "")
@@ -247,6 +251,13 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
         out["status_detail"] = (
             f"使用率 {rate}% ≥ 阈值 {threshold:.0f}%，"
             "已跳出池子不再参与 DDNS；用量回落后自动恢复")
+    elif not (out.get("group_ids") or []):
+        # 未被任何分组选中：不在任何分组里，不参与域名分配，全站显示离队
+        # （2026-11-24 用户纠正：SWAS-KR 未被任何分组选中，应是离队，
+        # 其它位置也应是离队；这是对 21:22“成员按钮显示真实状态”的反转，
+        # 那次改反了——成员区灰点是对的，其它位置黄点才是错的）
+        out["status_dot"], out["status_label"] = "gray", "离队"
+        out["status_detail"] = "未被任何分组选中，不参与域名分配；在分组管理里点选即可加入"
     elif a.get("ddns_enabled") in (0, False) and not out["serving"]:
         out["status_dot"], out["status_label"] = "gray", "未参与"
         out["status_detail"] = "未选中参与 DDNS，不参与域名分配；在分组管理里点选即可加入"

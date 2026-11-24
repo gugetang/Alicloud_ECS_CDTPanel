@@ -938,9 +938,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
           const on = gids.includes(g.id as number);
           const next = on ? gids.filter((x) => x !== g.id) : [...gids, g.id as number];
-          // 成员按钮直接显示实例的真实全局状态（见 groupMemberDot）：
-          // 选中与否只看边框（选中=蓝框，未选=灰框），状态点与状态文案
-          // 全站统一，不因未选中而改灰点标“离队”。
+          // 成员按钮状态（见 groupMemberDot）：未选中且全局状态是在线/
+          // 启动中/排队中时显示灰点标“离队”；选中与否只看边框
+          // （选中=蓝框，未选=灰框）。未被任何分组选中的实例，后端
+          // status_dot/status_label 本身就是灰点/离队，全站统一。
           const { dot: mDot, leftGroup } = groupMemberDot(on, a.status_dot);
           const mLabel = leftGroup ? t("离队") : (a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知")));
           return (
@@ -1050,22 +1051,26 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         <div style={{ paddingLeft: "2em" }}>
         <div className="row"><span className="spacer" />
           <Toggle checked={drEnabled} label={t("启用每日推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
-        <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
+        <div className="row daily-push-row">
+          <label>{t("推送时间")}</label>
+          <input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
+          <span className="spacer" />
+          <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+            {!isEmail && (
+              <button className="btn ghost" onClick={() => run(async () => {
+                const res: Any = await get("/api/notify/telegram-check");
+                const steps: Any[] = res?.steps || [];
+                const bad = steps.find((s: Any) => !s.ok);
+                if (bad) throw new Error(`${bad.name}：${bad.detail}`);
+                return res;
+              }, t("Telegram 连接正常"))} title={t("检测连接")}>{t("检测连接")}</button>
+            )}
+            <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
+            <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
+            <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送日报")}</button>
+          </div>
         </div>
-      </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        {!isEmail && (
-          <button className="btn ghost" onClick={() => run(async () => {
-            const res: Any = await get("/api/notify/telegram-check");
-            const steps: Any[] = res?.steps || [];
-            const bad = steps.find((s: Any) => !s.ok);
-            if (bad) throw new Error(`${bad.name}：${bad.detail}`);
-            return res;
-          }, t("Telegram 连接正常"))} title={t("检测连接")}>{t("检测连接")}</button>
-        )}
-        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
-        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
-        <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送日报")}</button>
+        </div>
       </div>
     </div>
   );
@@ -1449,9 +1454,10 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f); e.target.value = ""; }} />
         <span className="spacer" />
         <button className="icon-btn" title={t("上传 logo")} onClick={() => fileRef.current?.click()} disabled={busy}><Ico label={t("上传 logo")}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Ico></button>
-        {hasLogo && (
+        {hasLogo && (<>
+          <span style={{ width: 30, flex: "none" }} />
           <button className="icon-btn danger" title={t("删除 logo")} onClick={() => void removeLogo()} disabled={busy}><Ico label={t("删除 logo")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico></button>
-        )}
+        </>)}
       </div>
       <div style={{ marginTop: 12 }}>
         <label className="lbl">{t("站点简介")}</label>
@@ -2352,6 +2358,7 @@ export default function App() {
                     <button className="icon-btn" title={t("取消")} onClick={() => setEditDomId(null)}>
                       <Ico label={t("取消")}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Ico>
                     </button>
+                    <span style={{ width: 30, flex: "none" }} />
                     <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) { setEditDomId(null); run(() => del(`/api/domains/${d.id}`), t("已删除")); } }}>
                       <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
                     </button>

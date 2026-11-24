@@ -116,3 +116,38 @@ def test_api_toggle_ddns_and_status_dot(client):
     st = client.get("/api/status", headers=h).json()
     row = next(x for x in st["accounts"] if x["id"] == a["id"])
     assert row["status_label"] == "排队中"
+
+
+def test_account_in_no_group_shows_left_group_everywhere(client):
+    # 未被任何分组选中的实例，全站显示灰点“离队”（2026-11-24 用户纠正：
+    # SWAS-KR 未被任何分组选中，应是离队，成员区灰点是对的，其它位置
+    # 黄点才是错的；21:22 那次把成员按钮改成显示真实状态是改反了）
+    h = auth_headers(client)
+    a = client.post("/api/accounts", json={
+        "name": "NoGroup-HK-1", "site": "global", "region": "cn-hongkong",
+        "access_key_id": "LTAI-nogroup", "access_key_secret": "nogroup-secret",
+        "instance_id": "i-nogroup1", "quota_gb": 200, "group_id": 1},
+        headers=h).json()
+    try:
+        db.update_account(a["id"], {"instance_status": "Running",
+                                    "traffic_used_gb": 20.0,
+                                    "public_ip": "203.0.113.92"})
+        # 在分组里时是排队中
+        st = client.get("/api/status", headers=h).json()
+        row = next(x for x in st["accounts"] if x["id"] == a["id"])
+        assert row["status_label"] == "排队中"
+        # 从所有分组移除 → 灰点“离队”，不进排队
+        r = client.put(f"/api/accounts/{a['id']}", json={"group_ids": []}, headers=h)
+        assert r.status_code == 200 and r.json()["group_ids"] == []
+        st = client.get("/api/status", headers=h).json()
+        row = next(x for x in st["accounts"] if x["id"] == a["id"])
+        assert row["status_dot"] == "gray" and row["status_label"] == "离队"
+        assert row.get("queue_rank") is None
+        # 加回分组 → 恢复排队中
+        r = client.put(f"/api/accounts/{a['id']}", json={"group_ids": [1]}, headers=h)
+        assert r.json()["group_ids"] == [1]
+        st = client.get("/api/status", headers=h).json()
+        row = next(x for x in st["accounts"] if x["id"] == a["id"])
+        assert row["status_label"] == "排队中"
+    finally:
+        db.delete_account(a["id"])

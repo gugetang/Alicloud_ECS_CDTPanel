@@ -331,16 +331,21 @@ def test_group_member_shows_masked_ip():
     # IP 单独一行居中，圆点用 flex 垂直居中，落在两行文字的中心高度
     assert 'className={(on ? "seg-on " : "") + "member-btn"}' in tsx
     assert '{dotEl(mDot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text">' in tsx
-    # 成员按钮直接显示实例的真实全局状态，不因未选中而改灰点标“离队”：
-    # 选中与否只看边框（选中=蓝框，未选=灰框），状态点与状态文案全站统一。
-    # 未选中时把 green/green_pulse/yellow 改灰点的做法是显示错误
-    # （2026-11-24 用户截图：SWAS-KR 成员区灰点，其它页面黄点排队中）
+    # 成员按钮：未选中且全局状态是在线/启动中/排队中时显示灰点标“离队”
+    # （2026-11-24 用户纠正：21:22 那次改成“直接显示真实状态”是改反了；
+    # SWAS-KR 未被任何分组选中，应是离队，成员区灰点是对的，其它位置
+    # 黄点才是错的；“其它位置也离队”由后端 _public_account 负责）
     assert 'const { dot: mDot, leftGroup } = groupMemberDot(on, a.status_dot);' in tsx
     assert 'const mLabel = leftGroup ? t("离队")' in tsx
+    # 成员按钮：未选中且全局状态是在线/启动中/排队中时显示灰点标“离队”
+    # （2026-11-24 用户纠正：21:22 那次改成“直接显示真实状态”是改反了；
+    # SWAS-KR 未被任何分组选中，应是离队，成员区灰点是对的，其它位置
+    # 黄点才是错的；“其它位置也离队”由后端 _public_account 负责）
     member_dot = (ROOT / "web" / "src" / "memberDot.ts").read_text(encoding="utf-8")
-    assert "leftGroup: false" in member_dot
-    assert 'statusDot === "green"' not in member_dot
-    assert 'statusDot === "yellow"' not in member_dot
+    assert 'statusDot === "green"' in member_dot
+    assert 'statusDot === "yellow"' in member_dot
+    assert 'return { dot: "gray", leftGroup: true };' in member_dot
+    assert 'return { dot: statusDot, leftGroup: false };' in member_dot
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
     assert "离队" in i18n
     assert '<span className="member-name">{a.name as string}</span>' in tsx
@@ -1133,6 +1138,33 @@ def test_settings_cards_use_parent_child_layout():
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
 
 
+def test_daily_push_time_and_buttons_same_row_on_desktop():
+    # 每日推送：电脑端推送时间输入框与测试按钮同行显示（标签 + 时间框在左，
+    # 按钮组在右）；手机端上下分行（标签 + 时间框一行，按钮组下一行右对齐）。
+    # 只适用于电脑端（2026-11-24 用户截图要求）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 时间框与按钮组在同一个 .daily-push-row 里
+    assert 'className="row daily-push-row"' in tsx
+    row = tsx.split('className="row daily-push-row"')[1].split("</div>\n        </div>")[0]
+    assert '<label>{t("推送时间")}</label>' in row
+    assert '<input type="time"' in row
+    assert '>{t("发送测试通知")}' in row
+    assert '>{t("立即推送日报")}' in row
+    # 不再有单独的卡片底行按钮 div
+    assert 'className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}' not in tsx.split("function ChannelCard")[1].split("function LoginSecurity")[0]
+    # CSS：桌面端横排（.row 默认 flex），手机端纵排
+    assert ".daily-push-row { align-items:center; }" in css
+    assert ".daily-push-row input[type=\"time\"] { width:auto; flex:none; }" in css
+    # 手机端规则在包含 .daily-push-row 的 @media (max-width:800px) 块里
+    # （文件里有多个同名 media 块，取包含 daily-push-row 的那一个）
+    mobile_blocks = css.split("@media (max-width:800px)")[1:]
+    mobile = next(b for b in mobile_blocks if ".daily-push-row" in b.split("@media")[0])
+    assert ".daily-push-row { flex-direction:column; align-items:stretch; }" in mobile
+    assert ".daily-push-row input[type=\"time\"] { width:100%; }" in mobile
+    assert ".daily-push-row > .spacer { display:none; }" in mobile
+
+
 def test_nav_and_subtabs_selected_are_accent_border():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 顶部导航与设置子标签选中态回到主题色边框样式（主题色填充已改回），
@@ -1362,6 +1394,17 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
     # 主题风格卡片与 OAuth 登录按钮：悬停框体同样变主题色
     assert ".theme-card:hover { border-color:var(--accent); }" in css
     assert ".oauth-btn:hover { font-weight:600; border-color:var(--accent); }" in css
+    # ghost 按钮（检测连接 / 发送测试通知 / 发送测试财报等）也要有悬停主题色边框：
+    # .btn.ghost 与 .btn:hover 同优先级且写在后面，border 简写会盖掉悬停边框，
+    # 须有自己的 .btn.ghost:hover 规则且写在 .btn.ghost 之后
+    # （2026-11-24 用户截图：这几个 ghost 按钮悬停时边框不变主题色）
+    assert ".btn.ghost:hover { font-weight:600; border-color:var(--accent); }" in css
+    assert css.index(".btn.ghost:hover") > css.index(".btn.ghost {")
+    # 通知卡片里的三个 ghost 按钮确实存在
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'title={t("检测连接")}>{t("检测连接")}' in tsx
+    assert '>{t("发送测试通知")}' in tsx
+    assert '>{t("发送测试财报")}' in tsx
 
 
 def test_server_cards_one_per_row_no_wrap():
@@ -1907,6 +1950,29 @@ def test_domain_delete_inside_edit_mode_only():
     assert 'title={t("编辑")}' in normal_branch
     assert 'title={t("删除")}' not in normal_branch
     assert "icon-btn danger" not in normal_branch
+
+
+def test_delete_button_gap_from_neighbor_buttons():
+    # 靠近删除按钮的其它任何按钮，两个按钮中间都留一个按钮空位
+    # （30px spacer，与 icon-btn 同宽；2026-11-24 用户截图要求）：
+    # ① 域名行内编辑态：取消（X）与删除（红垃圾桶）中间一个空位；
+    # ② 站点 logo 行：上传 logo 与删除 logo 中间一个空位；
+    # 实例删除（ActionButtons）早已有空位，见 test_delete_instance_icon_after_stop_with_gap
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # ① 域名编辑态
+    dom = tsx.split('<table className="domains-table">')[1].split("</table>")[0]
+    op_td = dom.split("<td>{editing ? (")[-1]
+    edit_branch = op_td.split(") : (")[0]
+    cancel_idx = edit_branch.index('title={t("取消")}')
+    del_idx = edit_branch.index('title={t("删除")}')
+    assert cancel_idx < del_idx
+    assert '<span style={{ width: 30, flex: "none" }} />' in edit_branch[cancel_idx:del_idx]
+    # ② 站点 logo 行
+    assert 'title={t("上传 logo")}' in tsx
+    up_idx = tsx.index('title={t("上传 logo")}')
+    logo_del_idx = tsx.index('title={t("删除 logo")}')
+    assert up_idx < logo_del_idx
+    assert '<span style={{ width: 30, flex: "none" }} />' in tsx[up_idx:logo_del_idx]
 
 
 def test_ddns_account_email_label_is_child_font():
