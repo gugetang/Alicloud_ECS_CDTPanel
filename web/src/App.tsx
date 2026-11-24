@@ -944,10 +944,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
           const on = gids.includes(g.id as number);
           const next = on ? gids.filter((x) => x !== g.id) : [...gids, g.id as number];
-          // 未选中的成员不在本组运行：全局状态是在线（绿点）、启动中
-          // （闪烁绿）或排队中（黄点）时都显示离队（灰点），不显示在线/
-          // 启动中/排队；已停机（红点）是实例本身的状态，仍显示已停机，
-          // 已跳出/未知等其它灰点状态不动。见 groupMemberDot。
+          // 成员按钮直接显示实例的真实全局状态（见 groupMemberDot）：
+          // 选中与否只看边框（选中=蓝框，未选=灰框），状态点与状态文案
+          // 全站统一，不因未选中而改灰点标“离队”。
           const { dot: mDot, leftGroup } = groupMemberDot(on, a.status_dot);
           const mLabel = leftGroup ? t("离队") : (a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知")));
           return (
