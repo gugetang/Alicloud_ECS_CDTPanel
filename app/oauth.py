@@ -37,34 +37,44 @@ SCOPES = {
     "github": "user:email",
 }
 
-# state -> {"provider": str, "created": float}，10 分钟有效，防 CSRF
+# state -> {"provider": str, "created": float,
+#            "redirect_uri": str, "origin": str}，10 分钟有效，防 CSRF。
+# 登录时把 redirect_uri 和 origin 一起记下来：回调换 token 必须用登录时
+# 那个 redirect_uri（GitHub 要求两次一致），成功/失败跳回的地址也用
+# 登录时那个——两次请求的头可能不一样（回调是从 github.com 跳回来的），
+# 各自现算可能算出两个地址。
 _states: dict[str, dict] = {}
 
 
-def new_state(provider: str) -> str:
+def new_state(provider: str, redirect_uri: str, origin: str) -> str:
     state = secrets.token_urlsafe(24)
-    _states[state] = {"provider": provider, "created": time.time()}
+    _states[state] = {"provider": provider, "created": time.time(),
+                      "redirect_uri": redirect_uri, "origin": origin}
     return state
 
 
-def take_state(state: str, provider: str) -> bool:
+def take_state(state: str, provider: str) -> dict | None:
+    """消耗 state；成功返回登录时记下的记录，否则返回 None。"""
     rec = _states.pop(state, None)
     if not rec:
-        return False
+        return None
     if rec.get("provider") != provider:
-        return False
+        return None
     if time.time() - rec.get("created", 0) > 600:
-        return False
-    return True
+        return None
+    return rec
 
 
 def authorize_url(provider: str, client_id: str, redirect_uri: str) -> str:
+    origin = "{scheme}://{netloc}".format(
+        scheme=urllib.parse.urlparse(redirect_uri).scheme,
+        netloc=urllib.parse.urlparse(redirect_uri).netloc)
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": SCOPES[provider],
-        "state": new_state(provider),
+        "state": new_state(provider, redirect_uri, origin),
     }
     if provider == "google":
         params["access_type"] = "offline"
