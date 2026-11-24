@@ -211,13 +211,20 @@ def test_daily_sends_via_notifier_channels(tmpdb, monkeypatch):
 
 
 def test_api_daily_preview_and_test(tmpdb):
+    from app import scheduler
     from fastapi.testclient import TestClient
     from app.main import create_app
     client = TestClient(create_app())
+    # 预览日期按调度时区（默认 Asia/Shanghai）取当天，不能拿系统本地
+    # naive 时间去比：容器是 UTC，16:00–24:00 UTC 时上海已是第二天，
+    # 旧断言 dt.datetime.now() 时好时坏。调用前后各取一次，容忍恰好
+    # 跨过午夜的情况。
+    before = scheduler._now().strftime("%Y-%m-%d")
     prev = client.get("/api/notify/daily-preview")
+    after = scheduler._now().strftime("%Y-%m-%d")
     assert prev.status_code == 200
     body = prev.json()
-    assert body["date"] == dt.datetime.now().strftime("%Y-%m-%d")
+    assert body["date"] in (before, after)
     # 预览标题跟随站点名称（测试库默认站点名 CDT 面板），名称行不带规格括号
     assert "[CDT 面板每日报告]" in body["text"] and "👤 名称：Demo-HK-1" in body["text"]
     assert "Demo-HK-1 (" not in body["text"]

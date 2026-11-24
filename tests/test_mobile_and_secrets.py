@@ -954,8 +954,15 @@ def test_parent_child_hierarchy_global():
     assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
     assert ".card h3 { margin:0 0 8px; font-size:16px; }" in (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 父栏下的所有子栏后退两字符：分组卡片的选择成员实例、域名选择按键区也缩进 2em
-    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>\n      <div className="seg" style={{ paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>\n      <div className="seg" style={{ paddingLeft: "2em" }}>' in tsx
+    # （PR #8 后两区改成两列 member-grid 网格，class 变了，缩进 2em 的规则没变）
+    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    # 两列布局本身：手机/平板（≤1024px）下 member-grid 是两列网格，
+    # 桌面端保持原来的自适应横排不变
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    grid_rule = ".member-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr));"
+    assert grid_rule in css
+    assert css.index("@media (max-width:1024px)") < css.index(grid_rule)
 
 
 def test_theme_accents_are_light():
