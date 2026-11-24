@@ -1632,6 +1632,9 @@ def test_global_settings_run_mode_above_lb():
     assert 'setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");' in tsx
     # 负载均衡切换方式里仍有动态模式（未动）
     assert '{ value: "dynamic", label: t("动态模式")' in tsx
+    # 顶部两列（月度流量额度/流量保护阈值）是子项，整体缩进 2 字符，
+    # 标签与输入框都对齐在子项位置（2026-11-24 用户截图要求）
+    assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
 
 
 def test_stat_values_uniform_weight():
