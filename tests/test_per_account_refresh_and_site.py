@@ -145,12 +145,14 @@ def test_frontend_site_and_refresh_and_footer():
     assert "settings?.site_intro" in tsx
     # 页脚：AlicloudECS_CDT © 2026 | 版本号 + 项目地址超链 + TG 超链，联系邮箱已删；
     # 版本号跟随当前版本（upd.current_version 短 SHA，未加载时回退 v1.0.0）；
-    # 页脚三项文字都是黑色字体（var(--text)），TG 是超链指向 @AliLang_AgentBot
+    # 页脚三项文字都是黑色字体（var(--text)），TG 是超链指向 @AliLang_AgentBot，
+    # 但只显示“Telegram”四个字，不显示 @AliLang_AgentBot（那是后台配置）
     assert "AlicloudECS_CDT © 2026 | {upd?.current_version ? String(upd.current_version).slice(0, 7) : \"v1.0.0\"}" in tsx
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
     assert "https://t.me/AliLang_AgentBot" in tsx
-    assert "Telegram @AliLang_AgentBot" in tsx
+    assert "Telegram @AliLang_AgentBot" not in tsx
+    assert "\n            Telegram\n" in tsx
     # 三项文字都是黑色字体（var(--text)，亮色下近黑、夜间可读）
     assert tsx.count('style={{ color: "var(--text)", fontSize: 13') == 3
     # TG 超链是黑色字体（var(--text)，亮色下近黑、夜间可读），与项目地址同款

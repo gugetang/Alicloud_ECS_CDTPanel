@@ -2351,7 +2351,7 @@ export default function App() {
                   </select>
                 ) : (<>{groupName(d.group_id)}{d.group_id ? (<><br /><span className="pill">{groupMode(d.group_id) === "time" ? t("定时轮巡") : t("负载均衡")}</span></>) : null}</>)}</td>
                 <td>{d.zone as string || t("自动发现")}</td>
-                <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? `（${cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}）` : ""}</span></td>
+                <td>{dotEl(cur?.status_dot, cur?.status_detail || cur?.status_label || "")}　A　{(d.current_ip as string) || "—"}<br /><span className="muted">{d.fallback_active ? t("备用地址生效中") : (cur?.name as string) || ""}{cur ? (<>（<span style={{ color: dotColor(cur.status_dot) }}>{cur.status_label ? trStatus(cur.status_label, lang) : (cur.instance_status || "")}</span>）</>) : ""}</span></td>
                 <td><span className="pill blue">{t("仅 DNS")}</span><br /><span className="muted">{t("TTL 自动")}</span></td>
                 <td>{editing ? (
                   <div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
@@ -2684,7 +2684,7 @@ export default function App() {
           </a>
           <a href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-            Telegram @AliLang_AgentBot
+            Telegram
           </a>
         </div>
       </footer>

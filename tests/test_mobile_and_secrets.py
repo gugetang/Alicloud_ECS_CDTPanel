@@ -1763,6 +1763,13 @@ def test_status_pill_follows_dot_and_mode_label_no_parens():
     assert ".pill.st-yellow { color:#FBBC04;" in css
     assert ".pill.st-red { color:#EA4335;" in css
     assert ".pill.st-gray { color:#9AA0A6;" in css
+    # 层叠：亮色下 html[data-theme="light"] .pill（0,2,1）会盖掉 .pill.st-*（0,2,0），
+    # 亮色下所有状态标签都会变绿；必须有亮色版 st-*（0,3,1）兜底，否则亮色下
+    # “排队中”应黄却绿、“离队”应灰却绿（2026-11-24 用户截图）
+    for cls, color in [("st-green", "#34A853"), ("st-yellow", "#FBBC04"), ("st-red", "#EA4335"), ("st-gray", "#9AA0A6")]:
+        assert f'html[data-theme="light"] .pill.{cls} {{ color:{color};' in css
+    # 域名表当前记录快照里的状态文字也跟随圆点颜色（不是 muted 灰）
+    assert '<span style={{ color: dotColor(cur.status_dot) }}>{cur.status_label ? trStatus(cur.status_label, lang)' in tsx
     # 模式标签不要括号：蓝色 pill 标签，排在状态标签（在线）后面
     assert '<span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>' in tsx
     assert '（{m}）' not in tsx
