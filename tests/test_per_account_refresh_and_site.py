@@ -195,9 +195,13 @@ def test_login_screen_shows_logo_when_set():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    login = tsx.split("function LoginScreen")[1].split("function SetupScreen")[0]
+    # 注意：SetupScreen 在 LoginScreen 之前定义，旧的 split("function SetupScreen")
+    # 截不到头，login 会一直延伸到文件末尾（含页脚），旧断言 textAlign:"center"
+    # 实际命中的是页脚的内联样式，不是登录 logo；页脚改固定定位去掉内联样式后
+    # 它就失效了。这里改以 GroupCard（LoginScreen 后第一个顶层函数）为界。
+    login = tsx.split("function LoginScreen")[1].split("function GroupCard")[0]
     assert '(info.site_logo as boolean) ? (' in login
     assert '<img src="/api/settings/logo" alt="logo"' in login
-    # logo 在标题上方（auth-title 之前）、居中
+    # logo 在标题左边同一行（flex 行里，auth-title 之前），不再居中独占一行
     assert login.index('info.site_logo') < login.index('auth-title')
-    assert 'textAlign: "center"' in login
+    assert '<div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>' in login

@@ -101,7 +101,7 @@ def test_mobile_media_query():
     assert ".btn { padding:10px 16px" in block
     assert ".icon-btn { width:36px; height:36px" in block
     assert ".auth-wrap { margin:24px auto 0" in block
-    assert ".app { padding:16px 12px 40px" in block
+    assert ".app { padding:16px 12px 60px" in block
     # 电脑端保持 1200px 三列
     assert ".app { max-width:1200px" in CSS
     assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr)" in CSS
@@ -591,7 +591,7 @@ def test_header_lang_dropdown_and_logout():
     # 页眉顶栏（站点名称、介绍、三个图标）sticky 固定在页面顶部，导航仍随页面滚动。
     assert ".btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
-    assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:8px; }" in css
+    assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; }" in css
     assert "nav { position:sticky" not in css and "nav { position:fixed" not in css
     # 主题键图标与退出图标按 36px 按钮等比放大（主题 14→18px，页眉与登录页
     # 各一处；退出 9→16px，同样两处）；语言字 9→14px，不挤压；
@@ -910,6 +910,26 @@ def test_buttons_hover_zoom_global():
                 ".subtabs button:hover:not(:disabled)", ".oauth-btn:hover:not(:disabled)",
                 ".theme-card:hover:not(:disabled)"):
         assert sel in css, sel
+
+
+def test_header_taller_and_footer_fixed():
+    # 页眉占用高度太低不协调：增高页眉——logo 48px（桌面端，与登录页同高；
+    # 手机端保持 36px）、标题 28px→32px、页眉上边距 8px→16px、副标题下边距 20px→24px。
+    # 页脚固定在视口底部，不跟随页面滚动：position:fixed + 底色 + 上边框；
+    # .app 下边距留出空间（桌面 60px、手机 60px），不让固定页脚盖住内容。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert '<img src="/api/settings/logo" alt="logo" className="site-logo" />' in tsx
+    assert ".site-logo { height:48px; max-width:140px; object-fit:contain; }" in css
+    assert ".site-logo { height:36px; }" in css
+    assert "header h1 { font-size:32px; margin:0 0 4px; }" in css
+    assert "header p { color:var(--muted); margin:0 0 24px; }" in css
+    assert "padding-top:16px;" in css
+    assert "footer { position:fixed; left:0; right:0; bottom:0; z-index:50; background:var(--bg); border-top:1px solid var(--border); padding:12px 0; text-align:center; }" in css
+    assert "<footer>" in tsx
+    assert '<footer style=' not in tsx
+    assert ".app { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }" in css
+    assert ".app { padding:16px 12px 60px; }" in css
 
 def test_seg_selected_is_accent_border():
     # 选中项用主题色边框 + 加粗，不用填充色、不写死蓝字（填充与写死色都已取消），

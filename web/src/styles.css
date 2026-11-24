@@ -40,8 +40,8 @@ body {
 a { color:#7aa5ff; }
 html[data-theme="light"] a { color:#1d4ed8; }
 .app { max-width:1200px; margin:0 auto; padding:24px 20px 60px; }
-header h1 { font-size:28px; margin:0 0 4px; }
-header p { color:var(--muted); margin:0 0 20px; }
+header h1 { font-size:32px; margin:0 0 4px; }
+header p { color:var(--muted); margin:0 0 24px; }
 nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
 nav button { background:var(--card); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 14px; cursor:pointer; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
 nav button:hover { font-weight:600; border-color:var(--accent); }
@@ -198,7 +198,11 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 /* 页眉顶栏固定：站点名称、介绍与右上角三个图标按钮一起固定在页面顶部，
    滑动时始终可见；导航仍随页面滚动。sticky 保留在文档流里，不用额外给
    页面顶部留空间；底色用实色 --bg，滚动上来的内容不透出来。 */
-header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:8px; }
+header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; }
+/* 站点 logo：桌面端 48px（与登录页 logo 同高），手机端保持 36px */
+.site-logo { height:48px; max-width:140px; object-fit:contain; }
+/* 页脚固定在视口底部，不跟随页面滚动；带底色与上边框，与内容分隔 */
+footer { position:fixed; left:0; right:0; bottom:0; z-index:50; background:var(--bg); border-top:1px solid var(--border); padding:12px 0; text-align:center; }
 /* 语言按钮只显示当前语言（中 或 En），用主题色高亮；点按钮开下拉菜单选语言 */
 .lang-on { color:var(--accent); }
 .menu-backdrop { position:fixed; inset:0; z-index:40; }
@@ -305,9 +309,10 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
    手机端（≤800px）单独排版——单列卡片、指标两列、表格横向滚动、
    触控目标放大、输入框 16px（防 iOS 聚焦时自动放大）。颜色与字体风格两端一致。 */
 @media (max-width: 800px) {
-  .app { padding:16px 12px 40px; }
+  .app { padding:16px 12px 60px; }
   header h1 { font-size:22px; }
   header p { margin-bottom:14px; }
+  .site-logo { height:36px; }
   /* 手机端主导航一行横向滑动，不换行：按钮不收缩、不换行，滚动条隐藏，触摸滑动顺滑；桌面端不动。 */
   nav { margin-bottom:14px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; mask-image:linear-gradient(to right, black 92%, transparent); }
   nav::-webkit-scrollbar { display:none; }
