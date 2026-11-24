@@ -296,8 +296,17 @@ def test_get_billing_items_list_shape(monkeypatch):
     assert c.get_billing()["cost"] == 1.5
 
 
-def test_regions_post_not_get(tmpdb):
+def test_regions_post_not_get(tmpdb, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
+    import app.main as main
+    # SPA 兜底路由只在 app/static 存在时才注册（main.py 的
+    # if STATIC_DIR.exists()），而 app/static 是 vite build 的产物、
+    # 不进 git：全新检出没跑过构建时兜底路由不存在，GET 会落到 POST
+    # 路由上返回 405 而不是 404，测试时好时坏与构建状态有关。
+    # 用临时目录冒充 STATIC_DIR，让测试不依赖本地有没有构建过前端。
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    (tmp_path / "assets").mkdir()
+    monkeypatch.setattr(main, "STATIC_DIR", tmp_path)
     from app.main import create_app
     client = TestClient(create_app())
     # POST + JSON body：无凭据时应报 400（路由存在、body 正常解析）
