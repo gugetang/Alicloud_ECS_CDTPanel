@@ -2083,7 +2083,7 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <table style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
+              <table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>

@@ -1216,6 +1216,19 @@ def test_server_cards_one_per_row_no_wrap():
     assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
 
 
+def test_list_values_are_bold():
+    # 列表值加粗，与卡片指标值（.stat b，700）一致：运行概览列表与实例管理
+    # 列表的值列（ID、地域、IP、站点、流量、费用、阈值）都是 700；表头 th
+    # （13px/500 灰色）不动，拖动列（⠿）和操作列不是值，跨列展开行也不是
+    # 数据列，都不加粗
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<table className="overview-table"' in tsx
+    assert ".overview-table td, .accounts-table td { font-weight:700; }" in css
+    assert ".accounts-table td:first-child, .accounts-table td:last-child, table td[colspan] { font-weight:400; }" in css
+    assert "th { color:var(--muted); font-weight:500; font-size:13px; }" in css
+
+
 def test_header_shows_site_name():
     # 页眉 logo 后面固定显示站点名称，不再显示当前标签页名（运行概览/实例管理/
     # 站点设置……）；站点名称在站点设置→站点信息里改，当前标签仍由导航高亮表示
