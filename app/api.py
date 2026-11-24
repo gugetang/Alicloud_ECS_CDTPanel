@@ -1051,6 +1051,9 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
         except Exception:  # noqa: BLE001
             pass
         log.warning("更换 EIP %s 失败：%s；%s", a["name"], exc, note)
+        # 推送：更换失败（走 error 事件，开关默认开；回滚结果写进正文）
+        Notifier(db.get_settings()).send(
+            "error", "更换 EIP 失败", f"{a['name']} 更换 EIP 失败：{exc}；{note}")
         raise HTTPException(400, f"更换 EIP 失败：{exc}；{note}")
     # ⑥ 释放旧 EIP（DNS 已切走；释放失败只告警，不推翻已成功的结果）
     warning = ""
@@ -1063,6 +1066,12 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
                  f"{a['name']} EIP 已更换：{old_ip} → {new_ip}"
                  + (f"；{warning}" if warning else ""),
                  account_id=aid)
+    # 推送：EIP 已更换（开关默认开；DNS 域名与旧 EIP 释放告警写进正文）
+    Notifier(db.get_settings()).send(
+        "eip_replace", "EIP 已更换",
+        f"{a['name']} EIP 已更换：{old_ip} → {new_ip}"
+        + (f"；DNS 已切：{', '.join(dns_domains)}" if dns_domains else "")
+        + (f"；{warning}" if warning else ""))
     out = _public_row(db.get_account(aid))
     out.update({"old_ip": old_ip, "new_ip": new_ip,
                 "dns_domains": dns_domains, "warning": warning})
@@ -1288,7 +1297,8 @@ def get_notify(_: bool = Depends(_admin_required)):
                         "recovery": "notify_recovery",
                         "instance_start": "notify_instance_start",
                         "instance_stop": "notify_instance_stop",
-                        "threshold_alarm": "notify_threshold_alarm"}.items()}}
+                        "threshold_alarm": "notify_threshold_alarm",
+                        "eip_replace": "notify_eip_replace"}.items()}}
 
 
 @router.post("/notify/test")

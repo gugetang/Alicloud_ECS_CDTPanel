@@ -106,6 +106,8 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "notify_instance_start": "1",
     "notify_instance_stop": "1",
     "notify_threshold_alarm": "1",
+    # 更换 EIP：成功与失败都推（失败走 error 事件，见 api.replace_eip）
+    "notify_eip_replace": "1",
     # 面板更新：发现新版本时推送一次（每个版本只推一次）
     "notify_update_available": "1",
     # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
@@ -148,6 +150,7 @@ EVENT_TOGGLE_KEYS = {
     "instance_start": "notify_instance_start",
     "instance_stop": "notify_instance_stop",
     "threshold_alarm": "notify_threshold_alarm",
+    "eip_replace": "notify_eip_replace",
     "update_available": "notify_update_available",
     "daily_report": "notify_daily_report",
 }
