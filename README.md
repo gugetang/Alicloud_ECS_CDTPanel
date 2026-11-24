@@ -5,7 +5,7 @@
 
 阿里云 ECS / CDT 调度控制台：多账户流量监控、抢占式实例保活、Cloudflare DDNS、
 阈值踢出、固定时间切换、按流量负载均衡。单进程 FastAPI + SQLite，前端 React + TS + Vite，
-Docker 一键部署（默认 `0.0.0.0:1999`）。
+Docker 一键部署（只通过域名 + HTTPS 访问，IP:端口打不开，见“部署安全”）。
 
 > 从零新写。参考了 `cdt-management`（Python，换班/均衡/DDNS 思路）与
 > `AliCloud_CDT-Monitor`（Go，单进程/Worker/ API Key 思路）的公开实现，
@@ -16,39 +16,44 @@ Docker 一键部署（默认 `0.0.0.0:1999`）。
 ### 一键部署（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com bash
 ```
 
 脚本会：检测/自动安装 Docker + Docker Compose（apt/yum/dnf/apk，装不上就报错退出）、
-克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
-轮询 `/api/health` 最多 60 秒，成功后打印访问地址 `http://<服务器>:1999`。
-端口固定 1999，改端口请编辑 `docker-compose.yml` 的 `ports` 一行。
+克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、把域名写入 `.env`（`CDT_PUBLIC_DOMAIN`）、
+拉取 GHCR 镜像并 `docker compose up -d`、先在容器里轮询 `/api/health` 最多 60 秒，
+再等 `https://域名/api/health` 可访问最多 180 秒（Caddy 自动申请证书），成功后打印
+访问地址 `https://域名`。域名是必填的：不传 `DOMAIN` 且没法交互输入时脚本直接报错，
+不会静默装成一个 IP 就能访问的站；域名没解析到本机时也会明确提示。
 
 ```bash
 # 改目录
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DIR=/srv/cdt bash
-# 升级：重跑同一条命令（git 已是最新且容器在跑时不重建）
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com DIR=/srv/cdt bash
+# 升级：重跑同一条命令（git 已是最新且容器在跑时不重建；旧部署升级也要先配好域名，见“部署安全”）
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com bash
 # 卸载（会二次确认是否删数据）
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | UNINSTALL=1 bash
 ```
 
 > 注意：如需换仓库，可用 `REPO_URL=... bash` 指定仓库地址。
-> 本机无 Docker，本仓库只做了静态检查（`bash -n`、Dockerfile/compose 人工核对），
-> 未在本机实测 Docker 部署。
+> 本机无 Docker，未在本机实测完整 Docker 部署栈；Caddyfile 已用 Caddy 2.10.2
+> `caddy validate` 通过，并用真实 Caddy + 假后端实测过路由：
+> 域名 HTTPS 能访问、域名 HTTP 308 跳 HTTPS、IP/未配置域名 HTTP 被直接断开、
+> IP HTTPS 握手失败；应用层 Host 白名单有 pytest 用例（`tests/test_host_guard.py`）。
 
 ### Docker Compose 部署
 
 ```bash
 git clone https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 cd Alicloud_ECS_CDTPanel
+# 先写域名（必填）：compose 从 .env 读 CDT_PUBLIC_DOMAIN
+echo 'CDT_PUBLIC_DOMAIN=cdt.example.com' > .env
 docker compose pull
 docker compose up -d
 # 查看日志 / 停止
 docker compose logs -f Alicloud_ECS_CDTPanel
 docker compose down
-# 访问 http://服务器:1999
-# 改端口：编辑 docker-compose.yml 的 ports 一行，如 - "8888:1999"
+# 访问 https://cdt.example.com（IP:端口打不开）
 ```
 
 完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
@@ -60,23 +65,69 @@ services:
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
-    ports:
-      - "1999:1999"
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
+      CDT_LISTEN_HOST: "127.0.0.1"
+      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: cdt-caddy
+    restart: unless-stopped
+    network_mode: "service:Alicloud_ECS_CDTPanel"
+    environment:
+      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
 ```
 
 说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），只拉已发布的 GHCR 镜像
 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`（见 `.github/workflows/docker.yml`，
-push 到 main 自动构建并推送到 GHCR）。端口固定 `1999:1999`，
-数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
+push 到 main 自动构建并推送到 GHCR）。对外只发布 `80/443`（Caddy），`1999`
+不对外发布；数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
 （与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
 该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
 `restart: unless-stopped`，`init: true`。
 升级：`docker compose pull && docker compose up -d`（或重跑一键部署命令）。
+
+### 部署安全（域名 + HTTPS，IP:端口打不开）
+
+新部署默认就是这样，不用额外配置；老部署升级到新版时也要先配好域名，
+数据（`cdt.db`、`master.key`）不动。
+
+三道防线：
+
+1. **1999 不对外发布**：`docker-compose.yml` 里面板容器没有 `ports`，
+   且 `CDT_LISTEN_HOST=127.0.0.1`，面板只监听容器内回环地址；
+   Caddy 用 `network_mode: "service:Alicloud_ECS_CDTPanel"` 与面板共享
+   网络命名空间才能访问它。对外只发布 Caddy 的 `80/443`。
+2. **Caddy 只给配置的域名做 HTTPS**：`Caddyfile` 里只有
+   `{$CDT_PUBLIC_DOMAIN}` 一个站点，证书自动申请 / 续期（Let's Encrypt），
+   HTTP 自动跳 HTTPS；其它 Host 的 HTTP 请求（IP 直访、未配置域名）由
+   `:80` 兜底直接断开，HTTPS 下 IP 没有对应证书、握手本身就会失败。
+3. **应用层 Host 白名单**：配了 `CDT_PUBLIC_DOMAIN` 后，面板只认该域名
+   Host，IP / 其它 Host 直接 403；本机回环（容器健康检查）始终放行，
+   `X-Forwarded-Proto` 是 http 时也拒绝。不配该变量时不限制
+   （本地开发、旧部署保持原样）。
+
+部署前置条件：域名已解析到本机（A 记录指向服务器公网 IP，用了 Cloudflare
+等 CDN 代理时解析到的是 CDN 节点，也能用，install.sh 会提示确认），
+服务器 80/443 端口对外开放。换域名：改 `.env` 里的 `CDT_PUBLIC_DOMAIN`，
+再 `docker compose up -d`。排障：`docker compose logs -f caddy` 看证书
+申请情况；`docker compose logs -f Alicloud_ECS_CDTPanel` 看面板日志。
+`http://服务器:1999` 的旧访问方式已废弃，升级后打不开是正常的。
 
 > 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
 > 所以是 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`，
@@ -141,7 +192,7 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 # 改端口：CDT_LISTEN_PORT=8888 python -m app.main
 ```
 
-首次访问 `http://服务器:1999`，设置管理员密码（可选，未设置时不强制登录）。
+首次访问 `http://127.0.0.1:1999`，设置管理员密码（可选，未设置时不强制登录）。
 登录页的密码输入框平时无边框，点中 / 聚焦时才显示主题色边框；登录按钮
 是灰边框（`.btn` 全站默认灰色，见下）；Google / GitHub
 登录按钮带各自图标（Google 多色 G、GitHub mark），未配置时只置灰，
@@ -325,7 +376,7 @@ latin 子集（可变字体 400–700）以 base64 内嵌在 CSS 里（`web/src/
 **OAuth 配置：** Google 登录与 GitHub 登录分开配置，各有自己的 Client ID / Secret 输入框，改完失焦自动保存。在 Google Cloud Console（创建 OAuth 客户端，类型“Web
 应用”）或 GitHub Settings → Developer settings → OAuth Apps 里创建应用，
 回调地址填 `{面板地址}/api/auth/oauth/google/callback`（GitHub 把
-`google` 换成 `github`，如 `http://服务器:1999/api/auth/oauth/github/callback`），
+`google` 换成 `github`，如 `https://你的域名/api/auth/oauth/github/callback`），
 再把 Client ID / Secret 填到账号设置“登录与安全”里（Secret 加密存储，
 读出不回显；未配置时登录页对应按钮置灰，不显示“（未配置）”字样）。首次用第三方账号登录会绑定
 为管理员身份，之后只允许同一账号登录；密码登录与第三方登录共用同一
@@ -534,7 +585,7 @@ USD：USD 账单 + CNY 账单 ÷ 汇率，2 位小数）；小字第二行会注
 （下载备份/恢复备份，见“备份与恢复”）。
 
 DDNS 设置（域名 + 账户邮箱 + API Token + 时区）在顶级导航的**域名管理**页，不在全局设置；
-网页访问框体已移除（监听地址/端口由启动参数决定，默认 `0.0.0.0:1999`）。
+网页访问框体已移除（监听地址/端口由启动参数决定，本地直接跑默认 `0.0.0.0:1999`；Docker 部署时 compose 改成只监听容器内 `127.0.0.1:1999`，见“部署安全”）。
 登录与安全（改密码、注册指纹、Google/GitHub OAuth 配置）在账号设置页
 的“登录与安全”卡片里，见“主题与登录方式”。
 

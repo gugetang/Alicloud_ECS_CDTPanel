@@ -1,13 +1,40 @@
+# 部署安全：面板只通过域名 + HTTPS（Caddy 自动证书）对外提供服务，
+# 服务器 IP:端口打不开。域名在同目录 .env 里设置（install.sh 会帮你写）：
+#   CDT_PUBLIC_DOMAIN=cdt.example.com
 services:
   Alicloud_ECS_CDTPanel:
     image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
-    ports:
-      - "1999:1999"
+    # 注意：这里故意没有 ports，1999 不对外发布。面板只监听容器内
+    # 127.0.0.1:1999（CDT_LISTEN_HOST），宿主机 IP:1999 打不开；
+    # 唯一入口是下面的 Caddy（80/443）。
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
+      CDT_LISTEN_HOST: "127.0.0.1"
+      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: cdt-caddy
+    restart: unless-stopped
+    # 与面板容器共享网络命名空间：Caddy 才能访问面板只监听的
+    # 127.0.0.1:1999；80/443 由 Caddy 对外发布。
+    network_mode: "service:Alicloud_ECS_CDTPanel"
+    environment:
+      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

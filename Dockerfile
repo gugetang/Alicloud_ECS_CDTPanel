@@ -24,6 +24,8 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin cdt \
 # （Docker 自动创建时属主是 root）改属主为 cdt 后，再切到 cdt 用户运行服务。
 # 这样 docker compose pull && up 不用手动 chown 也能直接起来。
 VOLUME ["/data"]
+# 1999 只在容器网络内提供服务：docker-compose.yml 不对外发布它，
+# 面板只监听容器内 127.0.0.1:1999，唯一入口是 Caddy（80/443，域名 + HTTPS）。
 EXPOSE 1999
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["python", "-c", "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:1999/api/health',timeout=4).status==200 else 1)"]

@@ -18,6 +18,12 @@ LISTEN_HOST = os.environ.get("CDT_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("CDT_LISTEN_PORT", "1999"))
 TZ = os.environ.get("TZ", "Asia/Shanghai")
 
+# 对外访问域名（部署安全）：新部署由 docker-compose.yml / install.sh 从
+# .env 传入，如 cdt.example.com。配了以后面板只认这个 Host（见
+# main.py 的 Host 白名单中间件），IP 或其它 Host 直接拒绝；不配则不限制
+# （本地开发、旧部署保持原样）。
+PUBLIC_DOMAIN = os.environ.get("CDT_PUBLIC_DOMAIN", "").strip().lower()
+
 # 全局调度参数默认值（截图值）
 DEFAULT_SETTINGS: dict[str, str] = {
     "quota_gb": "200",
