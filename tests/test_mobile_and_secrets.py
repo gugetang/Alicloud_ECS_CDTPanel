@@ -1573,3 +1573,37 @@ def test_group_name_and_section_labels_font_size_swapped():
     assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>' in tsx
     assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>' in tsx
     assert ".card h3 { margin:0 0 8px; font-size:16px; }" in css
+
+def test_login_logo_left_admin_account_remember():
+    # 登录页：logo 在标题左边同一行（不再居中独占一行）、管理员账号输入框
+    # 在密码框上面、密码框下方登录按钮上方有“记住账号密码”勾选（默认勾选）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    api = (ROOT / "web" / "src" / "api.ts").read_text(encoding="utf-8")
+    # logo 与标题同一行：logo 高 36，标题在同一 flex 行里
+    assert '<div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>' in tsx
+    assert '<img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", flex: "none" }} />' in tsx
+    assert '<div className="auth-title" style={{ margin: 0 }}>{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>' in tsx
+    assert 'textAlign: "center", marginBottom: 12' not in tsx  # 旧的居中独占一行已删
+    # 账号框在密码框上面：账号标签/输入在“登录密码”之前，带 username 自动填充
+    login = tsx.index("function LoginScreen")
+    assert tsx.index('{t("管理员账号 *")}', login) < tsx.index('{t("登录密码 *")}', login)
+    assert 'autoComplete="username"' in tsx
+    assert 'autoComplete="current-password"' in tsx
+    # 登录请求同时发账号和密码
+    assert 'post("/api/auth/login", { username: account, password })' in tsx
+    # 记住勾选：默认勾选，在密码框下方、登录按钮上方
+    assert "const [remember, setRemember] = useState(true);" in tsx
+    assert '{t("记住账号密码")}' in tsx
+    assert tsx.index('{t("记住账号密码")}') < tsx.index('title={t("登录")}>{t("登录")}</button>')
+    # token 存放位置：勾选存 localStorage（跨浏览器会话），不勾选存
+    # sessionStorage（关闭浏览器失效）；读 token 时 sessionStorage 优先
+    assert "sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY)" in api
+    assert "localStorage.setItem(TOKEN_KEY, token);" in api
+    assert "sessionStorage.setItem(TOKEN_KEY, token);" in api
+    assert "setToken(r.token as string, true);" in tsx
+    assert "setToken(r.token as string, false);" in tsx
+    # 退出登录清两种存储；只记账号不记密码：密码不进任何本地存储
+    assert "localStorage.removeItem(TOKEN_KEY);\n      sessionStorage.removeItem(TOKEN_KEY);" in api
+    assert "password" not in api.lower()
+    assert "setRememberedUsername(account)" in tsx
+    assert "setRememberedUsername(null)" in tsx

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { get, post, put, del, getToken, setToken } from "./api";
+import { get, post, put, del, getToken, setToken, getRememberedUsername, setRememberedUsername } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
 
@@ -400,13 +400,13 @@ function TwoLineLabel({ parent, child, req }: { parent: string; child: string; r
 }
 
 // ---------------- 密码输入框：带显示/隐藏切换（眼睛图标） ----------------
-function PasswordField({ value, onChange, placeholder, onKeyDown, inputRef }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void; inputRef?: React.Ref<HTMLInputElement> }) {
+function PasswordField({ value, onChange, placeholder, onKeyDown, inputRef, autoComplete }: { value: string; onChange: (v: string) => void; placeholder?: string; onKeyDown?: (e: React.KeyboardEvent) => void; inputRef?: React.Ref<HTMLInputElement>; autoComplete?: string }) {
   const { t } = useI18n();
   const [show, setShow] = useState(false);
   return (
     <div style={{ position: "relative" }}>
       <input ref={inputRef} type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder} onKeyDown={onKeyDown} style={{ paddingRight: 40 }} />
+        placeholder={placeholder} onKeyDown={onKeyDown} autoComplete={autoComplete} style={{ paddingRight: 40 }} />
       <button type="button" aria-label={show ? t("隐藏密码") : t("显示密码")} title={show ? t("隐藏密码") : t("显示密码")}
         onClick={() => setShow(!show)}
         style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", padding: 4, display: "flex", alignItems: "center" }}>
@@ -457,7 +457,12 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
 // ---------------- 登录页：密码 / 指纹 / Google / GitHub ----------------
 function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; oauthMsg: string; onDone: () => void; theme: string; setTheme: (v: string) => void }) {
   const { lang, setLang, t } = useI18n();
+  const [username, setUsername] = useState(() => getRememberedUsername());
   const [pw, setPw] = useState("");
+  const [remember, setRemember] = useState(true);
+  // 自动登录轮询闭包捕获的是首渲染的 loginPwWith，用 ref 跟住最新的勾选状态。
+  const rememberRef = useRef(true);
+  rememberRef.current = remember;
   const [msg, setMsg] = useState(oauthMsg || "");
   const [busy, setBusy] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
@@ -467,16 +472,28 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
   // 一出现就同步到 state 并自动登录。用户一旦在密码框按过键（手动输入/
   // 粘贴），就不再自动登录，避免误触。
+  const usernameRef = useRef<HTMLInputElement>(null);
   const pwRef = useRef<HTMLInputElement>(null);
   const userTyped = useRef(false);
   const autoLoginDone = useRef(false);
 
-  const loginPwWith = async (password: string) => {
+  const loginPwWith = async (password: string, name?: string) => {
     if (!password) { setMsg(t("请输入密码")); return; }
+    const account = (name ?? username).trim();
+    if ((info.admin_name as string) && !account) { setMsg(t("请输入管理员账号")); return; }
     setBusy(true); setMsg("");
     try {
-      const r = await post("/api/auth/login", { password }) as Any;
-      setToken(r.token as string);
+      const r = await post("/api/auth/login", { username: account, password }) as Any;
+      // 记住账号密码：勾选时账号存 localStorage（下次自动填好）、token 也存
+      // localStorage（关闭浏览器后仍登录）；不勾选时不记账号，token 存
+      // sessionStorage（关闭浏览器后失效，需重新登录）。密码从不存本地。
+      if (rememberRef.current) {
+        if (account) setRememberedUsername(account);
+        setToken(r.token as string, true);
+      } else {
+        setRememberedUsername(null);
+        setToken(r.token as string, false);
+      }
       onDone();
     } catch (e) { setMsg(String((e as Error).message)); }
     finally { setBusy(false); }
@@ -486,11 +503,13 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   useEffect(() => {
     const check = () => {
       if (autoLoginDone.current || userTyped.current) return;
+      const uel = usernameRef.current;
+      if (uel && uel.value && uel.value !== username) setUsername(uel.value);
       const el = pwRef.current;
       if (el && el.value) {
         autoLoginDone.current = true;
         setPw(el.value);
-        loginPwWith(el.value);
+        loginPwWith(el.value, usernameRef.current?.value || username);
       }
     };
     check();
@@ -571,16 +590,23 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
       </div>
       <div className="auth-wrap">
       <div className="card">
-        {(info.site_logo as boolean) ? (
-          <div style={{ textAlign: "center", marginBottom: 12 }}>
-            <img src="/api/settings/logo" alt="logo" style={{ height: 48, maxWidth: 200, objectFit: "contain" }} />
-          </div>
-        ) : null}
-        <div className="auth-title">{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          {(info.site_logo as boolean) ? (
+            <img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", flex: "none" }} />
+          ) : null}
+          <div className="auth-title" style={{ margin: 0 }}>{t("登录")} {(info.site_name as string) || "CDT 面板"}</div>
+        </div>
+        <label className="req">{t("管理员账号 *")}</label>
+        <input ref={usernameRef} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("管理员账号")}
+          autoComplete="username" onKeyDown={(e) => { if (e.key === "Enter") pwRef.current?.focus(); }} />
         <label className="req">{t("登录密码 *")}</label>
-        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef}
+        <PasswordField value={pw} onChange={setPw} placeholder={t("管理员密码")} inputRef={pwRef} autoComplete="current-password"
           onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
         {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, cursor: "pointer", fontSize: 14 }}>
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ width: "auto", margin: 0 }} />
+          {t("记住账号密码")}
+        </label>
         <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy} title={t("登录")}>{t("登录")}</button>
         {info.webauthn && (
           <button className="oauth-btn" title={t("指纹登录")} onClick={loginWebauthn} disabled={busy || !webauthnSupported}>

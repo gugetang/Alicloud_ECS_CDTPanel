@@ -21,7 +21,7 @@ def auth_headers(client):
     """取一个可用的管理员 token（不依赖用例执行顺序）：
     先试当前密码，再试初始密码，最后走首次设置。"""
     for pw in ("newpass123", "secret123"):
-        r = client.post("/api/auth/login", json={"password": pw})
+        r = client.post("/api/auth/login", json={"username": "管理员", "password": pw})
         if r.status_code == 200:
             return {"Authorization": f"Bearer {r.json()['token']}"}
     r = client.post("/api/auth/setup", json={"admin_name": "管理员", "password": "secret123"})
@@ -61,9 +61,9 @@ def test_login_and_change_password(client):
     h = auth_headers(client)
     # 改密码前先确认当前密码：用例按顺序跑时是 secret123，单独跑时也一样
     cur = "secret123" if client.post(
-        "/api/auth/login", json={"password": "secret123"}).status_code == 200 else "newpass123"
-    assert client.post("/api/auth/login", json={"password": "wrong"}).status_code == 401
-    r = client.post("/api/auth/login", json={"password": cur})
+        "/api/auth/login", json={"username": "管理员", "password": "secret123"}).status_code == 200 else "newpass123"
+    assert client.post("/api/auth/login", json={"username": "管理员", "password": "wrong"}).status_code == 401
+    r = client.post("/api/auth/login", json={"username": "管理员", "password": cur})
     assert r.status_code == 200
     token = r.json()["token"]
     h = {"Authorization": f"Bearer {token}"}
@@ -76,10 +76,10 @@ def test_login_and_change_password(client):
                     headers=h)
     assert r.status_code == 200
     # 新密码能登录，旧密码不行
-    assert client.post("/api/auth/login", json={"password": cur}).status_code == 401
-    assert client.post("/api/auth/login", json={"password": "newpass123"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "管理员", "password": cur}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "管理员", "password": "newpass123"}).status_code == 200
     # 登出后 token 失效
-    tok = client.post("/api/auth/login", json={"password": "newpass123"}).json()["token"]
+    tok = client.post("/api/auth/login", json={"username": "管理员", "password": "newpass123"}).json()["token"]
     client.post("/api/auth/logout", cookies={"cdt_session": tok})
     assert client.get("/api/status", headers={"Authorization": f"Bearer {tok}"}).status_code == 401
 
@@ -134,3 +134,43 @@ def test_notify_channel_param(client):
     assert r.status_code == 200 and r.json()["sent"] == []  # 邮件未启用
     r = client.post("/api/notify/test-daily", json={"channel": "telegram"}, headers=h)
     assert r.status_code == 200 and isinstance(r.json()["sent"], list)
+
+def _current_password(client):
+    """当前管理员密码（本文件前面的用例可能已把它改成 newpass123）。"""
+    name = client.get("/api/auth/status").json().get("admin_name") or ""
+    for pw in ("newpass123", "secret123"):
+        body = {"password": pw}
+        if name:
+            body["username"] = name
+        if client.post("/api/auth/login", json=body).status_code == 200:
+            return pw
+    raise AssertionError("no working password")
+
+
+def test_login_username_checked(client):
+    """登录页账号框：账号是真校验，不是摆设。"""
+    from app import db
+
+    auth_headers(client)  # 确保已走首次设置
+    cur = _current_password(client)
+    name = client.get("/api/auth/status").json()["admin_name"]
+    assert name == "管理员"
+    # 账号正确 → 200
+    r = client.post("/api/auth/login", json={"username": name, "password": cur})
+    assert r.status_code == 200 and r.json()["token"]
+    # 账号错误 → 401，且提示与密码错误同一条，不泄露是哪一项错了
+    r = client.post("/api/auth/login", json={"username": "不是管理员", "password": cur})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "账号或密码错误"
+    r = client.post("/api/auth/login", json={"username": name, "password": "wrong"})
+    assert r.status_code == 401
+    assert r.json()["detail"] == "账号或密码错误"
+    # 成功登录一次，清掉上面两次失败计数（5 次失败会锁定 15 分钟）
+    assert client.post("/api/auth/login", json={"username": name, "password": cur}).status_code == 200
+    # 未设置 admin_name（老用户）：只校验密码，不带账号能登录，错账号也不拦
+    db.set_flag("admin_name", "")
+    try:
+        assert client.post("/api/auth/login", json={"password": cur}).status_code == 200
+        assert client.post("/api/auth/login", json={"username": "随便填", "password": cur}).status_code == 200
+    finally:
+        db.set_flag("admin_name", name)
