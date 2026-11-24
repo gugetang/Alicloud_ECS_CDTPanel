@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import logging
 import os
 import secrets
 import time
@@ -21,6 +22,8 @@ from .security import (check_session, clear_login_fails, hash_password,
                        decrypt_secret)
 
 router = APIRouter(prefix="/api")
+
+log = logging.getLogger("cdt.api")
 
 # DDNS 设置时区下拉：常用 IANA 时区（值 + 中文标签）。前端从
 # GET /api/timezones 取，加载失败时用内置列表回退。
@@ -885,6 +888,142 @@ def stop_account(aid: int, body: dict | None = None, _: bool = Depends(_admin_re
     # 阈值恢复拉起/刷新发现 Running/下一次 API 刷新显示用量在阈值内时清除。
     db.set_stop_reason(aid, "manual")
     return _public_row(db.get_account(aid))
+
+
+def _refresh_dns_for_account(aid: int, new_ip: str) -> list[str]:
+    """换 EIP 第 ⑤ 步：把当前由该实例服务的域名指向新 IP。
+
+    只动 domains 表里 current_account_id 是这台实例的域名（调度器维护
+    的“当前服务者”），复用调度器的 _DnsOps.set_record（Cloudflare
+    同步、缓存的 zone/record ID、失败记事件），不另起一套 DNS 逻辑。
+    返回实际指向新 IP 的域名；一个都没成功就抛错，调用方回滚。
+    set_record 只返回“是否实际改了记录”：记录本来就等于新 IP 时
+    返回 False 也不算失败，用库里 dns_records 的 ip 再校验一次。"""
+    settings = db.get_settings()
+    dns = scheduler._DnsOps(settings)
+    views = {d.id: d for d in scheduler._to_domain_views(db.list_domains())}
+    done: list[str] = []
+    for row in db.list_domains():
+        if (row.get("current_account_id") or 0) != aid:
+            continue
+        view = views.get(row["id"])
+        if view is None:
+            continue
+        if (row.get("current_ip") or "") == new_ip:
+            done.append(row["name"])
+            continue
+        dns.set_record(view, new_ip)
+        rec = db.get_dns_record(row["id"])
+        if rec and (rec.get("ip") or "") == new_ip:
+            done.append(row["name"])
+        else:
+            raise ValueError(f"DNS 同步失败：{row['name']} 未指向新 IP {new_ip}")
+    return done
+
+
+def _rollback_replace_eip(client, iid: str, old_alloc: str, old_ip: str,
+                          new_alloc: str, state: dict) -> str:
+    """换 EIP 中途失败的回滚（新 EIP 一定释放掉，避免空占配额与费用）：
+    新 EIP 已绑上就先解绑再释放；旧 EIP 已解绑就尝试重新绑回，
+    绑回成功实例恢复用旧 IP，绑回失败则实例当前无公网 IP。
+    旧 EIP 在本流程里只在最后一步释放，中途失败一律不释放旧 EIP。
+    返回给前端看的中文状态说明。"""
+    notes: list[str] = []
+    if state.get("new_associated"):
+        try:
+            client.unassociate_eip(new_alloc, iid)
+            notes.append("新 EIP 已解绑")
+        except Exception:  # noqa: BLE001
+            notes.append("新 EIP 解绑失败")
+    try:
+        client.release_eip(new_alloc)
+        notes.append("新 EIP 已释放")
+    except Exception:  # noqa: BLE001
+        notes.append("新 EIP 释放失败，请到阿里云控制台手动释放")
+    if state.get("old_unassociated"):
+        try:
+            client.associate_eip(old_alloc, iid)
+            notes.append(f"旧 EIP {old_ip} 已重新绑回，实例恢复使用旧 IP")
+        except Exception:  # noqa: BLE001
+            notes.append(f"旧 EIP {old_ip} 未释放但已解绑，实例当前无公网 IP，请手动处理")
+    else:
+        notes.append(f"旧 EIP {old_ip} 未动，实例仍使用旧 IP")
+    return "；".join(notes)
+
+
+@router.post("/accounts/{aid}/replace-eip")
+def replace_eip(aid: int, _: bool = Depends(_admin_required)):
+    """更换一台 ECS 实例的 EIP，严格按以下顺序（用户定）：
+    ① 申请新 EIP → ② 解绑旧 EIP → ③ 绑定新 EIP → ④ 带宽与旧 EIP 一致
+    → ⑤ 刷新实例 IP 并把 DNS 指向新 IP → ⑥ 释放旧 EIP。
+    仅 ECS：轻量服务器没有 EIP、实例当前未绑 EIP 的都直接报明确错误。
+    ① 成功后后面任何一步失败都回滚（释放新 EIP、旧 EIP 尽量绑回），
+    旧 EIP 只在 DNS 已切走后才释放；释放旧 EIP 失败不推翻已成功的结果，
+    只在返回里给 warning。"""
+    from .aliyun import is_swas_instance_id
+
+    a, client, AliyunError = _account_client(aid)
+    iid = a.get("instance_id") or ""
+    if is_swas_instance_id(iid):
+        raise HTTPException(400, "轻量应用服务器没有 EIP，不能更换 EIP")
+    try:
+        old = client.describe_eip_for_instance()
+    except AliyunError as exc:
+        raise HTTPException(400, f"查询当前 EIP 失败：{exc}")
+    if not old or not old.get("allocation_id") or not old.get("ip"):
+        raise HTTPException(400, "该实例当前未绑定 EIP，不能更换 EIP")
+    old_ip, old_alloc = old["ip"], old["allocation_id"]
+    old_bw = old.get("bandwidth")
+    log.info("更换 EIP %s：旧 %s（带宽 %s）", a["name"], old_ip, old_bw)
+    # ① 申请新 EIP（失败则旧 IP 一点没动）
+    try:
+        new = client.allocate_eip(bandwidth=old_bw)
+    except AliyunError as exc:
+        raise HTTPException(400, f"申请新 EIP 失败：{exc}（旧 IP 未动）")
+    new_ip, new_alloc = new["ip"], new["allocation_id"]
+    log.info("更换 EIP %s：已申请新 EIP %s", a["name"], new_ip)
+    state = {"old_unassociated": False, "new_associated": False}
+    try:
+        # ② 解绑旧 EIP
+        client.unassociate_eip(old_alloc, iid)
+        state["old_unassociated"] = True
+        # ③ 绑定新 EIP
+        client.associate_eip(new_alloc, iid)
+        state["new_associated"] = True
+        # ④ 带宽与旧 EIP 一致（查不到旧带宽时申请用的就是接口默认值，跳过）
+        if old_bw:
+            client.set_eip_bandwidth(new_alloc, old_bw)
+        # ⑤ 刷新实例 IP，并把 DNS 指向新 IP
+        row = scheduler.refresh_one_account(aid)
+        if (row.get("public_ip") or "") != new_ip:
+            raise AliyunError(
+                f"刷新后实例 IP 仍为 {row.get('public_ip') or '空'}，不是新 EIP {new_ip}")
+        dns_domains = _refresh_dns_for_account(aid, new_ip)
+    except Exception as exc:  # noqa: BLE001
+        note = _rollback_replace_eip(client, iid, old_alloc, old_ip,
+                                     new_alloc, state)
+        # 回滚后重新刷新一次，让库里 IP 与实例实际 IP 一致。
+        try:
+            scheduler.refresh_one_account(aid)
+        except Exception:  # noqa: BLE001
+            pass
+        log.warning("更换 EIP %s 失败：%s；%s", a["name"], exc, note)
+        raise HTTPException(400, f"更换 EIP 失败：{exc}；{note}")
+    # ⑥ 释放旧 EIP（DNS 已切走；释放失败只告警，不推翻已成功的结果）
+    warning = ""
+    try:
+        client.release_eip(old_alloc)
+    except AliyunError as exc:
+        warning = f"旧 EIP {old_ip} 释放失败（{exc}），请手动释放"
+        log.warning("更换 EIP %s：%s", a["name"], warning)
+    db.add_event("info", "更换 EIP",
+                 f"{a['name']} EIP 已更换：{old_ip} → {new_ip}"
+                 + (f"；{warning}" if warning else ""),
+                 account_id=aid)
+    out = _public_row(db.get_account(aid))
+    out.update({"old_ip": old_ip, "new_ip": new_ip,
+                "dns_domains": dns_domains, "warning": warning})
+    return out
 
 
 @router.get("/domains")

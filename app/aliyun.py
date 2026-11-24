@@ -57,6 +57,12 @@ ECS_DOMAIN = "ecs.aliyuncs.com"
 ECS_VERSION = "2014-05-26"
 # 轻量应用服务器（SWAS-OPEN）：必须用区域端点，中心端点 swas.aliyuncs.com 不解析。
 SWAS_VERSION = "2020-06-01"
+# 弹性公网 IP（VPC）：区域端点 vpc.<region>.aliyuncs.com，2016-04-28。
+VPC_VERSION = "2016-04-28"
+
+
+def _vpc_domain(region: str) -> str:
+    return f"vpc.{region}.aliyuncs.com"
 
 
 def _swas_domain(region: str) -> str:
@@ -65,6 +71,12 @@ def _swas_domain(region: str) -> str:
 
 # 轻量服务器实例 ID 是 UUID（32 位十六进制，可带连字符），ECS 实例 ID 是 i-…。
 _SWAS_ID_RE = re.compile(r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$", re.I)
+
+
+def is_swas_instance_id(instance_id: str | None) -> bool:
+    """实例 ID 是不是轻量服务器（UUID 形）。轻量服务器没有 EIP，
+    换 EIP、查 EIP 都不适用，先认出来才能给明确报错。"""
+    return bool(instance_id) and bool(_SWAS_ID_RE.match(instance_id or ""))
 
 # BSS 账单缓存（P1-01）：账单按月结算，5 分钟刷一次纯属浪费还易限流。
 # 进程内按（AK、站点、结算周期）缓存 6 小时；ECS 状态与 CDT 流量仍按
@@ -283,6 +295,116 @@ class AliyunClient:
                 self._swas_action("RebootInstance", self.region)
                 return
             raise
+
+    # ---------- 弹性公网 IP（EIP，仅 ECS） ----------
+    # 接口参数按阿里云 VPC 2016-04-28 官方文档：
+    # AllocateEipAddress：RegionId 必填；InstanceChargeType=PostPaid（默认按量）、
+    # InternetChargeType=PayByTraffic（按流量）；Bandwidth 可选，默认 5，
+    # PayByTraffic 时 1~200 Mbit/s。返回 AllocationId + EipAddress。
+    # Associate/UnassociateEipAddress：RegionId、AllocationId、InstanceId 必填，
+    # InstanceType=EcsInstance（ECS 实例固定这个值）。
+    # ModifyEipAddressAttribute：RegionId、AllocationId 必填，Bandwidth 改峰值带宽。
+    # ReleaseEipAddress：RegionId、AllocationId 必填。
+    # DescribeEipAddresses：RegionId 必填，InstanceId 可按实例过滤；
+    # 返回 EipAddresses.EipAddress[]，每项有 AllocationId、IpAddress、
+    # Bandwidth（字符串）、InstanceId、Status（InUse/Available）。
+    def describe_eip_for_instance(self) -> dict | None:
+        """查当前实例绑定的 EIP（ECS 才有）。返回
+        {"allocation_id", "ip", "bandwidth": int|None, "instance_id", "status"}，
+        未绑定返回 None。DescribeInstances 只给 IP 不给 AllocationId，
+        必须另外调 DescribeEipAddresses；按 InstanceId 过滤后仍在本地
+        再按 InstanceId 校验一次，防止过滤参数不被接受时串台。"""
+        import json
+        try:
+            raw = self._common(_vpc_domain(self.region), VPC_VERSION,
+                               "DescribeEipAddresses", self.region,
+                               {"RegionId": self.region,
+                                "InstanceId": self.account["instance_id"],
+                                "InstanceType": "EcsInstance",
+                                "PageSize": "100"})
+            data = json.loads(raw)
+        except Exception as exc:
+            raise AliyunError(f"查询 EIP 失败：{brief_error(exc)}") from exc
+        items = (data.get("EipAddresses") or {}).get("EipAddress") or []
+        for item in items:
+            if (item.get("InstanceId") or "") != self.account["instance_id"]:
+                continue
+            bw = item.get("Bandwidth")
+            try:
+                bw = int(bw) if bw is not None else None
+            except (TypeError, ValueError):
+                bw = None
+            return {"allocation_id": item.get("AllocationId") or "",
+                    "ip": item.get("IpAddress") or "",
+                    "bandwidth": bw,
+                    "instance_id": item.get("InstanceId") or "",
+                    "status": item.get("Status") or ""}
+        return None
+
+    def allocate_eip(self, bandwidth: int | None = None) -> dict:
+        """申请一个新 EIP（按量付费、按流量计费）。返回
+        {"allocation_id", "ip"}。bandwidth 给了就按旧 EIP 的带宽申请，
+        不给用接口默认值（5 Mbit/s）。"""
+        import json
+        params: dict = {"RegionId": self.region,
+                        "InstanceChargeType": "PostPaid",
+                        "InternetChargeType": "PayByTraffic"}
+        if bandwidth:
+            params["Bandwidth"] = str(bandwidth)
+        try:
+            raw = self._common(_vpc_domain(self.region), VPC_VERSION,
+                               "AllocateEipAddress", self.region, params)
+            data = json.loads(raw)
+        except Exception as exc:
+            raise AliyunError(f"申请 EIP 失败：{brief_error(exc)}") from exc
+        if not data.get("AllocationId") or not data.get("EipAddress"):
+            raise AliyunError("申请 EIP 失败：阿里云未返回 EIP 信息")
+        return {"allocation_id": data["AllocationId"], "ip": data["EipAddress"]}
+
+    def unassociate_eip(self, allocation_id: str, instance_id: str) -> None:
+        """解绑 EIP（不释放，只断开与实例的关联）。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "UnassociateEipAddress", self.region,
+                         {"RegionId": self.region,
+                          "AllocationId": allocation_id,
+                          "InstanceId": instance_id,
+                          "InstanceType": "EcsInstance"})
+        except Exception as exc:
+            raise AliyunError(f"解绑 EIP 失败：{brief_error(exc)}") from exc
+
+    def associate_eip(self, allocation_id: str, instance_id: str) -> None:
+        """把 EIP 绑到实例上。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "AssociateEipAddress", self.region,
+                         {"RegionId": self.region,
+                          "AllocationId": allocation_id,
+                          "InstanceId": instance_id,
+                          "InstanceType": "EcsInstance"})
+        except Exception as exc:
+            raise AliyunError(f"绑定 EIP 失败：{brief_error(exc)}") from exc
+
+    def set_eip_bandwidth(self, allocation_id: str, bandwidth: int) -> None:
+        """改 EIP 峰值带宽（换 EIP 时把新 EIP 的带宽设成和旧 EIP 一致）。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "ModifyEipAddressAttribute", self.region,
+                         {"RegionId": self.region,
+                          "AllocationId": allocation_id,
+                          "Bandwidth": str(bandwidth)})
+        except Exception as exc:
+            raise AliyunError(f"设置 EIP 带宽失败：{brief_error(exc)}") from exc
+
+    def release_eip(self, allocation_id: str) -> None:
+        """释放一个 EIP（须先解绑）。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "ReleaseEipAddress", self.region,
+                         {"RegionId": self.region,
+                          "AllocationId": allocation_id})
+        except Exception as exc:
+            raise AliyunError(f"释放 EIP 失败：{brief_error(exc)}") from exc
 
     def describe_regions(self) -> list[dict]:
         """该站点下的可用区域列表（ECS DescribeRegions）。

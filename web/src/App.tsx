@@ -1824,12 +1824,27 @@ export default function App() {
       setActing((m) => { const n = { ...m }; delete n[a.id]; return n; });
     }
   };
+  // ---------- 更换 EIP：申请新 EIP → 解绑旧 EIP → 绑定新 EIP → 带宽与旧 EIP 一致
+  // → DNS 切到新 IP → 释放旧 EIP。公网 IP 会变，域名解析跟着切换；中途失败
+  // 后端会回滚（释放新 EIP、旧 EIP 尽量绑回），只对 ECS 实例有效。
+  const replaceEip = async (a: Any) => {
+    if (!confirm(t("更换 EIP {name}？将按以下顺序执行：申请新 EIP → 解绑旧 EIP → 绑定新 EIP → 带宽与旧 EIP 一致 → DNS 切到新 IP → 释放旧 EIP。公网 IP 会变，域名解析会跟着切换。", { name: a.name }))) return;
+    setActing((m) => ({ ...m, [a.id]: "replace-eip" }));
+    try {
+      const r = await post(`/api/accounts/${a.id}/replace-eip`, {}) as Any;
+      setMsg(t("已更换 EIP：{name} {old} → {new}", { name: a.name, old: r.old_ip, new: r.new_ip }) + (r.warning ? `（${r.warning}）` : ""));
+      await load();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally {
+      setActing((m) => { const n = { ...m }; delete n[a.id]; return n; });
+    }
+  };
   // 单台操作图标按钮（放卡片右下角；列表的操作列同样用图标）。
   // 普通开关机随状态变：已停机时绿色三角（开机），运行时方块（普通停机，可点）；
   // 重启蓝色，节省停机红色，刷新默认色。
   const ActionButtons = ({ a }: { a: Any }) => {
     const busy = !!acting[a.id];
-    const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "节省停机中…", "stop-normal": "普通停机中…" } as const;
+    const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "节省停机中…", "stop-normal": "普通停机中…", "replace-eip": "更换 EIP 中…" } as const;
     const stopped = a.instance_status === "Stopped";
     const btn = (action: "refresh" | "start" | "restart" | "stop", label: string,
                  disabled: boolean, icon: JSX.Element, cls = "", stopCharging = true, busyKey?: string) => {
@@ -1853,6 +1868,10 @@ export default function App() {
           <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
         {btn("stop", t("节省停机"), a.instance_status !== "Running",
           <Ico label={t("节省停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
+        <button className="icon-btn" title={acting[a.id] === "replace-eip" ? t("更换 EIP 中…") : t("更换 EIP")} aria-label={t("更换 EIP")} disabled={busy}
+          onClick={() => replaceEip(a)}>
+          <Ico label={t("更换 EIP")}><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></Ico>
+        </button>
         <span style={{ width: 30, flex: "none" }} />
         <button className="icon-btn danger" title={t("删除实例")} aria-label={t("删除实例")} disabled={busy}
           onClick={() => { if (confirm(t("删除实例 {name}？删除后域名将重新分配。", { name: a.name }))) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), t("已删除")); } }}>
