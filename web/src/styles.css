@@ -213,8 +213,11 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 .member-text { display:inline-flex; flex-direction:column; align-items:center; }
 .member-name { display:block; }
 .member-ip { display:block; font-size:12px; color:var(--muted); }
-/* 分组成员卡片一行两个：手机/平板上“选择成员实例”改两列网格，
-   每张卡等宽、名字过长时省略号，不再一排只放一张。
+/* 分组域名按键：与成员卡片同款，单行域名文字居中、过长省略号。 */
+.domain-btn { display:inline-flex; align-items:center; justify-content:center; text-align:center; }
+.domain-name { display:block; }
+/* 分组成员/域名卡片一行两个：手机/平板上“选择成员实例”和“域名选择”
+   改两列网格，每张卡等宽、文字过长时省略号，不再一排只放一张。
    桌面端保持原来的自适应横排不变。 */
 @media (max-width:1024px) {
   .member-grid { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; padding-left:0 !important; }
@@ -223,9 +226,14 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   .member-grid .member-text { min-width:0; flex:1; }
   .member-grid .member-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
   .member-grid .member-ip { font-size:11px; }
+  /* 域名选择同款两列：单行域名居中、过长省略号，不溢出卡片。 */
+  .member-grid .domain-btn { width:100%; min-width:0; padding:10px 8px; justify-content:center; }
+  .member-grid .domain-btn.seg-on { padding:9px 7px; }
+  .member-grid .domain-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
 }
 @media (max-width:360px) {
   .member-grid .member-name { font-size:12px; }
+  .member-grid .domain-name { font-size:12px; }
 }
 /* 实例配置表单：与卡片同色，顶部留间距 */
 .instance-form { background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }

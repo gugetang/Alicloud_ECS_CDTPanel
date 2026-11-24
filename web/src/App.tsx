@@ -882,14 +882,14 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         })}
       </div>
       <h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>
-      <div className="seg" style={{ paddingLeft: "2em" }}>
+      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
         {domains.map((d) => {
           const on = dom && (d.id as number) === (dom.id as number);
           return (
-            <button key={d.id as number} className={on ? "seg-on " : ""}
+            <button key={d.id as number} className={(on ? "seg-on " : "") + "domain-btn"}
               title={(d.current_ip as string) || t("未分配")}
               onClick={() => run(() => post(`/api/groups/${g.id}/bind-domain`, { domain_id: d.id }), t("已选择域名 {name}", { name: d.name }))}>
-              {d.name as string}
+              <span className="domain-name">{d.name as string}</span>
             </button>
           );
         })}
