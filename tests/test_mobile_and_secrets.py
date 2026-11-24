@@ -406,9 +406,9 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     # 本月流量“已取得”与当前费用“已查询”小字都用主题色、14px
     assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
     assert 'className="muted" style={{ fontSize: 14 }}' not in tsx
-    # 服务器卡片统计数值与标签同字号（12px）、只加粗
-    assert ".stat b { font-size:12px; font-weight:700;" in css
-    assert ".stat b { font-size:12px; font-weight:600;" not in css
+    # 服务器卡片统计数值比标签大一号（值 14px、标签 12px）、只加粗
+    assert ".stat b { font-size:14px; font-weight:700;" in css
+    assert ".stat b { font-size:14px; font-weight:600;" not in css
     # 指标值颜色统一：灰色 muted 只给 .stat 的直接子元素（标签），
     # <b> 里的 IpView/IdView 内层 span 不再被染灰，实例 ID、IP 与流量值同深
     assert ".stat > span { display:block; font-size:12px; color:var(--muted);" in css
@@ -1364,7 +1364,7 @@ def test_server_cards_one_per_row_no_wrap():
     # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
     # 标签规则是 .stat > span（直接子元素），<b> 里的 IpView/IdView 内层 span 不被染灰
     assert ".stat > span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
-    assert ".stat b { font-size:12px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
+    assert ".stat b { font-size:14px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
     assert ".status-detail { white-space:nowrap; }" in css
     assert tsx.count('className="muted status-detail"') == 2
     assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
@@ -1651,8 +1651,8 @@ def test_stat_values_uniform_weight():
     # plain 格式已不存在，两处都是 nowrap + <b> 格式
     assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 0
     assert tsx.count('<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
-    # 卡片数值仍在 .stat b 里，与标签同字号（12px）、只加粗（700），流量/费用/阈值与地域/IP/实例 ID 同款
-    assert '.stat b { font-size:12px; font-weight:700;' in css
+    # 卡片数值仍在 .stat b 里，比标签大一号（值 14px、标签 12px）、只加粗（700），流量/费用/阈值与地域/IP/实例 ID 同款
+    assert '.stat b { font-size:14px; font-weight:700;' in css
     assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
 
 
@@ -1781,9 +1781,10 @@ def test_group_card_labels_match_group_name_font_size():
     assert "label { display:block; font-size:14px;" in css
 
 
-def test_group_card_ddns_switch_top_right_delete_icon_bottom_right():
-    # 分组卡片：DDNS 开关从卡片右下角移到卡片右上角（标题行，⚙ 左边）；
-    # 删除分组从设置区里的红色实心文字按钮改成卡片右下角的红色垃圾桶图标。
+def test_group_card_ddns_switch_top_right_delete_icon_in_settings():
+    # 分组卡片：DDNS 开关在卡片右上角（标题行，⚙ 左边）；
+    # 删除分组是设置区最下面的红色垃圾桶图标，只在点开 ⚙ 设置时显示，
+    # 卡片上不显示删除按钮（2026-11-24 用户要求移回设置里面）。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # DDNS 开关在标题行：组名 <b> 之后、⚙ 之前；悬停提示显示开关状态
     assert '<span title={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}' in tsx
@@ -1791,11 +1792,18 @@ def test_group_card_ddns_switch_top_right_delete_icon_bottom_right():
     # 标题行里 Toggle 在 ⚙ 前面（同一行内顺序）
     hdr = tsx[tsx.index('<b style={{ fontSize: 16 }}>{g.name as string}</b>'):]
     assert hdr.index("<Toggle checked={ddnsOn}") < hdr.index('title={t("分组设置")}')
-    # 卡片右下角是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
+    # 删除按钮是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
     assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx
     assert '<Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6"' in tsx
-    # 设置区里不再有红色实心“删除分组”文字按钮（删除实例仍是红色实心，不动）
+    # 删除按钮在设置区里（showSettings 块内、选择成员实例之前），
+    # 不在卡片底部：域名选择之后不再有删除按钮
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
+    del_idx = group_card.index('<button className="icon-btn danger" title={t("删除分组")}')
+    assert del_idx > group_card.index("{showSettings && (")
+    assert del_idx < group_card.index('{t("选择成员实例")}')
+    after_dom = group_card.index('{t("域名选择")}')
+    assert '<button className="icon-btn danger" title={t("删除分组")}' not in group_card[after_dom:]
+    # 设置区里不再有红色实心“删除分组”文字按钮（删除实例仍是红色实心，不动）
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}\n        </button>' not in group_card
 
