@@ -58,13 +58,13 @@ def test_other_domain_rejected():
 
 
 def test_loopback_healthcheck_allowed():
-    # 容器健康检查与 Caddy 内部访问走 127.0.0.1，不受白名单影响。
+    # 容器健康检查走 127.0.0.1，不受白名单影响。
     c = TestClient(create_app(), base_url="http://127.0.0.1:1999")
     r = c.get("/api/health")
     assert r.status_code == 200
 
 
 def test_forwarded_http_rejected(client):
-    # 正常流量经 Caddy 只会是 https；明文 http 透传过来直接拒绝。
+    # 正常流量经用户自己的反代只会是 https；明文 http 透传过来直接拒绝。
     r = client.get("/api/health", headers={"X-Forwarded-Proto": "http"})
     assert r.status_code == 403

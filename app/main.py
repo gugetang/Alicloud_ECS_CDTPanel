@@ -30,7 +30,7 @@ class _HostGuardMiddleware:
 
     配了 CDT_PUBLIC_DOMAIN 才生效；本机回环（健康检查、容器内自访）与
     localhost 始终放行；反代透传的 X-Forwarded-Proto 是 http 时也拒绝
-    （正常流量经 Caddy 只会是 https）。其它 Host 一律 403，不提供面板。
+    （正常流量经用户自己的反代只会是 https）。其它 Host 一律 403，不提供面板。
     纯 ASGI 中间件，不走 BaseHTTPMiddleware。
     """
 
@@ -77,8 +77,8 @@ def create_app() -> FastAPI:
     db.init_db()
     app = FastAPI(title="alicloud_ECS_CDT", version="0.1.0", lifespan=lifespan)
     # 部署安全：应用层 Host 白名单中间件一直挂着，但只有配了
-    # CDT_PUBLIC_DOMAIN 时才生效（第一道是 Caddy 只给该域名做 HTTPS，
-    # 1999 端口不对外发布）。不配则不限制（本地开发、旧部署保持原样）。
+    # CDT_PUBLIC_DOMAIN 时才生效（第一道是 1999 只绑本机回环，
+    # 服务器 IP:端口打不开）。不配则不限制（本地开发、旧部署保持原样）。
     # 中间件每次请求都读 settings.PUBLIC_DOMAIN，所以测试里改
     # settings.PUBLIC_DOMAIN 就能开关，不依赖导入顺序。
     app.add_middleware(_HostGuardMiddleware)

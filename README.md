@@ -5,7 +5,7 @@
 
 阿里云 ECS / CDT 调度控制台：多账户流量监控、抢占式实例保活、Cloudflare DDNS、
 阈值踢出、固定时间切换、按流量负载均衡。单进程 FastAPI + SQLite，前端 React + TS + Vite，
-Docker 一键部署（只通过域名 + HTTPS 访问，IP:端口打不开，见“部署安全”）。
+Docker 一键部署（1999 只绑本机回环，IP:端口打不开，须自配反代 + 证书，见“部署安全”）。
 
 > 从零新写。参考了 `cdt-management`（Python，换班/均衡/DDNS 思路）与
 > `AliCloud_CDT-Monitor`（Go，单进程/Worker/ API Key 思路）的公开实现，
@@ -16,44 +16,38 @@ Docker 一键部署（只通过域名 + HTTPS 访问，IP:端口打不开，见�
 ### 一键部署（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com bash
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
 ```
 
 脚本会：检测/自动安装 Docker + Docker Compose（apt/yum/dnf/apk，装不上就报错退出）、
-克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、把域名写入 `.env`（`CDT_PUBLIC_DOMAIN`）、
-拉取 GHCR 镜像并 `docker compose up -d`、先在容器里轮询 `/api/health` 最多 60 秒，
-再等 `https://域名/api/health` 可访问最多 180 秒（Caddy 自动申请证书），成功后打印
-访问地址 `https://域名`。域名是必填的：不传 `DOMAIN` 且没法交互输入时脚本直接报错，
-不会静默装成一个 IP 就能访问的站；域名没解析到本机时也会明确提示。
+克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
+轮询 `http://127.0.0.1:1999/api/health` 最多 60 秒。装好后 1999 只绑本机回环，
+服务器 IP:端口打不开，必须再配自己的反代（域名 + HTTPS）才能访问，见“部署安全”。
 
 ```bash
 # 改目录
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com DIR=/srv/cdt bash
-# 升级：重跑同一条命令（git 已是最新且容器在跑时不重建；旧部署升级也要先配好域名，见“部署安全”）
-curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DOMAIN=cdt.example.com bash
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DIR=/srv/cdt bash
+# 升级：重跑同一条命令（git 已是最新且容器在跑时不重建）
+curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
 # 卸载（会二次确认是否删数据）
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | UNINSTALL=1 bash
 ```
 
 > 注意：如需换仓库，可用 `REPO_URL=... bash` 指定仓库地址。
-> 本机无 Docker，未在本机实测完整 Docker 部署栈；Caddyfile 已用 Caddy 2.10.2
-> `caddy validate` 通过，并用真实 Caddy + 假后端实测过路由：
-> 域名 HTTPS 能访问、域名 HTTP 308 跳 HTTPS、IP/未配置域名 HTTP 被直接断开、
-> IP HTTPS 握手失败；应用层 Host 白名单有 pytest 用例（`tests/test_host_guard.py`）。
+> 本机无 Docker，未在本机实测完整 Docker 部署栈；应用层 Host 白名单有
+> pytest 用例（`tests/test_host_guard.py`）。
 
 ### Docker Compose 部署
 
 ```bash
 git clone https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 cd Alicloud_ECS_CDTPanel
-# 先写域名（必填）：compose 从 .env 读 CDT_PUBLIC_DOMAIN
-echo 'CDT_PUBLIC_DOMAIN=cdt.example.com' > .env
 docker compose pull
 docker compose up -d
 # 查看日志 / 停止
 docker compose logs -f Alicloud_ECS_CDTPanel
 docker compose down
-# 访问 https://cdt.example.com（IP:端口打不开）
+# 1999 只绑本机回环，IP:端口打不开；访问要走自己配的反代（域名 + HTTPS），见“部署安全”
 ```
 
 完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
@@ -65,68 +59,73 @@ services:
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
+    ports:
+      - "127.0.0.1:1999:1999"
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
-      CDT_LISTEN_HOST: "127.0.0.1"
-      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
+      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:-}
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: cdt-caddy
-    restart: unless-stopped
-    network_mode: "service:Alicloud_ECS_CDTPanel"
-    environment:
-      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:?请在 .env 里设置 CDT_PUBLIC_DOMAIN（访问域名，如 cdt.example.com），见 README“部署安全”}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
 ```
 
 说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），只拉已发布的 GHCR 镜像
 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`（见 `.github/workflows/docker.yml`，
-push 到 main 自动构建并推送到 GHCR）。对外只发布 `80/443`（Caddy），`1999`
-不对外发布；数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
+push 到 main 自动构建并推送到 GHCR）。`1999` 只发布在本机回环
+`127.0.0.1:1999`，外网 IP:1999 打不开；数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
 （与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
 该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
 `restart: unless-stopped`，`init: true`。
 升级：`docker compose pull && docker compose up -d`（或重跑一键部署命令）。
 
-### 部署安全（域名 + HTTPS，IP:端口打不开）
+### 部署安全（IP:端口打不开，反代后才能访问）
 
-新部署默认就是这样，不用额外配置；老部署升级到新版时也要先配好域名，
+新部署默认就是这样，不用额外配置；老部署升级到新版时也一样，
 数据（`cdt.db`、`master.key`）不动。
 
-三道防线：
+两道防线：
 
-1. **1999 不对外发布**：`docker-compose.yml` 里面板容器没有 `ports`，
-   且 `CDT_LISTEN_HOST=127.0.0.1`，面板只监听容器内回环地址；
-   Caddy 用 `network_mode: "service:Alicloud_ECS_CDTPanel"` 与面板共享
-   网络命名空间才能访问它。对外只发布 Caddy 的 `80/443`。
-2. **Caddy 只给配置的域名做 HTTPS**：`Caddyfile` 里只有
-   `{$CDT_PUBLIC_DOMAIN}` 一个站点，证书自动申请 / 续期（Let's Encrypt），
-   HTTP 自动跳 HTTPS；其它 Host 的 HTTP 请求（IP 直访、未配置域名）由
-   `:80` 兜底直接断开，HTTPS 下 IP 没有对应证书、握手本身就会失败。
-3. **应用层 Host 白名单**：配了 `CDT_PUBLIC_DOMAIN` 后，面板只认该域名
-   Host，IP / 其它 Host 直接 403；本机回环（容器健康检查）始终放行，
-   `X-Forwarded-Proto` 是 http 时也拒绝。不配该变量时不限制
-   （本地开发、旧部署保持原样）。
+1. **1999 只绑本机回环**：`docker-compose.yml` 里端口是
+   `"127.0.0.1:1999:1999"`，外网用服务器 IP:1999 打不开；
+   只有本机上的反代能访问 `127.0.0.1:1999`。
+2. **应用层 Host 白名单（可选）**：在同目录 `.env` 里写
+   `CDT_PUBLIC_DOMAIN=cdt.example.com`，再 `docker compose up -d`，
+   面板就只认该域名 Host，IP / 其它 Host 直接 403；本机回环
+   （容器健康检查）始终放行，`X-Forwarded-Proto` 是 http 时也拒绝。
+   不配该变量时不限制（本地开发、旧部署保持原样）。
 
-部署前置条件：域名已解析到本机（A 记录指向服务器公网 IP，用了 Cloudflare
-等 CDN 代理时解析到的是 CDN 节点，也能用，install.sh 会提示确认），
-服务器 80/443 端口对外开放。换域名：改 `.env` 里的 `CDT_PUBLIC_DOMAIN`，
-再 `docker compose up -d`。排障：`docker compose logs -f caddy` 看证书
-申请情况；`docker compose logs -f Alicloud_ECS_CDTPanel` 看面板日志。
+**反代和证书由你自己配，项目本身不申请、不续期、不管理证书。**
+域名先解析到本机（A 记录指向服务器公网 IP，用了 Cloudflare 等 CDN
+代理时解析到的是 CDN 节点，也能用），证书自己准备好（比如 Let's Encrypt
+的 certbot），再按下面示例配反代，指向 `127.0.0.1:1999`：
+
+```nginx
+# Nginx 示例：/etc/nginx/sites-available/cdt
+server {
+    listen 443 ssl;
+    server_name cdt.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/cdt.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/cdt.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:1999;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+server {
+    listen 80;
+    server_name cdt.example.com;
+    return 301 https://$host$request_uri;
+}
+```
+
+排障：`docker compose logs -f Alicloud_ECS_CDTPanel` 看面板日志；
+`curl http://127.0.0.1:1999/api/health` 在本机应返回 200，
+从外网用 `http://服务器IP:1999` 打不开是正常的。
 `http://服务器:1999` 的旧访问方式已废弃，升级后打不开是正常的。
 
 > 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
@@ -585,7 +584,7 @@ USD：USD 账单 + CNY 账单 ÷ 汇率，2 位小数）；小字第二行会注
 （下载备份/恢复备份，见“备份与恢复”）。
 
 DDNS 设置（域名 + 账户邮箱 + API Token + 时区）在顶级导航的**域名管理**页，不在全局设置；
-网页访问框体已移除（监听地址/端口由启动参数决定，本地直接跑默认 `0.0.0.0:1999`；Docker 部署时 compose 改成只监听容器内 `127.0.0.1:1999`，见“部署安全”）。
+网页访问框体已移除（监听地址/端口由启动参数决定，本地直接跑默认 `0.0.0.0:1999`；Docker 部署时 compose 把 1999 只绑本机回环 `127.0.0.1:1999`，见“部署安全”）。
 登录与安全（改密码、注册指纹、Google/GitHub OAuth 配置）在账号设置页
 的“登录与安全”卡片里，见“主题与登录方式”。
 
