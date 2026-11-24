@@ -356,6 +356,10 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     # 服务器卡片统计数值与标签同字号（12px）、只加粗
     assert ".stat b { font-size:12px; font-weight:700;" in css
     assert ".stat b { font-size:12px; font-weight:600;" not in css
+    # 指标值颜色统一：灰色 muted 只给 .stat 的直接子元素（标签），
+    # <b> 里的 IpView/IdView 内层 span 不再被染灰，实例 ID、IP 与流量值同深
+    assert ".stat > span { display:block; font-size:12px; color:var(--muted);" in css
+    assert ".stat span { display:block;" not in css
 
 
 def test_small_notes_removed():
@@ -1204,7 +1208,8 @@ def test_server_cards_one_per_row_no_wrap():
     # 实例管理卡片原来的五项一行（.stats.five）同样放不下，已改成三列
     assert ".stats.five" not in css and "stats five" not in tsx
     # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
-    assert ".stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
+    # 标签规则是 .stat > span（直接子元素），<b> 里的 IpView/IdView 内层 span 不被染灰
+    assert ".stat > span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
     assert ".stat b { font-size:12px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
     assert ".status-detail { white-space:nowrap; }" in css
     assert tsx.count('className="muted status-detail"') == 2
