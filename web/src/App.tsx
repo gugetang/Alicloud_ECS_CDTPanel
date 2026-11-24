@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import { get, post, put, del, getToken, setToken } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
+import { groupMemberDot } from "./memberDot";
 
 type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
 type SubTab = "settings" | "account" | "notify" | "other" | "logs";
@@ -865,16 +866,17 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number);
           const on = gids.includes(g.id as number);
           const next = on ? gids.filter((x) => x !== g.id) : [...gids, g.id as number];
-          // 未选中的成员不在本组排队：全局状态是排队中（黄点）时显示离队（灰点），
-          // 不显示排队；仍被域名指向的未选中成员继续显示在线（DNS 切走后才离队），
-          // 已跳出/已停机/未知等其它状态不动。
-          const leftGroup = !on && a.status_dot === "yellow";
+          // 未选中的成员不在本组运行：全局状态是在线（绿点）、启动中
+          // （闪烁绿）或排队中（黄点）时都显示离队（灰点），不显示在线/
+          // 启动中/排队；已停机（红点）是实例本身的状态，仍显示已停机，
+          // 已跳出/未知等其它灰点状态不动。见 groupMemberDot。
+          const { dot: mDot, leftGroup } = groupMemberDot(on, a.status_dot);
           const mLabel = leftGroup ? t("离队") : (a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知")));
           return (
             <button key={a.id as number} className={(on ? "seg-on " : "") + "member-btn"}
               title={`${mLabel}${a.public_ip ? " · " + (a.public_ip as string) : ""}${a.usage_rate != null ? " · " + a.usage_rate + "%" : ""}`}
               onClick={() => run(() => put(`/api/accounts/${a.id}`, { group_ids: next, ...(on ? {} : { ddns_enabled: 1 }) }), on ? t("已从分组移除 {name}", { name: a.name }) : t("{name} 已加入分组", { name: a.name }))}>
-              {dotEl(leftGroup ? "gray" : a.status_dot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text"><span className="member-name">{a.name as string}</span><span className="member-ip">{maskIp(a.public_ip)}</span></span>
+              {dotEl(mDot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text"><span className="member-name">{a.name as string}</span><span className="member-ip">{maskIp(a.public_ip)}</span></span>
             </button>
           );
         })}
