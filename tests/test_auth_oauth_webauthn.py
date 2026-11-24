@@ -310,3 +310,108 @@ def test_github_callback_reuses_login_redirect_uri(client):
                       headers={"Authorization": f"Bearer {token}"}).status_code == 200
     assert m_ex.call_args.args[4] == (
         "https://cdt.kadi.eu.org/api/auth/oauth/github/callback")
+
+
+# ---------------------------------------------------------------------------
+# 回归：Google / GitHub 分渠道绑定 + 解绑
+# ---------------------------------------------------------------------------
+def _oauth_login(client, provider, sub, name="OAuth User"):
+    """走一遍 OAuth 登录回调（mock 换 token/取用户信息），返回回调响应。"""
+    from unittest.mock import patch
+    from urllib.parse import parse_qs, urlparse
+
+    h = auth_headers(client)
+    client.put("/api/settings", json={
+        f"{provider}_oauth_client_id": "Iv1.test123",
+        f"{provider}_oauth_client_secret": "secret-test"}, headers=h)
+    r = client.get(f"/api/auth/oauth/{provider}/login",
+                   headers={"Host": "cdt.kadi.eu.org", "X-Forwarded-For": "1.2.3.4"},
+                   follow_redirects=False)
+    assert r.status_code == 302
+    state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+    with patch("app.oauth.exchange_code",
+               return_value={"access_token": "tok"}), \
+         patch("app.oauth.fetch_userinfo",
+               return_value={"sub": sub, "email": "a@b.c", "name": name}):
+        return client.get(
+            f"/api/auth/oauth/{provider}/callback?code=code123&state={state}",
+            headers={"Host": "cdt.kadi.eu.org",
+                     "Referer": "https://github.com/"},
+            follow_redirects=False)
+
+
+def test_oauth_providers_bind_independently(client):
+    """Google 和 GitHub 各绑各的：绑了 Google 之后 GitHub 也能登；
+    同渠道换账号仍拒绝，不同渠道互不干扰。"""
+    from app import db
+
+    db.delete_flag("admin_oauth_identity:google")
+    db.delete_flag("admin_oauth_identity:github")
+    db.delete_flag("admin_oauth_identity")
+    r = _oauth_login(client, "google", "google-1")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+    r = _oauth_login(client, "github", "github-1")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+    r = _oauth_login(client, "google", "google-2")
+    assert r.status_code == 302 and "oauth_error=identity_mismatch" in r.headers["location"]
+    r = _oauth_login(client, "google", "google-1")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+
+
+def test_oauth_legacy_single_binding_migrates(client):
+    """旧版单绑定 admin_oauth_identity=google:xxx：Google 用旧身份能登，
+    之后自动迁到分渠道键；GitHub 第一次登直接绑新渠道。"""
+    from app import db
+
+    db.delete_flag("admin_oauth_identity:google")
+    db.delete_flag("admin_oauth_identity:github")
+    db.set_flag("admin_oauth_identity", "google:legacy-1")
+    r = _oauth_login(client, "google", "legacy-1")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+    assert db.get_flag("admin_oauth_identity:google") == "legacy-1"
+    assert db.get_flag("admin_oauth_identity") == ""
+    r = _oauth_login(client, "github", "github-9")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+
+
+def test_oauth_unbind_and_rebind(client):
+    """解绑后该渠道能重新绑定新账号；解绑接口要登录才能调；
+    设置接口返回各渠道的绑定状态。"""
+    from app import db
+
+    h = auth_headers(client)
+    db.set_flag("admin_oauth_identity:github", "github-1")
+    r = client.post("/api/auth/oauth/github/unbind", headers=h)
+    assert r.status_code == 200 and r.json()["bound"] is False
+    assert db.get_flag("admin_oauth_identity:github") == ""
+    s = client.get("/api/settings", headers=h).json()
+    assert s["github_oauth_bound"] is False
+    r = _oauth_login(client, "github", "github-2")
+    assert r.status_code == 302 and "/?token=" in r.headers["location"]
+    s = client.get("/api/settings", headers=h).json()
+    assert s["github_oauth_bound"] is True
+    assert client.post("/api/auth/oauth/github/unbind").status_code == 401
+
+
+def test_oauth_unbind_keeps_one_admin_login(client):
+    """解绑不许把最后一种管理员登录方式也解掉，否则面板回到首次设置状态。
+    注意：本用例必须放在文件最后——它会清掉密码和指纹。"""
+    from app import db
+    from app.security import hash_password
+
+    h = auth_headers(client)
+    # 只留 Google 一个绑定：清掉密码和指纹
+    db.delete_flag("admin_password_hash")
+    for c in client.get("/api/auth/webauthn/list", headers=h).json():
+        client.delete(f"/api/auth/webauthn/{c['credential_id']}", headers=h)
+    db.set_flag("admin_oauth_identity:google", "g1")
+    db.set_flag("admin_oauth_identity:github", "h1")
+    # 还剩 Google，能解绑 GitHub
+    r = client.post("/api/auth/oauth/github/unbind", headers=h)
+    assert r.status_code == 200
+    # 只剩 Google 一个了，再解绑 Google 必须拒绝
+    r = client.post("/api/auth/oauth/google/unbind", headers=h)
+    assert r.status_code == 400
+    assert db.get_flag("admin_oauth_identity:google") == "g1"
+    # 恢复密码，避免夹具收尾状态异常
+    db.set_flag("admin_password_hash", hash_password("newpass123"))

@@ -285,7 +285,7 @@ def _public_account(a: dict, serving_map: dict[int, str] | None = None,
 def _admin_required(request: Request) -> bool:
     """已设置管理员密码或绑定第三方登录时要求登录；未设置时放行（首次向导）。"""
     settings = db.get_settings()
-    stored = db.get_flag("admin_password_hash") or db.get_flag("admin_oauth_identity")
+    stored = db.get_flag("admin_password_hash") or _any_oauth_bound()
     if not stored:
         return True
     token = request.cookies.get("cdt_session") or \
@@ -352,6 +352,33 @@ def _oauth_configured(settings: dict, provider: str) -> bool:
     return bool(cid and sec)
 
 
+def _oauth_bound_key(provider: str) -> str:
+    """该渠道的绑定键：Google 和 GitHub 各绑各的，互不干扰。"""
+    return f"admin_oauth_identity:{provider}"
+
+
+def _oauth_bound(provider: str) -> str:
+    """该渠道已绑定的第三方身份 sub；旧版单绑定（admin_oauth_identity）
+    属于该渠道时自动迁移到分渠道键上。"""
+    bound = db.get_flag(_oauth_bound_key(provider))
+    if bound:
+        return bound
+    legacy = db.get_flag("admin_oauth_identity")
+    if legacy.startswith(provider + ":"):
+        sub = legacy[len(provider) + 1:]
+        if sub:
+            db.set_flag(_oauth_bound_key(provider), sub)
+            db.delete_flag("admin_oauth_identity")
+            return sub
+    return ""
+
+
+def _any_oauth_bound() -> bool:
+    if db.get_flag("admin_oauth_identity"):
+        return True
+    return any(db.get_flag(_oauth_bound_key(p)) for p in oauth.PROVIDERS)
+
+
 def _oauth_redirect_uri(request: Request, provider: str) -> str:
     return f"{_origin(request)}/api/auth/oauth/{provider}/callback"
 
@@ -362,7 +389,7 @@ def auth_status():
     settings = db.get_settings()
     return {
         "admin_configured": bool(db.get_flag("admin_password_hash")
-                                 or db.get_flag("admin_oauth_identity")),
+                                 or _any_oauth_bound()),
         "admin_name": db.get_flag("admin_name") or "",
         "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
         "site_logo": bool(settings.get("site_logo")),  # 登录页用：有 logo 才显示
@@ -474,18 +501,39 @@ def oauth_callback(provider: str, request: Request):
     except Exception as e:
         return RedirectResponse(
             f"{origin}/?oauth_error={type(e).__name__}", status_code=302)
-    identity = f"{provider}:{info['sub']}"
-    bound = db.get_flag("admin_oauth_identity")
-    if bound and bound != identity:
+    sub = str(info["sub"])
+    bound = _oauth_bound(provider)
+    if bound and bound != sub:
         return RedirectResponse(
             f"{origin}/?oauth_error=identity_mismatch", status_code=302)
     if not bound:
-        # 首次用第三方登录：绑定为管理员身份，并记下名字
-        db.set_flag("admin_oauth_identity", identity)
+        # 首次用该渠道登录：只绑定这个渠道，不影响另一个渠道
+        db.set_flag(_oauth_bound_key(provider), sub)
         if info.get("name") and not db.get_flag("admin_name"):
             db.set_flag("admin_name", info["name"][:64])
     token = new_session()
     return RedirectResponse(f"{origin}/?token={token}", status_code=302)
+
+
+@router.post("/auth/oauth/{provider}/unbind")
+def oauth_unbind(provider: str, _: bool = Depends(_admin_required)):
+    """解绑该渠道的第三方登录：下次用该渠道登录会重新绑定。
+    至少保留一种管理员登录方式（密码、指纹、另一渠道绑定任一还在才能
+    解绑），否则解绑后面板回到首次设置状态，人人都能进。"""
+    if provider not in oauth.PROVIDERS:
+        raise HTTPException(404, "未知的登录渠道")
+    if not _oauth_bound(provider):
+        return {"ok": True, "bound": False}
+    others = bool(db.get_flag("admin_password_hash")
+                  or db.list_webauthn_credentials()
+                  or any(_oauth_bound(p) for p in oauth.PROVIDERS if p != provider))
+    if not others:
+        raise HTTPException(400, "至少保留一种管理员登录方式")
+    db.delete_flag(_oauth_bound_key(provider))
+    legacy = db.get_flag("admin_oauth_identity")
+    if legacy.startswith(provider + ":"):
+        db.delete_flag("admin_oauth_identity")
+    return {"ok": True, "bound": False}
 
 
 # ---------------- WebAuthn 指纹 / 安全密钥 ----------------
@@ -1143,6 +1191,8 @@ def get_settings(_: bool = Depends(_admin_required)):
     s["telegram_configured"] = bool(s.get("telegram_token"))
     s["google_oauth_configured"] = _oauth_configured(s, "google")
     s["github_oauth_configured"] = _oauth_configured(s, "github")
+    s["google_oauth_bound"] = bool(_oauth_bound("google"))
+    s["github_oauth_bound"] = bool(_oauth_bound("github"))
     s.pop("cloudflare_token", None)
     s.pop("telegram_token", None)
     s.pop("google_oauth_client_secret", None)
@@ -1272,6 +1322,8 @@ def _mask(s: dict) -> dict:
     out["telegram_configured"] = bool(s.get("telegram_token"))
     out["google_oauth_configured"] = _oauth_configured(s, "google")
     out["github_oauth_configured"] = _oauth_configured(s, "github")
+    out["google_oauth_bound"] = bool(_oauth_bound("google"))
+    out["github_oauth_bound"] = bool(_oauth_bound("github"))
     out["webdav_configured"] = bool(s.get("webdav_password"))
     out.pop("cloudflare_token", None)
     out.pop("telegram_token", None)
