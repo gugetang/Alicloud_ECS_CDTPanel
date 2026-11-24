@@ -872,7 +872,7 @@ def _check_daily_fields(data: dict, cur: dict | None = None) -> None:
         raise ValueError("站点只能是 cn（国内站）或 global（国际站）")
     region = val("region")
     if region is not None and not str(region).strip():
-        raise ValueError("地域不能为空")
+        raise ValueError("区域不能为空")
     q = val("quota_gb")
     if q is not None:
         try:
@@ -954,7 +954,7 @@ def create_account(data: dict) -> dict:
              "daily_on_time", "daily_off_time"}
     _defaults = {"daily_schedule_enabled": 0, "daily_on_time": "08:00",
                  "daily_off_time": "20:00",
-                 # 地域默认中国香港，站点默认国际站（USD）。
+                 # 区域默认中国香港，站点默认国际站（USD）。
                  "region": "cn-hongkong", "site": "global"}
     vals = [data.get(c) if data.get(c) is not None
             else _defaults.get(c, "" if c in _text else 0 if c == "priority" else None)

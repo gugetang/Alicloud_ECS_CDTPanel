@@ -9,7 +9,8 @@ RUN npm run build
 FROM python:3.13-slim AS runtime
 ARG VERSION=dev
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 \
-    CDT_DATA_DIR=/data CDT_LISTEN_PORT=1999 TZ=Asia/Shanghai
+    CDT_DATA_DIR=/data CDT_LISTEN_PORT=1999 TZ=Asia/Shanghai \
+    CDT_VERSION=$VERSION
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt

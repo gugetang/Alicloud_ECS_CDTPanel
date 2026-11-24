@@ -35,6 +35,26 @@ const BUILTIN_REGIONS: { region_id: string; local_name: string }[] = [
   { region_id: "cn-hangzhou", local_name: "杭州" },
 ];
 
+// 区域英文缩写：列表与卡片里只显示缩写（如 cn-hongkong → HK、ap-northeast-2 → SEL）。
+// 未收录的区域回退显示完整 region_id，不丢信息。
+const REGION_ABBR: Record<string, string> = {
+  "cn-hongkong": "HK", "cn-beijing": "BJ", "cn-shanghai": "SH", "cn-shenzhen": "SZ",
+  "cn-hangzhou": "HZ", "cn-chengdu": "CD", "cn-guangzhou": "GZ", "cn-nanjing": "NJ",
+  "cn-wuhan": "WH", "cn-xian": "XA", "cn-chongqing": "CQ", "cn-tianjin": "TJ",
+  "cn-qingdao": "QD", "cn-zhengzhou": "ZZ", "cn-heyuan": "HY", "cn-fuzhou": "FZ",
+  "ap-southeast-1": "SG", "ap-southeast-2": "SYD", "ap-southeast-3": "KUL",
+  "ap-southeast-5": "JKT", "ap-southeast-6": "MNL", "ap-southeast-7": "BKK",
+  "ap-northeast-1": "TYO", "ap-northeast-2": "SEL", "ap-south-1": "BOM",
+  "ap-south-2": "HYD", "ap-east-1": "HK",
+  "us-east-1": "VA", "us-west-1": "CA",
+  "eu-west-1": "DUB", "eu-central-1": "FRA", "eu-west-3": "PAR", "eu-north-1": "STO",
+  "me-east-1": "DXB", "me-central-1": "AUH", "sa-east-1": "SAO", "af-south-1": "CPT",
+};
+const regionAbbr = (r: string | null | undefined): string => {
+  if (!r) return "—";
+  return REGION_ABBR[r] ?? r;
+};
+
 // 时区下拉内置回退列表（与后端 GET /api/timezones 同款；接口加载失败时用它）。
 const TZ_FALLBACK = [
   { value: "Asia/Shanghai", label: "上海 Asia/Shanghai" },
@@ -106,6 +126,11 @@ const ACCENTS = [
 // 调色板图标（主题风格选择）：圆盘 + 色点。
 function PaletteIcon({ size = 18 }: { size?: number }) {
   return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3-2.5 5-5 5H12c-1.66 0-3 1.34-3 3 0 1.66 1.34 3 3 3z" /><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="9.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="14.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17.5" cy="11.5" r="1.2" fill="currentColor" stroke="none" /></svg>);
+}
+
+// 消息铃铛图标（面板更新通知）：只有有更新时才显示。
+function BellIcon({ size = 18 }: { size?: number }) {
+  return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>);
 }
 
 // 流量用量条颜色：绿 <80%、黄 ≥80%、红 ≥保护阈值，未知为灰。
@@ -227,7 +252,7 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   const [formBusy, setFormBusy] = useState(false);
 
   const loadRegions = async (withAk: boolean) => {
-    // 优先调发现接口（已有实例所在地域分组 + 全部可用地域）；失败回退 POST 列表，再失败用内置列表
+    // 优先调发现接口（已有实例所在区域分组 + 全部可用区域）；失败回退 POST 列表，再失败用内置列表
     try {
       const body: Any = { site };
       if (account?.id) body.account_id = account.id;
@@ -268,7 +293,7 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
       const r = await post("/api/aliyun/find-instance-region", body) as Any;
       setRegion(r.region_id as string);
       setRegionCustom(false);
-      setFormMsg(t("已发现实例所在地域：{local}（{region}）", { local: t(r.local_name as string), region: r.region_id }));
+      setFormMsg(t("已发现实例所在区域：{local}（{region}）", { local: t(r.local_name as string), region: r.region_id }));
     } catch (e) { setFormMsg(String((e as Error).message)); }
     finally { setFormBusy(false); }
   };
@@ -355,26 +380,26 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
             { value: "global", label: t("国际站（USD）") },
             { value: "cn", label: t("国内站（CNY）") },
           ]} onChange={setSite} /></div>
-        <div><label className="req">{t("地域 *")}</label>
+        <div><label className="req">{t("区域 *")}</label>
           <select value={regionCustom ? "__custom" : region} onBlur={() => saveAuto()} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
             else { setRegionCustom(false); setRegion(e.target.value); }
           }}>
             {ownedOptions.length > 0 && (
-              <optgroup label={t("已有实例所在地域")}>
-                {ownedOptions.map((r) => <option key={r.region_id} value={r.region_id}>{t(r.local_name)}（{r.region_id}）</option>)}
+              <optgroup label={t("已有实例所在区域")}>
+                {ownedOptions.map((r) => <option key={r.region_id} value={r.region_id}>{t(r.local_name)}（{regionAbbr(r.region_id)}）</option>)}
               </optgroup>
             )}
-            <optgroup label={t("全部可用地域")}>
-              {allOptions.map((r) => <option key={r.region_id} value={r.region_id}>{t(r.local_name)}（{r.region_id}）</option>)}
+            <optgroup label={t("全部可用区域")}>
+              {allOptions.map((r) => <option key={r.region_id} value={r.region_id}>{t(r.local_name)}（{regionAbbr(r.region_id)}）</option>)}
             </optgroup>
-            {!regionKnown && !regionCustom && <option value={region}>{region}{t("（当前值）")}</option>}
+            {!regionKnown && !regionCustom && <option value={region}>{regionAbbr(region)}{t("（当前值）")}</option>}
             <option value="__custom">{t("自定义…")}</option>
           </select>
-          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={() => saveAuto()} placeholder={t("地域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
+          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={() => saveAuto()} placeholder={t("区域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
           <div className="row">
             <button className="btn ghost" onClick={autoDiscover} disabled={formBusy} title={t("自动发现")}>{t("自动发现")}</button>
-            <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取地域列表")}</button>
+            <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取区域列表")}</button>
           </div></div>
         <div onBlur={() => saveAuto()}><label>{t("参数设置")}</label>
           <Seg value={paramMode} options={[
@@ -462,7 +487,7 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
 }
 
 // ---------------- 登录页：密码 / 指纹 / Google / GitHub ----------------
-function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; oauthMsg: string; onDone: () => void; theme: string; setTheme: (v: string) => void }) {
+function LoginScreen({ info, oauthMsg, onDone, theme, setTheme, accent, setAccent }: { info: Any; oauthMsg: string; onDone: () => void; theme: string; setTheme: (v: string) => void; accent: string; setAccent: (v: string) => void }) {
   const { lang, setLang, t } = useI18n();
   const [username, setUsername] = useState(() => getRememberedUsername());
   const [pw, setPw] = useState("");
@@ -474,6 +499,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
   const [busy, setBusy] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [accentMenuOpen, setAccentMenuOpen] = useState(false);
   const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
   // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
   // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
@@ -549,7 +575,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
     <>
       <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
         <div className="theme-menu">
-          <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
+          <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); }}>
             <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
           </button>
           {langMenuOpen && (
@@ -569,7 +595,7 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
           )}
         </div>
         <div className="theme-menu">
-          <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
+          <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); setAccentMenuOpen(false); }}>
             <ThemeIcon theme={theme} size={18} />
           </button>
           {themeMenuOpen && (
@@ -581,6 +607,25 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme }: { info: Any; o
                     <span className="menu-ico"><ThemeIcon theme={v} /></span>
                     <span>{t(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")}</span>
                     <span className="menu-check">{theme === v ? "✓" : ""}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="theme-menu">
+          <button className="btn ghost theme-btn" aria-label={t("主题风格")} title={t("主题风格")} onClick={() => { setAccentMenuOpen(!accentMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); }}>
+            <PaletteIcon size={18} />
+          </button>
+          {accentMenuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setAccentMenuOpen(false)} />
+              <div className="menu">
+                {ACCENTS.map((a) => (
+                  <button key={a.id} className={accent === a.id ? "sel" : ""} onClick={() => setAccent(a.id)}>
+                    <span className="menu-swatch" style={{ background: a.gradient }} />
+                    <span>{lang === "zh" ? a.zh : a.en}</span>
+                    <span className="menu-check">{accent === a.id ? "\u2713" : ""}</span>
                   </button>
                 ))}
               </div>
@@ -1527,6 +1572,10 @@ export default function App() {
   });
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const [accentMenuOpen, setAccentMenuOpen] = useState(false);
+  const [upd, setUpd] = useState<any>(null);
+  const [updMenuOpen, setUpdMenuOpen] = useState(false);
+  const [updBusy, setUpdBusy] = useState(false);
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1625,6 +1674,11 @@ export default function App() {
     try { setTimezones((((await get("/api/timezones") as Any).timezones as Any[]) || [])); } catch { /* 失败时下拉用内置列表 */ }
   };
   useEffect(() => { if (authState === "authed") load(); }, [authState]);
+  // 面板更新状态：登录后查一次（后端缓存 1 小时），有更新才显示铃铛
+  useEffect(() => {
+    if (authState !== "authed") return;
+    get("/api/update/status").then((r: any) => setUpd(r)).catch(() => setUpd(null));
+  }, [authState]);
 
   const [logs, setLogs] = useState<Any[]>([]);
   const loadLogs = async () => {
@@ -1785,7 +1839,7 @@ export default function App() {
         onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
       <div className="row" style={{ marginTop: 12 }}>
         <button className="btn ghost" title={t("复制配置摘要")} onClick={async () => {
-          const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("地域")}：${a.region}\nIP：${a.public_ip || "—"}`;
+          const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("区域")}：${regionAbbr(a.region)}\nIP：${a.public_ip || "—"}`;
           try { await navigator.clipboard.writeText(text); setMsg(t("配置摘要已复制")); }
           catch { setMsg(text); }
         }}>⧉ {t("复制配置摘要")}</button>
@@ -1925,7 +1979,7 @@ export default function App() {
             <button className="btn btn-sm" onClick={() => { setConnError(""); checkAuth(); }}>{t("重试")}</button>
           </p>
         ) : null}
-        <LoginScreen info={authInfo} oauthMsg={oauthMsg} onDone={() => { setAuthState("authed"); }} theme={theme} setTheme={setTheme} />
+        <LoginScreen info={authInfo} oauthMsg={oauthMsg} onDone={() => { setAuthState("authed"); }} theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} />
       </div>
     );
   }
@@ -1972,8 +2026,46 @@ export default function App() {
             <h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>
           </div>
           <div className="row">
+            {upd?.update_available && (
+              <div className="theme-menu">
+                <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={() => { setUpdMenuOpen(!updMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setAccentMenuOpen(false); }}>
+                  <BellIcon size={18} />
+                  <span className="bell-dot" />
+                </button>
+                {updMenuOpen && (
+                  <>
+                    <div className="menu-backdrop" onClick={() => setUpdMenuOpen(false)} />
+                    <div className="menu" style={{ minWidth: 260 }}>
+                      <div style={{ padding: "8px 10px", fontSize: 14 }}>
+                        <div style={{ fontWeight: 700 }}>{t("发现新版本")}</div>
+                        <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{(upd.current_version || "").slice(0, 7) || "—"}</div>
+                        <div className="muted">{t("最新版本")}：{(upd.latest_version || "").slice(0, 7) || "—"}</div>
+                        {upd.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
+                        {upd.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
+                      </div>
+                      <button disabled={updBusy} onClick={async () => {
+                        setUpdBusy(true);
+                        try {
+                          const r: any = await post("/api/update/run", {});
+                          setMsg(r.started ? t("更新已开始，容器将重启") : (r.manual ? `${r.message}：${r.manual}` : (r.message || t("无法在线更新"))));
+                          if (r.started) setUpdMenuOpen(false);
+                        } catch (e: any) { setMsg(e?.message || t("更新失败")); } finally { setUpdBusy(false); }
+                      }}>{t("立即更新")}</button>
+                      <button disabled={updBusy} onClick={async () => {
+                        setUpdBusy(true);
+                        try {
+                          const r: any = await post("/api/update/check", {});
+                          setUpd(r);
+                          setMsg(r.update_available ? t("发现新版本") : t("已是最新版本"));
+                        } catch (e: any) { setMsg(e?.message || t("检查更新失败")); } finally { setUpdBusy(false); }
+                      }}>{t("检查更新")}</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <div className="theme-menu">
-              <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); }}>
+              <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
               </button>
               {langMenuOpen && (
@@ -1993,7 +2085,7 @@ export default function App() {
               )}
             </div>
             <div className="theme-menu">
-              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); }}>
+              <button className="btn ghost theme-btn" aria-label={t("主题")} title={t("主题")} onClick={() => { setThemeMenuOpen(!themeMenuOpen); setLangMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <ThemeIcon theme={theme} size={18} />
               </button>
               {themeMenuOpen && (
@@ -2005,6 +2097,25 @@ export default function App() {
                         <span className="menu-ico"><ThemeIcon theme={v} /></span>
                         <span>{t(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")}</span>
                         <span className="menu-check">{theme === v ? "✓" : ""}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+        <div className="theme-menu">
+              <button className="btn ghost theme-btn" aria-label={t("主题风格")} title={t("主题风格")} onClick={() => { setAccentMenuOpen(!accentMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setUpdMenuOpen(false); }}>
+            <PaletteIcon size={18} />
+          </button>
+          {accentMenuOpen && (
+            <>
+                  <div className="menu-backdrop" onClick={() => setAccentMenuOpen(false)} />
+                  <div className="menu">
+                    {ACCENTS.map((a) => (
+                      <button key={a.id} className={accent === a.id ? "sel" : ""} onClick={() => setAccent(a.id)}>
+                        <span className="menu-swatch" style={{ background: a.gradient }} />
+                        <span>{lang === "zh" ? a.zh : a.en}</span>
+                        <span className="menu-check">{accent === a.id ? "\u2713" : ""}</span>
                       </button>
                     ))}
                   </div>
@@ -2024,7 +2135,7 @@ export default function App() {
             </button>
           </div>
         </div>
-        <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算、主题。"))}</p>
+        <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("仅事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算。"))}</p>
       </header>
       <nav ref={navRef}>{TABS.map(([k, label]) => (
         <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
@@ -2089,7 +2200,7 @@ export default function App() {
                     <div className="server-card-body">
                       <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                       <div className="stats">
-                        <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
+                        <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                         <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                         <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                         <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -2101,11 +2212,11 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <div className="table-wrap"><table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
+              <div className="table-wrap"><table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
-                    <td>{a.region as string}</td>
+                    <td>{regionAbbr(a.region)}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
@@ -2148,7 +2259,7 @@ export default function App() {
                 <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                 <div className="stats">
                   <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
-                  <div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>
+                  <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                   <div className="stat stat-ip"><span>IP</span><b><IpView a={a} /></b></div>
                   <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                   <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
@@ -2165,7 +2276,7 @@ export default function App() {
           ))}
           </div>
           ) : (
-          <div className="table-wrap"><table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
+          <div className="table-wrap"><table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
               <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
@@ -2173,7 +2284,7 @@ export default function App() {
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td><IdView a={a} /></td>
-                <td>{a.region as string}</td>
+                <td>{regionAbbr(a.region)}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                 <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
@@ -2491,27 +2602,6 @@ export default function App() {
             <div style={{ marginTop: 8 }}>
               <label className="lbl">{t("汇率")}</label>
               <div>1 USD = {String(settings.exchange_rate_usd_cny ?? "6.6719")} CNY</div>
-            </div>
-            </div>
-          </div>
-          <div className="card"><h2>{t("主题设置")}</h2>
-            <div style={{ paddingLeft: "2em" }}>
-            <Seg value={theme} options={[
-              { value: "light", label: t("亮色") },
-              { value: "dark", label: t("暗色") },
-              { value: "system", label: t("跟随系统") },
-            ]} onChange={(v) => setTheme(v)} />
-            <h3 style={{ marginTop: 16 }}>🎨 {t("主题风格")}</h3>
-            <div className="theme-grid" style={{ paddingLeft: "2em" }}>
-              {ACCENTS.map((a) => (
-                <button key={a.id} type="button" className={accent === a.id ? "theme-card sel" : "theme-card"} onClick={() => setAccent(a.id)}>
-                  <span className="theme-swatch" style={{ background: a.gradient }}>
-                    {accent === a.id && <span className="theme-check">✓</span>}
-                  </span>
-                  <span className="theme-name">{a.zh}</span>
-                  <span className="theme-en">{a.en}</span>
-                </button>
-              ))}
             </div>
             </div>
           </div>

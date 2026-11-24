@@ -4,8 +4,8 @@
 - AliyunClient.describe_regions / discover_instance_regions /
   find_instance_region：用 fake 传输层测试，不调真实阿里云。
 - API：GET /api/aliyun/regions（account_id 或临时 AK）、
-  POST /api/aliyun/discover-regions（已有实例所在地域 + 全部可用地域）、
-  POST /api/aliyun/find-instance-region（按实例 ID 自动发现地域）；
+  POST /api/aliyun/discover-regions（已有实例所在区域 + 全部可用区域）、
+  POST /api/aliyun/find-instance-region（按实例 ID 自动发现区域）；
   接口失败返回明确错误 + fallback_regions。
 """
 import datetime as dt
@@ -100,7 +100,7 @@ def test_describe_regions_failure_raises(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("InvalidAccessKeyId.NotFound")
     monkeypatch.setattr(c, "_common", boom)
-    with pytest.raises(AliyunError, match="地域查询失败"):
+    with pytest.raises(AliyunError, match="区域查询失败"):
         c.describe_regions()
 
 
@@ -218,7 +218,7 @@ def test_api_regions_site_switch_changes_list(tmpdb, monkeypatch):
     _fake_client(monkeypatch)
     a = _mk_account_with_ak(tmpdb, site="cn")
     client = TestClient(create_app())
-    # 站点切换后地域列表随站点变：国内站返回北京/中国香港
+    # 站点切换后区域列表随站点变：国内站返回北京/中国香港
     r = client.post("/api/aliyun/regions",
                     json={"account_id": a["id"], "site": "cn"})
     assert [x["region_id"] for x in r.json()["regions"]] == [
@@ -265,9 +265,9 @@ def test_api_regions_failure_returns_fallback(tmpdb, monkeypatch):
         "site": "global", "access_key_id": "LTAI5t-demo-0001",
         "access_key_secret": "bad"})
     assert r.status_code == 502
-    assert "地域查询失败" in r.json()["detail"]
+    assert "区域查询失败" in r.json()["detail"]
     ids = [x["region_id"] for x in r.json()["fallback_regions"]]
-    assert "cn-hongkong" in ids and "cn-beijing" in ids  # 内置常用地域
+    assert "cn-hongkong" in ids and "cn-beijing" in ids  # 内置常用区域
 
 
 def test_api_discover_regions_owned_and_all(tmpdb, monkeypatch):
@@ -282,7 +282,7 @@ def test_api_discover_regions_owned_and_all(tmpdb, monkeypatch):
     body = r.json()
     assert [x["region_id"] for x in body["owned"]] == ["cn-hongkong"]
     assert body["owned"][0]["owned"] is True
-    assert len(body["all"]) == 2  # 全部可用地域
+    assert len(body["all"]) == 2  # 全部可用区域
 
 
 def test_api_find_instance_region(tmpdb, monkeypatch):
@@ -307,3 +307,28 @@ def test_api_find_instance_region(tmpdb, monkeypatch):
     r = client.post("/api/aliyun/find-instance-region",
                     json={"account_id": a["id"], "instance_id": ""})
     assert r.status_code == 400
+
+
+def test_region_label_is_quyu_and_value_is_abbr():
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 标签“地域”已更名“区域”，全站统一（列表表头、卡片指标、表单、提示）
+    assert 't("地域")' not in tsx and 't("区域")' in tsx
+    assert '地域' not in tsx
+    # 值只显示区域英语缩写：cn-hongkong → HK、ap-northeast-2 → SEL；
+    # 未收录的区域回退显示完整 region_id
+    assert '"cn-hongkong": "HK"' in tsx
+    assert '"ap-northeast-2": "SEL"' in tsx
+    assert 'const regionAbbr = (r: string | null | undefined): string => {' in tsx
+    assert 'return REGION_ABBR[r] ?? r;' in tsx
+    # 列表与卡片的值都走 regionAbbr，不再直接显示完整 region_id
+    assert tsx.count('<b>{regionAbbr(a.region)}</b>') == 2  # 运行概览卡片、实例管理卡片
+    assert tsx.count('<td>{regionAbbr(a.region)}</td>') == 2  # 运行概览列表、实例管理列表
+    assert '{a.region as string}' not in tsx
+    # 复制配置摘要与下拉选项也用缩写
+    assert '${regionAbbr(a.region)}' in tsx
+    assert '{t(r.local_name)}（{regionAbbr(r.region_id)}）' in tsx
+    # i18n：区域键齐全，旧“地域”键已删除
+    i18n = (root / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert '区域: "Region"' in i18n and '  地域:' not in i18n
+    assert '"区域 *": "Region *"' in i18n

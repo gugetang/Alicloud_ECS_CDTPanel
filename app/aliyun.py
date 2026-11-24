@@ -4,7 +4,7 @@
 - 轻量应用服务器（SAS）：SWAS-OPEN（2020-06-01）ListInstances / StartInstance /
   StopInstance / RebootInstance。ECS DescribeInstances 永远查不到轻量服务器
   （它是独立产品，实例 ID 为 UUID 形如 3eeeb2fb…，不是 i-…），所以读状态、
-  找地域、开关机都要先 ECS、再 SWAS 兜底。SWAS 必须用地域端点
+  找区域、开关机都要先 ECS、再 SWAS 兜底。SWAS 必须用区域端点
   swas.<region>.aliyuncs.com（中心端点 swas.aliyuncs.com 不解析），
   且 AK 须有 SWAS 权限（AliyunSWASOpenFullAccess / AliyunSWASFullAccess），
   否则报 403 NoPermission——此时记日志并当作“SWAS 查不到”，不掩盖 ECS 结果。
@@ -55,7 +55,7 @@ BSS_DOMAIN_INTL = "business.ap-southeast-1.aliyuncs.com"
 BSS_VERSION = "2017-12-14"
 ECS_DOMAIN = "ecs.aliyuncs.com"
 ECS_VERSION = "2014-05-26"
-# 轻量应用服务器（SWAS-OPEN）：必须用地域端点，中心端点 swas.aliyuncs.com 不解析。
+# 轻量应用服务器（SWAS-OPEN）：必须用区域端点，中心端点 swas.aliyuncs.com 不解析。
 SWAS_VERSION = "2020-06-01"
 
 
@@ -285,11 +285,11 @@ class AliyunClient:
             raise
 
     def describe_regions(self) -> list[dict]:
-        """该站点下的可用地域列表（ECS DescribeRegions）。
+        """该站点下的可用区域列表（ECS DescribeRegions）。
 
-        用中心端点 ecs.aliyuncs.com（DescribeRegions 是地域无关接口）。
+        用中心端点 ecs.aliyuncs.com（DescribeRegions 是区域无关接口）。
         国际站/国内站用同一 ECS 端点；站点决定的是账号归属与 BSS 币种
-        （USD/CNY），不是 ECS 地域端点（见 README“区域与站点”）。
+        （USD/CNY），不是 ECS 区域端点（见 README“区域与站点”）。
         失败抛 AliyunError，调用方回退内置列表。
         """
         import json
@@ -298,11 +298,11 @@ class AliyunClient:
                                "DescribeRegions", "cn-hangzhou")
             data = json.loads(raw)
         except Exception as exc:
-            raise AliyunError(f"地域查询失败：{brief_error(exc)}") from exc
+            raise AliyunError(f"区域查询失败：{brief_error(exc)}") from exc
         return parse_regions(data)
 
     def _list_instance_regions_in(self, region: str) -> list[str]:
-        """某地域下已有实例所在的地域 id（通常就是该地域本身）。"""
+        """某区域下已有实例所在的区域 id（通常就是该区域本身）。"""
         import json
         req = DescribeInstancesRequest()
         req.set_PageSize(50)
@@ -311,11 +311,11 @@ class AliyunClient:
         return parse_instance_regions(data)
 
     def discover_instance_regions(self, regions: list[dict] | None = None) -> list[str]:
-        """已有实例实际所在的地域 id（去重、排序）。
+        """已有实例实际所在的区域 id（去重、排序）。
 
-        逐地域调 DescribeInstances（每地域最多查 50 台）汇总；
+        逐区域调 DescribeInstances（每区域最多查 50 台）汇总；
         regions 未给时先调 describe_regions 拿全量列表。
-        单个地域失败只记日志跳过，不影响其它地域。
+        单个区域失败只记日志跳过，不影响其它区域。
         """
         if regions is None:
             regions = self.describe_regions()
@@ -328,15 +328,15 @@ class AliyunClient:
                 if self._list_instance_regions_in(rid):
                     owned.add(rid)
             except Exception as exc:
-                log.warning("地域 %s 实例发现失败（跳过）: %s", rid, brief_error(exc))
+                log.warning("区域 %s 实例发现失败（跳过）: %s", rid, brief_error(exc))
         return sorted(owned)
 
     def find_instance_region(self, instance_id: str) -> str:
-        """按实例 ID 查它真实所在的地域：先查账号已保存地域，再逐地域查。
+        """按实例 ID 查它真实所在的区域：先查账号已保存区域，再逐区域查。
 
-        DescribeInstances 在错误地域返回空列表而非报错，所以逐地域试；
+        DescribeInstances 在错误区域返回空列表而非报错，所以逐区域试；
         查不到抛 AliyunError（前端提示，不要静默填错）。
-        ECS 全地域查不到时再逐地域查 SWAS（轻量服务器不在 ECS 里）。"""
+        ECS 全区域查不到时再逐区域查 SWAS（轻量服务器不在 ECS 里）。"""
         import json
         regions = [self.region] + [r["region_id"] for r in self.describe_regions()
                                    if r["region_id"] != self.region]
@@ -346,7 +346,7 @@ class AliyunClient:
             try:
                 raw = self._client(rid).do_action_with_exception(req)
             except Exception as exc:
-                # AK 错/无权限会在首个地域就报错；直接抛，不要逐地域重复报错。
+                # AK 错/无权限会在首个区域就报错；直接抛，不要逐区域重复报错。
                 if rid == regions[0]:
                     raise AliyunError(f"实例 {instance_id} 查询失败：{brief_error(exc)}") from exc
                 continue
@@ -354,13 +354,13 @@ class AliyunClient:
             items = (data.get("Instances") or {}).get("Instance") or []
             if items:
                 return items[0].get("RegionId") or rid
-        # ECS 全地域都没有：可能是轻量服务器，逐地域查 SWAS。
+        # ECS 全区域都没有：可能是轻量服务器，逐区域查 SWAS。
         for rid in regions:
             try:
                 if self._swas_list_instances(rid, instance_id):
                     return rid
             except Exception as exc:
-                # 首个地域就报错（如 AK 错）直接抛；其它地域失败只跳过。
+                # 首个区域就报错（如 AK 错）直接抛；其它区域失败只跳过。
                 if rid == regions[0]:
                     raise AliyunError(f"实例 {instance_id} 查询失败：{brief_error(exc)}") from exc
                 continue
@@ -487,7 +487,7 @@ def parse_regions(data: dict) -> list[dict]:
 
 
 def parse_instance_regions(data: dict) -> list[str]:
-    """解析 DescribeInstances 返回：实例所在的地域 id（去重、排序）。"""
+    """解析 DescribeInstances 返回：实例所在的区域 id（去重、排序）。"""
     items = (data.get("Instances") or {}).get("Instance") or []
     return sorted({i.get("RegionId") for i in items if i.get("RegionId")})
 

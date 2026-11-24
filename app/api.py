@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 
-from . import db, engine, oauth, scheduler
+from . import db, engine, oauth, scheduler, update as updater
 from .settings import DATA_DIR
 from .notify import Notifier
 from .security import (check_session, clear_login_fails, hash_password,
@@ -1315,6 +1315,26 @@ def manual_cleanup(_: bool = Depends(_admin_required)):
     return {"ok": True, **result}
 
 
+@router.get("/update/status")
+def update_status(_: bool = Depends(_admin_required)):
+    """面板更新状态：当前版本、GitHub 最新版本、是否有更新、检查是否出错。"""
+    return updater.status()
+
+
+@router.post("/update/check")
+def update_check(_: bool = Depends(_admin_required)):
+    """强制刷新一次 GitHub 最新版本（跳过 1 小时缓存）。"""
+    updater.check_latest(force=True)
+    return updater.status()
+
+
+@router.post("/update/run")
+def update_run(_: bool = Depends(_admin_required)):
+    """启动一次在线更新（后台线程，立即返回；容器将重启）。
+    没有 Docker socket 时返回手动命令，面板不假装更新成功。"""
+    return updater.start_update()
+
+
 @router.get("/logs")
 def logs(limit: int = 100, _: bool = Depends(_admin_required)):
     return db.list_events(limit=min(limit, 500))
@@ -1331,14 +1351,14 @@ def cloud_status(_: bool = Depends(_admin_required)):
 
 
 # ---------------------------------------------------------------------------
-# 阿里云地域发现（区域可选，来源必须是阿里云接口，见 README“区域与站点”）
+# 阿里云区域发现（区域可选，来源必须是阿里云接口，见 README“区域与站点”）
 # ---------------------------------------------------------------------------
 
 def _aliyun_client_for_regions(site: str | None = None,
                                account_id: int | None = None,
                                access_key_id: str | None = None,
                                access_key_secret: str | None = None):
-    """解析地域查询用的 AliyunClient。
+    """解析区域查询用的 AliyunClient。
 
     优先用已保存账户的 AK（account_id）；无账户/未填 AK 时允许传临时
     access_key_id + access_key_secret 走一次查询，不保存。
@@ -1353,7 +1373,7 @@ def _aliyun_client_for_regions(site: str | None = None,
             raise HTTPException(404, "账户不存在")
         secret = decrypt_secret(row.get("access_key_secret_enc") or "")
         if not row.get("access_key_id") or not secret:
-            raise HTTPException(400, "该账户未配置 AccessKey，无法查询地域")
+            raise HTTPException(400, "该账户未配置 AccessKey，无法查询区域")
         account = dict(row)
         account["site"] = site or row.get("site") or "global"
         return AliyunClient(account, secret)
@@ -1365,19 +1385,19 @@ def _aliyun_client_for_regions(site: str | None = None,
 
 
 def _regions_error(exc: Exception):
-    """地域接口失败：返回明确错误 + 内置常用地域列表，前端回退到内置列表。"""
+    """区域接口失败：返回明确错误 + 内置常用区域列表，前端回退到内置列表。"""
     from fastapi.responses import JSONResponse
 
     from .aliyun import BUILTIN_REGIONS
     return JSONResponse(status_code=502, content={
-        "detail": f"阿里云地域查询失败：{exc}",
+        "detail": f"阿里云区域查询失败：{exc}",
         "fallback_regions": BUILTIN_REGIONS})
 
 
 @router.post("/aliyun/regions")
 def aliyun_regions(body: dict | None = None,
                    _: bool = Depends(_admin_required)):
-    """该站点下的可用地域列表（ECS DescribeRegions），按 local_name 排序。
+    """该站点下的可用区域列表（ECS DescribeRegions），按 local_name 排序。
     POST + JSON body：临时 AK 不再走 URL 查询参数（密钥会进访问日志）。
     body: {"site": ..., "account_id": ..., "access_key_id": ...,
            "access_key_secret": ...}（临时查询，不保存）。"""
@@ -1401,8 +1421,8 @@ def aliyun_regions(body: dict | None = None,
 @router.post("/aliyun/discover-regions")
 def aliyun_discover_regions(body: dict, _: bool = Depends(_admin_required)):
     """现有服务器位置发现：先 DescribeInstances（分页）汇总该账号下已有实例
-    实际所在的地域（去重，标注“已有实例所在地域”），再合并 DescribeRegions
-    的全量列表（标注“全部可用地域”）。前端下拉分两组显示。"""
+    实际所在的区域（去重，标注“已有实例所在区域”），再合并 DescribeRegions
+    的全量列表（标注“全部可用区域”）。前端下拉分两组显示。"""
     from .aliyun import AliyunError
     try:
         client = _aliyun_client_for_regions(body.get("site"), body.get("account_id"),
@@ -1426,8 +1446,8 @@ def aliyun_discover_regions(body: dict, _: bool = Depends(_admin_required)):
 
 @router.post("/aliyun/find-instance-region")
 def aliyun_find_instance_region(body: dict, _: bool = Depends(_admin_required)):
-    """自动发现：按实例 ID 调 DescribeInstances 查出该实例真实所在地域并返回，
-    前端自动填入地域下拉。查不到时报错（不要静默填错）。"""
+    """自动发现：按实例 ID 调 DescribeInstances 查出该实例真实所在区域并返回，
+    前端自动填入区域下拉。查不到时报错（不要静默填错）。"""
     from .aliyun import AliyunError
     instance_id = (body.get("instance_id") or "").strip()
     if not instance_id:

@@ -18,3 +18,6 @@ services:
       CDT_PROXY_ONLY: "1"
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
+      # 在线更新用：面板通过 Docker socket 拉镜像并重建自身容器。
+      # 首次启用须手动 docker compose pull && docker compose up -d 一次。
+      - /var/run/docker.sock:/var/run/docker.sock

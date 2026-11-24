@@ -260,7 +260,8 @@ def test_api_refresh_own_row_and_site_settings_tab():
     assert 'marginTop: 12' in tsx[max(0, api_idx - 120):api_idx]
     assert tsx.index('轮巡周期') < api_idx
     # 站点设置是设置页的第三个子标签（在账号设置后面、通知设置前面、日志统计前面），
-    # 只剩货币结算与主题设置；登录与安全、备份与恢复已移到新开的“账号设置”
+    # 只剩站点信息、货币结算与数据清理；主题设置卡片已删除（风格改到右上角
+    # 调色板图标下拉里）；登录与安全、备份与恢复已移到新开的“账号设置”
     m = re.search(r"const SUB_TABS[^;]*;", tsx, re.S)
     assert m, "SUB_TABS missing"
     subs = m.group(0)
@@ -270,15 +271,15 @@ def test_api_refresh_own_row_and_site_settings_tab():
     assert subs.index('["other", "站点设置"]') < subs.index('["notify", "通知设置"]')
     assert subs.index('["other", "站点设置"]') > subs.index('["account", "账号设置"]')
     assert '"other"' in tsx and 'type SubTab = "settings" | "account" | "notify" | "other" | "logs"' in tsx
-    # 站点设置里只有货币结算卡片、主题设置卡片
+    # 站点设置里只有站点信息、货币结算、数据清理三张卡片（主题设置卡片已删）
     other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
     acc_idx = tsx.index('{tab === "config" && subTab === "account" && (')
     notify_idx = tsx.index('{tab === "config" && subTab === "notify" && (')
     other_block = tsx[other_idx:acc_idx]
     assert '<div className="card"><h2>{t("货币结算")}</h2>' in other_block
-    assert '<div className="card"><h2>{t("主题设置")}</h2>' in other_block
+    assert '<div className="card"><h2>{t("数据清理")}</h2>' in other_block
+    assert '<h2>{t("主题设置")}</h2>' not in other_block
     assert '<LoginSecurity' not in other_block and '<BackupCard' not in other_block
-    assert 'value={theme}' in other_block and 'setTheme(v)' in other_block
     # 账号设置（新开，在全局设置后面）里是登录与安全、备份与恢复
     acc_block = tsx[acc_idx:notify_idx]
     assert '<LoginSecurity' in acc_block and '<BackupCard' in acc_block
@@ -313,14 +314,13 @@ def test_theme_styles_picker():
         assert cls in css, cls
     for g in ("#a7f3d0,#10b981", "#bfdbfe,#3b82f6", "#fed7aa,#f97316", "#ddd6fe,#8b5cf6", "#fecaca,#ef4444"):
         assert g in tsx, g
-    # 选择器在主题设置卡片里：标题 + 说明 + 5 张卡片 + 渐变色块 + 勾选
-    other_idx = tsx.index('{tab === "config" && subTab === "other" && (')
-    notify_idx = tsx.index('{tab === "config" && subTab === "notify" && (')
-    other_block = tsx[other_idx:notify_idx]
-    assert 't("主题风格")' in other_block
-    assert 'className="theme-grid"' in other_block
-    assert 'ACCENTS.map' in other_block and 'theme-swatch' in other_block and 'theme-check' in other_block
-    assert 'theme-name' in other_block and 'theme-en' in other_block
+    # 选择器在右上角调色板图标下拉里（页眉与登录页各一处，退出按钮前面）：
+    # 5 个选项各带渐变色点 + 名称 + 勾选；主题设置卡片已删除
+    assert tsx.count('<PaletteIcon size={18} />') == 2
+    assert tsx.count('aria-label={t("主题风格")}') == 2
+    assert 'ACCENTS.map' in tsx and 'menu-swatch' in tsx
+    assert '<h2>{t("主题设置")}</h2>' not in tsx
+    assert 'className="theme-grid"' not in tsx
 
 
 def test_group_member_shows_masked_ip():
@@ -499,12 +499,12 @@ def test_logs_title_same_size_bold_and_detail_numbers_accent():
 
 def test_dash_card_stats_site_before_traffic_traffic_cost_same_row():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行概览卡片指标顺序：地域、IP、站点、流量、费用（三列网格，第一行
-    # 地域/IP/站点，第二行流量/费用——站点排在流量前面，流量和费用同一行）
+    # 运行概览卡片指标顺序：区域、IP、站点、流量、费用（三列网格，第一行
+    # 区域/IP/站点，第二行流量/费用——站点排在流量前面，流量和费用同一行）
     m = re.search(r'<div className="stats">\s*(.*?)\s*</div>\s*\{a\.status_detail', tsx, re.S)
     assert m, "dash card .stats missing"
     block = m.group(1)
-    labels = ['t("地域")', "IP", 't("站点")', 't("流量")', 't("费用")']
+    labels = ['t("区域")', "IP", 't("站点")', 't("流量")', 't("费用")']
     idx = [block.index(x) for x in labels]
     assert idx == sorted(idx), idx
     # 三列网格里第 4、5 项（流量、费用）落在同一行（第二行）
@@ -603,7 +603,9 @@ def test_header_lang_dropdown_and_logout():
     # 主题键图标与退出图标按 36px 按钮等比放大（主题 14→18px，页眉与登录页
     # 各一处；退出 9→16px，同样两处）；语言字 9→14px，不挤压；
     # .btn.theme-btn 同样是 36×36 圆角正方形；点主题键仍弹出亮色/暗色/跟随系统菜单
-    assert tsx.count("size={18}") == 2
+    # 调色板图标（主题风格）同样 18px、两处，与主题键同款按钮
+    assert tsx.count("<ThemeIcon theme={theme} size={18} />") == 2
+    assert tsx.count("<PaletteIcon size={18} />") == 2
     assert tsx.count("size={14}") == 0
     assert tsx.count('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"') == 2  # 退出图标 16px，两处
     assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 0
@@ -618,9 +620,13 @@ def test_header_lang_dropdown_and_logout():
     assert 'post("/api/auth/logout", {})' in tsx
     assert 'setToken(null)' in tsx
     assert 'setAuthState("login")' in tsx
-    # 顺序：语言键、主题键、退出键（退出在最右）
+    # 顺序：语言键、主题键（模式）、调色板键（风格）、退出键（退出在最右）
     assert tsx.index("lang-btn") < tsx.index("theme-btn")
     assert tsx.index("theme-btn") < tsx.index('t("退出登录")')
+    # 调色板在退出按钮前面（页眉与登录页各一处），点开是 5 种风格下拉
+    assert tsx.count('aria-label={t("主题风格")}') == 2
+    hdr = tsx[tsx.index("function App"):]
+    assert hdr.index('t("主题风格")') < hdr.index('t("退出登录")')
 
 
 def test_traffic_obtained_line_uses_theme_color():
@@ -1102,7 +1108,7 @@ def test_theme_accents_are_light():
 def test_settings_cards_use_parent_child_layout():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 父栏标题（h2/h3/16px）贴左，子栏内容缩进 2 字符：登录与安全、通知渠道、
-    # 备份与恢复、站点信息、货币结算、主题设置、通知事件、DDNS 设置都一样
+    # 备份与恢复、站点信息、货币结算、通知事件、DDNS 设置都一样（主题设置卡片已删）
     # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
     # 通知渠道：字段区缩进；每日推送是 h3 子标题（14px）、其控件缩进
@@ -1112,9 +1118,9 @@ def test_settings_cards_use_parent_child_layout():
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
     assert '<div className="card"><h2>{t("站点信息")}</h2>\n      <div style={{ paddingLeft: "2em" }}>' in tsx
-    # 货币结算 / 主题设置：内容缩进
+    # 货币结算：内容缩进（主题设置卡片已删，风格改到右上角调色板下拉）
     assert '<div className="card"><h2>{t("货币结算")}</h2>\n            <div style={{ paddingLeft: "2em" }}>' in tsx
-    assert '<div className="theme-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<div className="theme-grid" style={{ paddingLeft: "2em" }}>' not in tsx
     # 通知事件开关行、DDNS 设置表单网格缩进
     assert 'style={{ padding: "6px 0 6px 2em" }}' in tsx
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
@@ -1375,7 +1381,7 @@ def test_server_cards_one_per_row_no_wrap():
 
 def test_list_values_are_bold():
     # 列表值加粗，与卡片指标值（.stat b，700）一致：运行概览列表与实例管理
-    # 列表的值列（ID、地域、IP、站点、流量、费用、阈值）都是 700；表头 th
+    # 列表的值列（ID、区域、IP、站点、流量、费用、阈值）都是 700；表头 th
     # （13px/500 灰色）不动，拖动列（⠿）和操作列不是值，跨列展开行也不是
     # 数据列，都不加粗
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -1503,11 +1509,11 @@ def test_seg_custom_two_line_sub():
 
 def test_custom_values_inline_except_group_dynamic_dialog():
     # 自定义数值都在内联输入框里改，不用 prompt()；唯一例外是分组的动态切换
-    # 间隔：自定义弹对话框改值（用户要求）。其它自定义入口（地域自定义输入、
+    # 间隔：自定义弹对话框改值（用户要求）。其它自定义入口（区域自定义输入、
     # 分组/全局自定义间隔、全局动态间隔、API 刷新）都是页面里的 input，失焦即保存
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert "prompt(" not in tsx and "window.prompt" not in tsx
-    assert 'placeholder={t("地域 ID，如 cn-hongkong")}' in tsx
+    assert 'placeholder={t("区域 ID，如 cn-hongkong")}' in tsx
     assert 't("自定义间隔")' in tsx and 't("自定义间隔（分钟，最少 30）")' in tsx
     assert 't("自定义刷新时间（分钟）")' in tsx
     # 分组动态间隔的自定义是对话框（modal-overlay），分组卡片里不再有内联的
@@ -1520,7 +1526,7 @@ def test_custom_values_inline_except_group_dynamic_dialog():
 def test_server_card_groups_modes_and_masked_instance_id():
     # 服务器卡片（实例管理页）：模式显示在服务器名后面（蓝色，多个分组的模式
     # 都显示，去重），分组名（Premium）不再显示在卡片上；区域与站点是单独的
-    # 指标（标签在上、数值在下），顺序是实例、地域、IP、站点、流量、费用、
+    # 指标（标签在上、数值在下），顺序是实例、区域、IP、站点、流量、费用、
     # 阈值；实例 ID 只显示前 6 位（ECS 是 i- + 6 位），后面用 *** 代替，
     # 并有复制按钮（复制完整 ID，和 IP 复制一样）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
@@ -1538,7 +1544,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert name_line.index('statusPillClass(a.status_dot)') < name_line.index('accountModeLabels(a).map((m) => (')
     assert '（{m}）' not in tsx
     # 名称下面不再有分组行（分组名不显示在卡片上）
-    assert ' · {a.region as string} · {groupName(a.group_id)}' not in tsx
+    assert ' · {regionAbbr(a.region)} · {groupName(a.group_id)}' not in tsx
     assert '<span style={{ color: "var(--accent)" }}>{groupName(gid)}</span>' not in tsx
     assert '<span style={{ color: "#34A853" }}>（{groupModeLabel(gid)}）</span>' not in tsx
     # 模式标签：time→定时轮巡，dynamic→动态模式，load_balance/both→差值模式
@@ -1554,17 +1560,17 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
     # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
     # 不再是 ID / IP 后面的小字后缀；卡片指标顺序与列表一致：
-    # 实例、地域、IP、站点、流量、费用、阈值
+    # 实例、区域、IP、站点、流量、费用、阈值
     assert '<b><IdView a={a} /></b>' in tsx
-    assert '· {a.region as string}</span></b>' not in tsx
+    assert '· {regionAbbr(a.region)}</span></b>' not in tsx
     assert '· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b>' not in tsx
     i = tsx.index('<b><IdView a={a} /></b>')
     i_stats = tsx.rfind('<div className="stats">', 0, i)
     stats = tsx[i_stats:i_stats + 1400]
-    assert '<div className="stat"><span>{t("地域")}</span><b>{a.region as string}</b></div>' in stats
+    assert '<div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>' in stats
     assert '<div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>' in stats
-    assert stats.index('<span>{t("实例")}</span>') < stats.index('<span>{t("地域")}</span>')
-    assert stats.index('<span>{t("地域")}</span>') < stats.index('<span>IP</span>')
+    assert stats.index('<span>{t("实例")}</span>') < stats.index('<span>{t("区域")}</span>')
+    assert stats.index('<span>{t("区域")}</span>') < stats.index('<span>IP</span>')
     assert stats.index('<span>IP</span>') < stats.index('<span>{t("站点")}</span>')
     assert stats.index('<span>{t("站点")}</span>') < stats.index('<span>{t("流量")}</span>')
     assert stats.index('<span>{t("流量")}</span>') < stats.index('<span>{t("费用")}</span>')
@@ -1580,38 +1586,38 @@ def test_server_card_groups_modes_and_masked_instance_id():
 
 
 def test_accounts_list_column_order():
-    # 实例管理页列表：列顺序与卡片一致——名称、ID、地域、IP、站点、流量、
+    # 实例管理页列表：列顺序与卡片一致——名称、ID、区域、IP、站点、流量、
     # 费用、阈值（操作在最后）。ID 列显示脱敏 ID + 复制按钮（IdView），
-    # 地域与站点是单独的列（卡片里它们是 ID / IP 后面的小字后缀）。
+    # 区域与站点是单独的列（卡片里它们是 ID / IP 后面的小字后缀）。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i = tsx.index('<th></th><th>{t("名称")}</th><th>ID</th>')
     header = tsx[i:i + 400]
-    assert header.index('<th>ID</th>') < header.index('<th>{t("地域")}</th>')
-    assert header.index('<th>{t("地域")}</th>') < header.index('<th>IP</th>')
+    assert header.index('<th>ID</th>') < header.index('<th>{t("区域")}</th>')
+    assert header.index('<th>{t("区域")}</th>') < header.index('<th>IP</th>')
     assert header.index('<th>IP</th>') < header.index('<th>{t("站点")}</th>')
     assert header.index('<th>{t("站点")}</th>') < header.index('<th>{t("流量")}</th>')
     assert header.index('<th>{t("流量")}</th>') < header.index('<th>{t("费用")}</th>')
     assert header.index('<th>{t("费用")}</th>') < header.index('<th>{t("阈值")}</th>')
     assert header.index('<th>{t("阈值")}</th>') < header.index('<th>{t("操作")}</th>')
-    # 行里的单元格顺序与表头一致：名称、IdView、地域、IpView、站点
+    # 行里的单元格顺序与表头一致：名称、IdView、区域、IpView、站点
     j = tsx.index('<td><IdView a={a} /></td>', i)
-    assert tsx.index('<td>{a.region as string}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
+    assert tsx.index('<td>{regionAbbr(a.region)}</td>', j) < tsx.index('<td><IpView a={a} /></td>', j)
     assert tsx.index('<td><IpView a={a} /></td>', j) < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
 def test_dash_list_column_order():
-    # 运行概览列表：列顺序也是服务器、地域、IP、站点、流量、费用（站点移到
+    # 运行概览列表：列顺序也是服务器、区域、IP、站点、流量、费用（站点移到
     # IP 后面，与实例管理页列表一致；没有 ID 与阈值列，也没有复制按钮）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    i = tsx.index('<th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th>')
+    i = tsx.index('<th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th>')
     header = tsx[i:i + 400]
-    assert header.index('<th>{t("地域")}</th>') < header.index('<th>IP</th>')
+    assert header.index('<th>{t("区域")}</th>') < header.index('<th>IP</th>')
     assert header.index('<th>IP</th>') < header.index('<th>{t("站点")}</th>')
     assert header.index('<th>{t("站点")}</th>') < header.index('<th>{t("已用 / 月度流量额度")}</th>')
     assert header.index('<th>{t("已用 / 月度流量额度")}</th>') < header.index('<th>{t("实时费用")}</th>')
-    # 行里的单元格顺序与表头一致：名称、地域、IpView（无复制）、站点
+    # 行里的单元格顺序与表头一致：名称、区域、IpView（无复制）、站点
     j = tsx.index('<td><IpView a={a} copy={false} /></td>', i)
-    assert tsx.index('<td>{a.region as string}</td>', i) < j
+    assert tsx.index('<td>{regionAbbr(a.region)}</td>', i) < j
     assert j < tsx.index('<td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>', j)
 
 
@@ -1643,7 +1649,7 @@ def test_global_settings_run_mode_above_lb():
 def test_stat_values_uniform_weight():
     # 卡片与列表的数值统一粗细：等宽字体是错的改法（等宽字体笔画细，与 Google Sans
     # 的流量/费用放一起还是有的粗有的细，已撤掉）；真正粗细不一的根因是列表流量
-    # 已用数包了 <b>（浏览器默认 700 粗体），而地域/IP/ID/费用/阈值都是常规粗细。
+    # 已用数包了 <b>（浏览器默认 700 粗体），而区域/IP/ID/费用/阈值都是常规粗细。
     # 改法：列表流量已用数去掉 <b>，卡片与列表全部数值都用同一字体同一粗细。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -1657,7 +1663,7 @@ def test_stat_values_uniform_weight():
     # plain 格式已不存在，两处都是 nowrap + <b> 格式
     assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 0
     assert tsx.count('<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
-    # 卡片数值仍在 .stat b 里，比标签大一号（值 14px、标签 12px）、只加粗（700），流量/费用/阈值与地域/IP/实例 ID 同款
+    # 卡片数值仍在 .stat b 里，比标签大一号（值 14px、标签 12px）、只加粗（700），流量/费用/阈值与区域/IP/实例 ID 同款
     assert '.stat b { font-size:14px; font-weight:700;' in css
     assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
 
@@ -1734,15 +1740,15 @@ def test_login_logo_left_admin_account_remember():
 
 def test_list_value_columns_not_bold_and_overview_padding():
     # 列表值加粗（.overview-table/.accounts-table td 700）之后，用户截图指出
-    # 地域/站点/流量/阈值这几列的值不该加粗（名称、ID、IP、费用保持加粗）；
+    # 区域/站点/流量/阈值这几列的值不该加粗（名称、ID、IP、费用保持加粗）；
     # 例外：两张列表的流量列“/”前的已用量按用户新要求（2026-11-24）单独加粗，
     # 整格不换行——td 本身仍是 400（nth-child 规则不变），只 <b> 里的已用量是 700。
     # 运行概览列表同时行距放宽（默认 10px 8px 太挤）。
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 基础加粗规则仍在：两张列表的 td 默认 700
     assert ".overview-table td, .accounts-table td { font-weight:700; }" in css
-    # 地域/站点/流量/阈值列不加粗（nth-child 按表头列序）：
-    # 运行概览：地域(2)/站点(4)/流量(5)；实例管理：地域(4)/站点(6)/流量(7)/阈值(9)
+    # 区域/站点/流量/阈值列不加粗（nth-child 按表头列序）：
+    # 运行概览：区域(2)/站点(4)/流量(5)；实例管理：区域(4)/站点(6)/流量(7)/阈值(9)
     assert ".overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5)," in css
     assert ".accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }" in css
     # 运行概览列表行距放宽：14px 12px（默认 th,td 是 10px 8px）
@@ -1834,3 +1840,34 @@ def test_domains_table_loose_padding():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     assert '<table className="domains-table">' in tsx
     assert ".domains-table th, .domains-table td { padding:14px 12px; }" in css
+
+
+def test_header_bell_and_palette_icons():
+    # 页眉图标顺序（左→右）：铃铛（有消息才显示）→ 语言 → 主题模式 →
+    # 调色板（风格）→ 退出登录。铃铛在中英切换前面，无消息不显示；
+    # 调色板在退出按钮前面。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 铃铛：只有 update_available 时渲染，带红点角标
+    assert 'function BellIcon' in tsx
+    assert '{upd?.update_available && (' in tsx
+    assert '<BellIcon size={18} />' in tsx
+    assert '<span className="bell-dot" />' in tsx
+    assert ".bell-dot { position:absolute; top:5px; right:5px; width:8px; height:8px; border-radius:50%; background:#EA4335;" in css
+    # 铃铛在语言键前面（页眉右行里，铃铛条件块先于 lang-btn）
+    hdr = tsx[tsx.index("function App("):]
+    assert hdr.index("upd?.update_available") < hdr.index("lang-btn")
+    # 铃铛下拉：当前/最新版本（短 SHA）、最新提交信息、立即更新、检查更新
+    assert 'aria-label={t("面板更新")}' in tsx
+    assert 't("发现新版本")' in tsx and 't("当前版本")' in tsx and 't("最新版本")' in tsx
+    assert 't("立即更新")' in tsx and 't("检查更新")' in tsx
+    assert 'post("/api/update/run", {})' in tsx
+    assert 'post("/api/update/check", {})' in tsx
+    assert 'get("/api/update/status")' in tsx
+    # 调色板：退出按钮前面，页眉与登录页各一处
+    assert tsx.count('<PaletteIcon size={18} />') == 2
+    assert tsx.count('aria-label={t("主题风格")}') == 2
+    assert hdr.index('t("主题风格")') < hdr.index('t("退出登录")')
+    # 登录页没有铃铛（未登录查不到更新状态）
+    login = tsx[tsx.index("function LoginScreen"):tsx.index("function App(")]
+    assert "BellIcon" not in login and "update/status" not in login

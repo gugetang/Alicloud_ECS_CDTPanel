@@ -142,7 +142,7 @@ table td[colspan] { position:static; }
    （实例设置面板）不是数据列，也不加粗。 */
 .overview-table td, .accounts-table td { font-weight:700; }
 .accounts-table td:first-child, .accounts-table td:last-child, table td[colspan] { font-weight:400; }
-/* 地域/站点/流量/阈值这几列的值不加粗（名称、ID、IP、费用保持加粗）。 */
+/* 区域/站点/流量/阈值这几列的值不加粗（名称、ID、IP、费用保持加粗）。 */
 .overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5),
 .accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }
 /* 运行概览列表行距放宽：行高与列间距都比默认大，不显拥挤。 */
@@ -164,7 +164,7 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
    span（显示脱敏实例 ID / IP），后代选择器会把它也染成灰色 muted，
    导致实例 ID、IP 比流量值浅；值本身仍继承 var(--text) 深色。 */
 .stat > span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }
-/* 指标值比标签大一号（值 14px、标签 12px），只加粗：站点/国际站、地域、
+/* 指标值比标签大一号（值 14px、标签 12px），只加粗：站点/国际站、区域、
    IP、流量、费用、阈值等所有 .stat 值都按这个规则。 */
 .stat b { font-size:14px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }
 /* 服务器卡片状态详情行：单行显示不换行（手机端恢复换行，见媒体查询） */
@@ -213,6 +213,8 @@ footer { position:fixed; left:0; right:0; bottom:0; z-index:50; background:var(-
 .menu button:hover { background:var(--card2); }
 .menu button.sel { border:2px solid var(--accent); font-weight:600; padding:6px 8px; }
 .menu-ico { display:flex; color:inherit; }
+.menu-swatch { width:16px; height:16px; border-radius:50%; flex:none; }
+.bell-dot { position:absolute; top:5px; right:5px; width:8px; height:8px; border-radius:50%; background:#EA4335; border:1.5px solid var(--bg); pointer-events:none; }
 .menu-check { margin-left:auto; font-weight:700; }
 .btn { background:transparent; color:var(--text); border:2px solid var(--border); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:400; }
 /* M-03：页眉按钮至少 36px 高（之前约 17px，手机上难按）。 */
