@@ -97,7 +97,10 @@ def test_mobile_media_query():
     # 手机端卡片窄，恢复换行
     assert ".stat b, .stat span, .status-detail { white-space:normal; }" in block
     assert "input, select, textarea { font-size:16px" in block
-    assert "table { display:block; overflow-x:auto" in block
+    # 手机端表格横向滚动由 .table-wrap 提供（基础规则，全尺寸适用），
+    # 表格本身不再 display:block（否则列宽只按内容算、右边留空）
+    assert ".table-wrap { overflow-x:auto; }" in CSS
+    assert "table { display:block; overflow-x:auto" not in CSS
     assert ".btn { padding:10px 16px" in block
     assert ".icon-btn { width:36px; height:36px" in block
     assert ".auth-wrap { margin:24px auto 0" in block
@@ -1809,6 +1812,20 @@ def test_group_card_ddns_switch_top_right_delete_icon_in_settings():
     # 设置区里不再有红色实心“删除分组”文字按钮（删除实例仍是红色实心，不动）
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}\n        </button>' not in group_card
+
+
+def test_tables_fill_row_width_via_table_wrap():
+    # 列表占满整行宽：表格本身是 display:table + width:100%，列宽分满整行；
+    # 横向滚动由外层的 .table-wrap 提供。display:block 会让表格列宽只按
+    # 内容算、右边留空（2026-11-24 用户截图：运行概览列表右侧留白）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert tsx.count('<div className="table-wrap">') == 3
+    assert ".table-wrap { overflow-x:auto; }" in css
+    assert "table { display:block;" not in css
+    # 三张表都在 .table-wrap 里（概览 / 实例管理 / 域名）
+    for cls in ("overview-table", "accounts-table", "domains-table"):
+        assert f'<div className="table-wrap"><table className="{cls}"' in tsx
 
 
 def test_domains_table_loose_padding():

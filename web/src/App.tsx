@@ -94,6 +94,20 @@ function ThemeIcon({ theme, size = 18 }: { theme: string; size?: number }) {
   return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>);
 }
 
+// 主题风格：5 种配色（只改按钮与边框，磨砂底色不变）；右上角调色板图标下拉用。
+const ACCENTS = [
+  { id: "emerald", zh: "森之韵", en: "Emerald", gradient: "linear-gradient(135deg,#a7f3d0,#10b981)" },
+  { id: "deepblue", zh: "深海谧", en: "Deep Blue", gradient: "linear-gradient(135deg,#bfdbfe,#3b82f6)" },
+  { id: "warmsun", zh: "暖阳橘", en: "Warm Sun", gradient: "linear-gradient(135deg,#fed7aa,#f97316)" },
+  { id: "nebula", zh: "紫微星", en: "Nebula", gradient: "linear-gradient(135deg,#ddd6fe,#8b5cf6)" },
+  { id: "crimson", zh: "绯红月", en: "Crimson", gradient: "linear-gradient(135deg,#fecaca,#ef4444)" },
+];
+
+// 调色板图标（主题风格选择）：圆盘 + 色点。
+function PaletteIcon({ size = 18 }: { size?: number }) {
+  return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22C6.49 22 2 17.51 2 12S6.49 2 12 2s10 4.04 10 9c0 3-2.5 5-5 5H12c-1.66 0-3 1.34-3 3 0 1.66 1.34 3 3 3z" /><circle cx="6.5" cy="11.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="9.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="14.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="17.5" cy="11.5" r="1.2" fill="currentColor" stroke="none" /></svg>);
+}
+
 // 流量用量条颜色：绿 <80%、黄 ≥80%、红 ≥保护阈值，未知为灰。
 const usageColor = (rate: number | null | undefined, threshold: number) =>
   rate == null ? "#9AA0A6" : rate >= threshold ? "#EA4335" : rate >= 80 ? "#FBBC04" : "#34A853";
@@ -1526,14 +1540,6 @@ export default function App() {
     return () => mq.removeEventListener("change", h);
   }, [theme]);
 
-  // ---------- 主题风格：5 种配色（只改按钮与边框，磨砂底色不变） ----------
-  const ACCENTS = [
-    { id: "emerald", zh: "森之韵", en: "Emerald", gradient: "linear-gradient(135deg,#a7f3d0,#10b981)" },
-    { id: "deepblue", zh: "深海谧", en: "Deep Blue", gradient: "linear-gradient(135deg,#bfdbfe,#3b82f6)" },
-    { id: "warmsun", zh: "暖阳橘", en: "Warm Sun", gradient: "linear-gradient(135deg,#fed7aa,#f97316)" },
-    { id: "nebula", zh: "紫微星", en: "Nebula", gradient: "linear-gradient(135deg,#ddd6fe,#8b5cf6)" },
-    { id: "crimson", zh: "绯红月", en: "Crimson", gradient: "linear-gradient(135deg,#fecaca,#ef4444)" },
-  ];
   const [accent, setAccent] = useState<string>(() => {
     try { return localStorage.getItem("cdt-accent") || "deepblue"; } catch { return "deepblue"; }
   });
@@ -2095,7 +2101,7 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
+              <div className="table-wrap"><table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
                 <tbody>{accounts.map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
@@ -2105,7 +2111,7 @@ export default function App() {
                     <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
-                ))}</tbody></table>
+                ))}</tbody></table></div>
             )}
           </div>
         </>
@@ -2159,7 +2165,7 @@ export default function App() {
           ))}
           </div>
           ) : (
-          <table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
+          <div className="table-wrap"><table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("地域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
               <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
@@ -2184,7 +2190,7 @@ export default function App() {
                 </td></tr>
               )}
               </Fragment>
-            ))}</tbody></table>
+            ))}</tbody></table></div>
           )}
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
             <button className="btn" onClick={() => setEditingId("new")}>{t("+ 添加实例")}</button>
@@ -2198,7 +2204,7 @@ export default function App() {
           <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
-          <table className="domains-table"><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
+          <div className="table-wrap"><table className="domains-table"><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{domains.map((d, i) => {
               const cur = accounts.find((a) => a.id === d.current_account_id);
               const editing = editDomId === d.id;
@@ -2245,7 +2251,7 @@ export default function App() {
                     </button>
                   </div>
                 )}</td></tr>
-              ); })}</tbody></table>
+              ); })}</tbody></table></div>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
             <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
           </div>

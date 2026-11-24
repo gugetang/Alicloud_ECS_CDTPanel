@@ -117,11 +117,13 @@ html[data-theme="dark"] .modal.modal-wd { background:rgba(71,85,105,0.9); }
 .theme-en { display:block; color:var(--muted); font-size:12px; }
 html[data-theme="light"] .pill.red { background:#fee2e2; color:#b91c1c; }
 table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; }
-/* M-02：表格所有尺寸都可横向滚动，首列 sticky 不跟内容滚走。
-   border-collapse 必须用 separate：collapse 下 sticky 单元格在部分
-   浏览器（尤其移动端）上固定失效、底色也盖不住滚过的内容；separate +
-   border-spacing:0 外观与 collapse 一致（只有单元格底边框）。 */
-table { display:block; overflow-x:auto; }
+/* M-02：表格包在 .table-wrap 里横向滚动，首列 sticky 不跟内容滚走。
+   表格本身恢复 display:table + width:100%，列宽按内容分满整行宽；
+   display:block 会让表格列宽只按内容算、右边留空。border-collapse
+   必须用 separate：collapse 下 sticky 单元格在部分浏览器（尤其移动端）
+   上固定失效、底色也盖不住滚过的内容；separate + border-spacing:0
+   外观与 collapse 一致（只有单元格底边框）。 */
+.table-wrap { overflow-x:auto; }
 /* 首列固定：底色用 --card-solid（--card 的 100% 不透明版），滑动时下面
    滚过的内容完全不透出来；保留毛玻璃 backdrop-filter（与其他卡片同款）。
    thead 的 th 比 tbody 的 td 再高一级，表头盖过滚过的行。 */
@@ -334,7 +336,6 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
   .stat b { font-size:14px; font-weight:700; }
   /* 手机端卡片窄，指标与状态详情恢复换行（桌面端不换行只在宽卡片上成立） */
   .stat b, .stat span, .status-detail { white-space:normal; }
-  table { display:block; overflow-x:auto; }
   /* 手机端子导航同样一行横向滑动：不换行、按钮不收缩不换行、滚动条隐藏。 */
   .subtabs { overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; overscroll-behavior-x:contain; }
   .subtabs::-webkit-scrollbar { display:none; }
