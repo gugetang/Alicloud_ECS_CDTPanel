@@ -651,27 +651,21 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
   const savePatch = (patch: Any, okMsg?: string) => run(() => put(`/api/groups/${g.id}`, patch), okMsg || t("已保存成功"));
   // 分组内成员：与“选择成员实例”区同一口径（group_ids 多对多）
   const members = accounts.filter((a) => { const gids = ((a.group_ids as number[] | undefined) ?? ([a.group_id] as number[])).map(Number); return gids.includes(g.id as number); });
-  // 分组操作（卡片右下角 4 个图标按钮，与服务器卡片同一套：刷新/启动/重启/停机）：
-  // 刷新=逐台刷新成员数据；启动=取消暂停；重启=重启运行中的成员（先确认）；
-  // 停机=暂停分组（先确认）。启动只在已暂停时可点，停机只在运行中可点。
-  const [gBusy, setGBusy] = useState<string | null>(null);
-  const gBusyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "停机中…" } as const;
-  const groupAction = async (action: "refresh" | "start" | "restart" | "stop") => {
-    if (action === "stop" && !confirm(t("停止分组 {name}？", { name: g.name }))) return;
-    if (action === "restart" && !confirm(t("重启分组 {name} 内全部实例？", { name: g.name }))) return;
-    setGBusy(action);
+  // 分组操作：右下角只留一个 DDNS 开关（以前那种）：
+  // 开=取消暂停，调度把域名指向分组 IP 池当前工作的实例 IP；
+  // 关=暂停分组，域名指向 0.0.0.0、不分配实例（后端 engine.py 已是这个逻辑）。
+  // 刷新/重启按钮已取消；启动/停机合并成这一个开关。
+  const [gBusy, setGBusy] = useState(false);
+  const ddnsOn = !g.paused;
+  const toggleDdns = async (on: boolean) => {
+    if (gBusy) return;
+    if (!on && !confirm(t("关闭分组 {name} 的 DDNS？域名将指向 0.0.0.0", { name: g.name }))) return;
+    setGBusy(true);
     try {
-      if (action === "refresh") await run(async () => { for (const m of members) await post(`/api/accounts/${m.id}/refresh`, {}); }, t("已刷新分组 {name}", { name: g.name }));
-      else if (action === "start") await run(() => put(`/api/groups/${g.id}`, { paused: 0 }), t("分组已启动"));
-      else if (action === "restart") await run(async () => { for (const m of members.filter((x) => x.instance_status === "Running")) await post(`/api/accounts/${m.id}/restart`, {}); }, t("已重启分组 {name} 内全部实例", { name: g.name }));
-      else await run(() => put(`/api/groups/${g.id}`, { paused: 1 }), t("分组已停止"));
-    } finally { setGBusy(null); }
+      await run(() => put(`/api/groups/${g.id}`, { paused: on ? 0 : 1 }),
+        on ? t("DDNS 已开启") : t("DDNS 已关闭，域名指向 0.0.0.0"));
+    } finally { setGBusy(false); }
   };
-  const gbtn = (action: "refresh" | "start" | "restart" | "stop", label: string, disabled: boolean, icon: JSX.Element, cls = "") => (
-    <button key={action} className={cls ? `icon-btn ${cls}` : "icon-btn"} title={gBusy === action ? t(gBusyLabel[action]) : label}
-      aria-label={label} disabled={!!gBusy || disabled}
-      onClick={() => groupAction(action)}>{icon}</button>
-  );
   // 自定义间隔单位换算：后端存的一律是分钟；分钟 1 / 小时 60 / 天 1440
   const custMult = (u: string) => (u === "day" ? 1440 : u === "hour" ? 60 : 1);
   const fmtCust = (v: number) => String(Number.isInteger(v) ? v : Math.round(v * 100) / 100);
@@ -894,18 +888,9 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           );
         })}
       </div>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}>
-        {gbtn("refresh", t("刷新"), false,
-          <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
-        {gbtn("start", t("启动"), !g.paused,
-          g.paused
-            ? <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>
-            : <Ico label={t("启动")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>,
-          g.paused ? "green" : "gray")}
-        {gbtn("restart", t("重启"), !members.some((m) => m.instance_status === "Running"),
-          <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
-        {gbtn("stop", t("停机"), !!g.paused,
-          <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8, alignItems: "center" }}>
+        <span className="muted" style={{ fontSize: 13 }}>{ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}</span>
+        <Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)} label={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")} />
       </div>
     </div>
   );
