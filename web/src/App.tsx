@@ -980,9 +980,9 @@ function ChannelCard({ kind, settings, drEnabled, drTime, setDrEnabled, setDrTim
         </div>
       )}
       <div style={{ marginTop: 12 }}>
-        <h3 style={{ margin: 0, paddingLeft: "2em" }}>{t("每日推送")}</h3>
+        <h3 style={{ margin: 0, paddingLeft: "2em", fontSize: 14 }}>{t("每日推送")}</h3>
         <div style={{ paddingLeft: "2em" }}>
-        <div className="row"><span>{t("启用每日推送")}</span><span className="spacer" />
+        <div className="row"><span className="spacer" />
           <Toggle checked={drEnabled} label={t("启用每日推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0", daily_report_time: drTime || "00:00" }); }} /></div>
         <label>{t("推送时间")}</label><input type="time" value={drTime} onChange={(e) => setDrTime(e.target.value)} onBlur={saveAll} />
         </div>

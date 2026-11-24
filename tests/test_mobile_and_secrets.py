@@ -901,7 +901,7 @@ def test_subsection_h3_indent_two_chars_under_card_title():
                 '<h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("GitHub 登录")}</h3>',
                 '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("选择成员实例")}</h3>',
                 '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("域名选择")}</h3>',
-                '<h3 style={{ margin: 0, paddingLeft: "2em" }}>{t("每日推送")}</h3>']:
+                '<h3 style={{ margin: 0, paddingLeft: "2em", fontSize: 14 }}>{t("每日推送")}</h3>']:
         assert h3 in tsx, h3
     # 概览顶卡标题不缩进
     assert '<h3>{t("实例状态")}</h3>' in tsx
@@ -1102,9 +1102,9 @@ def test_settings_cards_use_parent_child_layout():
     # 备份与恢复、站点信息、货币结算、主题设置、通知事件、DDNS 设置都一样
     # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
-    # 通知渠道：字段区缩进；每日推送升为 h3 父标题、其控件缩进
+    # 通知渠道：字段区缩进；每日推送是 h3 子标题（14px）、其控件缩进
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ margin: 0, paddingLeft: "2em" }}>{t("每日推送")}</h3>' in tsx
+    assert '<h3 style={{ margin: 0, paddingLeft: "2em", fontSize: 14 }}>{t("每日推送")}</h3>' in tsx
     # 备份与恢复：按钮行缩进
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
