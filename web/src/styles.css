@@ -194,9 +194,9 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
    按同优先级后写覆盖；双类优先级更高，手机端 .btn 的 padding:10px 16px
    同样盖不掉。图标/文字按 36px 按钮等比放大（主题图标 14→18px、
    退出图标 9→16px、语言字 9→14px），居中不挤压。 */
-.btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
-/* 页眉语言按钮：与图标按钮同大（36×36 圆角正方形），当前语言用主题色，未选的用灰色 */
-.btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
+.btn.theme-btn { width:30px; height:30px; min-height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
+/* 页眉语言按钮：与图标按钮同大（30×30 圆角正方形），当前语言用主题色，未选的用灰色 */
+.btn.lang-btn { width:30px; height:30px; min-height:30px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
 /* 页眉顶栏固定：站点名称、介绍与右上角三个图标按钮一起固定在页面顶部，
    滑动时始终可见；导航仍随页面滚动。sticky 保留在文档流里，不用额外给
    页面顶部留空间；底色用实色 --bg，滚动上来的内容不透出来。 */
@@ -217,9 +217,8 @@ footer { position:fixed; left:0; right:0; bottom:0; z-index:50; background:var(-
 .bell-dot { position:absolute; top:5px; right:5px; width:8px; height:8px; border-radius:50%; background:#EA4335; border:1.5px solid var(--bg); pointer-events:none; }
 .menu-check { margin-left:auto; font-weight:700; }
 .btn { background:transparent; color:var(--text); border:2px solid var(--border); border-radius:8px; padding:7px 14px; cursor:pointer; font-size:14px; font-weight:400; }
-/* M-03：页眉按钮至少 36px 高（之前约 17px，手机上难按）。 */
-header .btn, header .icon-btn { min-height:36px; }
-header .icon-btn { width:36px; height:36px; }
+/* M-03：页眉按钮至少 30px 高，与 icon-btn 全局尺寸一致。 */
+header .btn, header .icon-btn { min-height:30px; }
 /* 按钮全局规则：默认框体默认色、字不加粗；悬停或选中时字加粗、框体变主题色，
    字本身不换主题色（仍是默认文字色）。选中态（.seg-on、nav/.subtabs .active、
    .theme-card.sel、.menu .sel）本来就是主题色边框 + 加粗，只补悬停。 */
@@ -351,7 +350,6 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
   .subtabs button { flex:none; padding:10px 14px; white-space:nowrap; }
   .subtabs button.active { padding:9px 13px; }
   .btn { padding:10px 16px; }
-  .icon-btn { width:36px; height:36px; }
   .seg button { padding:10px 16px; }
   .seg button.seg-on { padding:9px 15px; }
   input, select, textarea { font-size:16px; }

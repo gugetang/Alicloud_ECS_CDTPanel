@@ -102,7 +102,8 @@ def test_mobile_media_query():
     assert ".table-wrap { overflow-x:auto; }" in CSS
     assert "table { display:block; overflow-x:auto" not in CSS
     assert ".btn { padding:10px 16px" in block
-    assert ".icon-btn { width:36px; height:36px" in block
+    # 手机端图标按钮不再放大到 36×36，与桌面端一样 30×30（全局统一）
+    assert ".icon-btn { width:36px; height:36px" not in block
     assert ".auth-wrap { margin:24px auto 0" in block
     assert ".app { padding:16px 12px 60px" in block
     # 电脑端保持 1200px 三列
@@ -463,7 +464,7 @@ def test_managed_domains_title_removed():
     # 不是 btn ghost + emoji
     assert 't("受管理域名 {count}"' not in tsx
     assert 'title={t("DDNS 设置")}' in tsx
-    assert '<button className="icon-btn" title={t("DDNS 设置")}' in tsx
+    assert '<button className="icon-btn blue" title={t("DDNS 设置")}' in tsx
     assert '<button className="btn ghost" title={t("DDNS 设置")}' not in tsx
     assert "setShowDdns(!showDdns)" in tsx
 
@@ -581,7 +582,7 @@ def test_header_lang_dropdown_and_logout():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 语言切换：按钮只显示当前语言（中 或 En，主题色高亮），点按钮开下拉菜单
     # 选简体中文/English，不再点一下直接切换、也不再同时显示两种语言；
-    # 语言键与主题/退出图标按钮同大（36×36 圆角正方形，内容居中）；
+    # 语言键与主题/退出图标按钮同大（30×30 圆角正方形，内容居中）；
     # 语言与主题两个下拉菜单互斥（开一个关另一个）
     assert 'className="btn ghost lang-btn"' in tsx
     assert 'setLang(lang === "zh" ? "en" : "zh")' not in tsx
@@ -597,22 +598,22 @@ def test_header_lang_dropdown_and_logout():
     assert "lang-off" not in tsx and "lang-sep" not in tsx
     # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
     # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大。
-    # 三个按钮都是 36×36 圆角正方形（宽高相等、圆角 10px、内容居中）；
+    # 三个按钮都是 30×30 圆角正方形（宽高相等、圆角 10px、内容居中）；
     # 页眉顶栏（站点名称、介绍、三个图标）sticky 固定在页面顶部，导航仍随页面滚动。
-    assert ".btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
+    assert ".btn.lang-btn { width:30px; height:30px; min-height:30px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
     assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; }" in css
     assert "nav { position:sticky" not in css and "nav { position:fixed" not in css
-    # 主题键图标与退出图标按 36px 按钮等比放大（主题 14→18px，页眉与登录页
+    # 主题键图标与退出图标按 30px 按钮等比放大（主题 14→18px，页眉与登录页
     # 各一处；退出 9→16px，同样两处）；语言字 9→14px，不挤压；
-    # .btn.theme-btn 同样是 36×36 圆角正方形；点主题键仍弹出亮色/暗色/跟随系统菜单
+    # .btn.theme-btn 同样是 30×30 圆角正方形；点主题键仍弹出亮色/暗色/跟随系统菜单
     # 调色板图标（主题风格）同样 18px、两处，与主题键同款按钮
     assert tsx.count("<ThemeIcon theme={theme} size={18} />") == 2
     assert tsx.count("<PaletteIcon size={18} />") == 2
     assert tsx.count("size={14}") == 0
     assert tsx.count('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"') == 2  # 退出图标 16px，两处
     assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 0
-    assert ".btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
+    assert ".btn.theme-btn { width:30px; height:30px; min-height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
     # 登录页右上角同样是这排图标按钮（语言键 + 主题图标 + 退出图标，右对齐一行）
     assert '<div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>' in tsx
@@ -761,7 +762,7 @@ def test_group_card_ddns_toggle_only():
     # （标题行，⚙ 左边）；删除分组是卡片右下角的红色垃圾桶图标（不再是
     # 设置区底部的红色实心文字按钮）；刷新/重启按钮已取消，启动/停机合并
     # 成 DDNS 这一个开关
-    assert '<button className="icon-btn" title={t("分组设置")}' in group_card
+    assert '<button className="icon-btn blue" title={t("分组设置")}' in group_card
     assert "⚙️" not in group_card
     assert 'className="icon-btn danger" title={t("删除")}' not in group_card
     # 删除是红色垃圾桶图标（右下角），不是红色实心文字按钮
@@ -1175,7 +1176,7 @@ def test_backup_card_cloud_button_local_button_and_dialog():
     # 卡片右上角有云端备份设置按钮（⚙），点一下弹出云端备份对话框；
     # 它是 icon-btn（30×30，与其它卡片设置齿轮同款），不是 btn ghost + emoji
     assert 'title={t("云端备份设置")}' in tsx
-    assert '<button className="icon-btn" title={t("云端备份设置")}' in tsx
+    assert '<button className="icon-btn blue" title={t("云端备份设置")}' in tsx
     assert '<button className="btn ghost" title={t("云端备份设置")}' not in tsx
     assert "showWdDialog" in tsx
     assert 'className="modal-overlay"' in tsx
@@ -1191,13 +1192,14 @@ def test_backup_card_cloud_button_local_button_and_dialog():
 def test_card_settings_gear_same_size_as_action_icons():
     # 服务器卡片右上角的设置齿轮与下面 4 个操作图标（刷新/启动/重启/停机）一样大：
     # 都是 icon-btn（30×30 框）+ Ico 16×16 SVG，不再是 btn ghost + ⚙️ emoji；
-    # 设置图标只在实例管理：实例管理卡片、实例管理列表行各一处，共 2 处
+    # 齿轮图标显蓝色（icon-btn blue）、边框默认灰色；设置图标只在实例管理：
+    # 实例管理卡片、实例管理列表行各一处，共 2 处
     # （运行概览卡片/列表不设设置按钮，见 test_overview_no_settings_button）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     import re
     gears = re.findall(r'<button className="([^"]*)" title=\{t\("卡片设置"\)\}.*?</button>', tsx)
     assert len(gears) == 2, f"expected 2 card-settings gear buttons, got {len(gears)}"
-    assert all(c == "icon-btn" for c in gears), gears
+    assert all(c == "icon-btn blue" for c in gears), gears
     # 两处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
     for m in re.finditer(r'title=\{t\("卡片设置"\)\}.*?</button>', tsx):
         assert '<Ico label={t("卡片设置")}>' in m.group(0)
@@ -1254,12 +1256,12 @@ def test_dynamic_mode_heading_not_bold():
 
 
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
-    # 语言按钮与主题/退出图标按钮同大（36×36 圆角正方形，内容居中），
+    # 语言按钮与主题/退出图标按钮同大（30×30 圆角正方形，内容居中），
     # 按钮只显示当前语言（中 或 En），用主题色高亮（.lang-on）；
     # 必须是双类选择器 .btn.lang-btn/.btn.theme-btn，单类会被后写的 .btn 覆盖
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert ".btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
-    assert ".btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
+    assert ".btn.theme-btn { width:30px; height:30px; min-height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
+    assert ".btn.lang-btn { width:30px; height:30px; min-height:30px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
     assert ".lang-off" not in css and ".lang-sep" not in css
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
@@ -1826,14 +1828,14 @@ def test_group_card_ddns_switch_top_right_delete_icon_in_settings():
     # 删除按钮是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
     assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx
     assert '<Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6"' in tsx
-    # 删除按钮在卡片框体右下角（域名选择之后、卡片结束之前），常显；
-    # 不再藏在设置区里（2026-11-24 用户截图要求“放在框体右下”）
+    # 删除按钮在设置区里（showSettings 块内、选择成员实例之前），
+    # 不在卡片底部：域名选择之后不再有删除按钮
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
     del_idx = group_card.index('<button className="icon-btn danger" title={t("删除分组")}')
-    after_dom = group_card.index('{t("域名选择")}')
-    assert del_idx > after_dom
     assert del_idx > group_card.index("{showSettings && (")
-    assert group_card.index('{t("选择成员实例")}') < del_idx
+    assert del_idx < group_card.index('{t("选择成员实例")}')
+    after_dom = group_card.index('{t("域名选择")}')
+    assert '<button className="icon-btn danger" title={t("删除分组")}' not in group_card[after_dom:]
     # 设置区里不再有红色实心“删除分组”文字按钮（删除实例也已改成图标，不在设置区里）
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}\n        </button>' not in group_card
@@ -1911,6 +1913,29 @@ def test_domain_priority_drag_sort_no_sequence_number():
     assert 'dragKind === "domain"' in dom
     # moveItem 支持 domain，走 /api/domains/reorder
     assert 'kind === "group" ? "groups" : "domains"' in tsx
+
+
+def test_icon_button_size_30px_global():
+    # 图标按钮尺寸全局统一 30×30（以卡片/列表里的红垃圾桶图标为准）：
+    # 基础 .icon-btn、页眉 theme-btn/lang-btn 都是 30×30；页眉与手机端
+    # 不再有 36×36 的覆盖规则
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert "width:30px; height:30px" in css
+    assert ".btn.theme-btn { width:30px; height:30px; min-height:30px;" in css
+    assert ".btn.lang-btn { width:30px; height:30px; min-height:30px;" in css
+    assert "header .icon-btn { width:36px; height:36px; }" not in css
+    assert "min-height:36px" not in css
+    assert ".icon-btn { width:36px; height:36px; }" not in css
+    # 设置齿轮按钮全局：图标显蓝色（icon-btn blue，#2563eb）、边框默认灰色
+    # （.icon-btn 底色 var(--seg-off)）、大小与删除按钮一样 30×30
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    for t in ("卡片设置", "分组设置", "DDNS 设置", "云端备份设置"):
+        assert f'<button className="icon-btn blue" title={{t("{t}")}}' in tsx
+    assert '<button className="icon-btn" title={t("卡片设置")}' not in tsx
+    assert '<button className="icon-btn" title={t("分组设置")}' not in tsx
+    assert '<button className="icon-btn" title={t("DDNS 设置")}' not in tsx
+    assert '<button className="icon-btn" title={t("云端备份设置")}' not in tsx
+    assert ".icon-btn.blue { color:#2563eb; }" in css
 
 
 def test_tables_fill_row_width_via_table_wrap():
