@@ -19,8 +19,8 @@ Docker 一键部署（1999 只绑本机回环，IP:端口打不开，须自配�
 curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
 ```
 
-脚本会：检测/自动安装 Docker + Docker Compose（apt/yum/dnf/apk，装不上就报错退出）、
-克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
+脚本会：拉镜像之前先检查 Docker，没有就先装 Docker（apt/yum/dnf/apk 或官方脚本，
+装不上就报错退出，不继续往下装）、克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
 轮询 `http://127.0.0.1:1999/api/health` 最多 60 秒。装好后 1999 只绑本机回环，
 服务器 IP:端口打不开，必须再配自己的反代（域名 + HTTPS）才能访问，见“部署安全”。
 

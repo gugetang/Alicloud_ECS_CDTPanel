@@ -77,9 +77,9 @@ if [ "${UNINSTALL:-0}" = "1" ]; then
   exit 0
 fi
 
-# ---------------- 安装 Docker ----------------
+# ---------------- 拉镜像之前：先检查 Docker，没有先装 ----------------
 install_docker() {
-  log "未检测到 Docker，尝试自动安装…"
+  log "正在安装 Docker / Docker Compose…"
   if command -v apt-get >/dev/null 2>&1; then
     $SUDO apt-get update -y
     $SUDO apt-get install -y docker.io docker-compose-plugin git curl ca-certificates \
@@ -103,11 +103,20 @@ install_docker() {
   fi
 }
 
+# 拉镜像之前先检查 Docker：没有就先装 Docker，装完必须能用，
+# 装不上就明确报错退出，不继续往下拉镜像、不谎报成功。
 if ! command -v docker >/dev/null 2>&1; then
-  install_docker
+  log "未检测到 Docker，先安装 Docker…"
+  install_docker || die "Docker 安装失败，请手动安装 Docker（https://docs.docker.com/engine/install/）后重跑"
 fi
 if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
-  install_docker
+  log "未检测到 Docker Compose，先安装…"
+  install_docker || die "Docker Compose 安装失败，请手动安装 Docker Compose 后重跑"
+fi
+# 装完再确认一次：docker 命令和 compose 必须能用，否则直接报错退出。
+command -v docker >/dev/null 2>&1 || die "Docker 安装失败：本机没有 docker 命令，请手动安装 Docker 后重跑"
+if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
+  die "Docker Compose 安装失败：找不到 docker compose 插件或 docker-compose 命令，请手动安装后重跑"
 fi
 
 # 启动 Docker 守护进程（systemd / OpenRC / service 均尝试，失败则报错）
