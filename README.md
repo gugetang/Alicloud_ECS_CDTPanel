@@ -5,7 +5,7 @@
 
 阿里云 ECS / CDT 调度控制台：多账户流量监控、抢占式实例保活、Cloudflare DDNS、
 阈值踢出、固定时间切换、按流量负载均衡。单进程 FastAPI + SQLite，前端 React + TS + Vite，
-Docker 一键部署（1999 只绑本机回环，IP:端口打不开，须自配反代 + 证书，见“部署安全”）。
+Docker 一键部署（IP:端口直接访问会被拦截，须自配反代 + 证书，见“部署安全”）。
 
 > 从零新写。参考了 `cdt-management`（Python，换班/均衡/DDNS 思路）与
 > `AliCloud_CDT-Monitor`（Go，单进程/Worker/ API Key 思路）的公开实现，
@@ -21,8 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 
 脚本会：拉镜像之前先检查 Docker，没有就先装 Docker（apt/yum/dnf/apk 或官方脚本，
 装不上就报错退出，不继续往下装）、克隆仓库到 `/opt/docker/alicloud_ECS_CDT`、拉取 GHCR 镜像并 `docker compose up -d`、
-轮询 `http://127.0.0.1:1999/api/health` 最多 60 秒。装好后 1999 只绑本机回环，
-服务器 IP:端口打不开，必须再配自己的反代（域名 + HTTPS）才能访问，见“部署安全”。
+轮询 `http://127.0.0.1:1999/api/health` 最多 60 秒。装好后直接用服务器
+IP:端口打不开（应用层只接受经过反代的请求），必须再配自己的反代（域名 + HTTPS）
+才能访问，见“部署安全”。
 
 ```bash
 # 改目录
@@ -34,8 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main
 ```
 
 > 注意：如需换仓库，可用 `REPO_URL=... bash` 指定仓库地址。
-> 本机无 Docker，未在本机实测完整 Docker 部署栈；应用层 Host 白名单有
-> pytest 用例（`tests/test_host_guard.py`）。
+> 本机无 Docker，未在本机实测完整 Docker 部署栈；只接受反代请求的中间件有
+> pytest 用例（`tests/test_proxy_guard.py`）。
 
 ### Docker Compose 部署
 
@@ -47,7 +48,7 @@ docker compose up -d
 # 查看日志 / 停止
 docker compose logs -f Alicloud_ECS_CDTPanel
 docker compose down
-# 1999 只绑本机回环，IP:端口打不开；访问要走自己配的反代（域名 + HTTPS），见“部署安全”
+# 直接用 IP:端口打不开（应用层拦截）；访问要走自己配的反代（域名 + HTTPS），见“部署安全”
 ```
 
 完整的 `docker-compose.yml`（与仓库根目录文件一致，精简版，只拉 GHCR 镜像，不本地构建）：
@@ -60,19 +61,19 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:1999:1999"
+      - "1999:1999"
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
-      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:-}
+      CDT_PROXY_ONLY: "1"
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
 ```
 
 说明：服务名 `Alicloud_ECS_CDTPanel`（容器同名），只拉已发布的 GHCR 镜像
 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`（见 `.github/workflows/docker.yml`，
-push 到 main 自动构建并推送到 GHCR）。`1999` 只发布在本机回环
-`127.0.0.1:1999`，外网 IP:1999 打不开；数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
+push 到 main 自动构建并推送到 GHCR）。`1999` 正常发布；直接用服务器
+IP:1999 打开会被应用层拦截（只接受经过反代的请求）；数据卷用绝对路径 `/opt/docker/cdt-alicloud_ecs_cdtpanel:/data`
 （与一键脚本的代码目录 `/opt/docker/alicloud_ECS_CDT` 无关，数据固定落在
 该卷里），`TZ=Asia/Shanghai`、`CDT_DATA_DIR=/data`，
 `restart: unless-stopped`，`init: true`。
@@ -83,21 +84,22 @@ push 到 main 自动构建并推送到 GHCR）。`1999` 只发布在本机回环
 新部署默认就是这样，不用额外配置；老部署升级到新版时也一样，
 数据（`cdt.db`、`master.key`）不动。
 
-两道防线：
+**为什么不用 127.0.0.1 只绑本机：反代不一定在本机。** 反代可能是另一台
+服务器，也可能是 Cloudflare 这类远端反代，绑死本机回环的话远端反代根本
+连不上，部署后反代也访问不了。所以 1999 正常发布，改由应用层拦截直访：
 
-1. **1999 只绑本机回环**：`docker-compose.yml` 里端口是
-   `"127.0.0.1:1999:1999"`，外网用服务器 IP:1999 打不开；
-   只有本机上的反代能访问 `127.0.0.1:1999`。
-2. **应用层 Host 白名单（可选）**：在同目录 `.env` 里写
-   `CDT_PUBLIC_DOMAIN=cdt.example.com`，再 `docker compose up -d`，
-   面板就只认该域名 Host，IP / 其它 Host 直接 403；本机回环
-   （容器健康检查）始终放行，`X-Forwarded-Proto` 是 http 时也拒绝。
-   不配该变量时不限制（本地开发、旧部署保持原样）。
+- **只接受经过反代的请求**：`docker-compose.yml` 里 `CDT_PROXY_ONLY=1`
+  时，面板只接受带反代转发标识头（`X-Forwarded-For` / `X-Forwarded-Proto` /
+  `CF-Connecting-IP` 之一）的请求；浏览器直接打开服务器 IP:端口没有这些头，
+  直接 403。反代（本机或远端）转发的请求带这些头，正常访问。
+- **本机回环始终放行**：容器健康检查、install.sh 轮询走 `127.0.0.1:1999`，
+  不带转发头也能通。本地直接跑（`python -m app.main`）默认不开这个限制。
 
-**反代和证书由你自己配，项目本身不申请、不续期、不管理证书。**
+**反代和证书由你自己配，项目本身不申请、不续期、不管理证书，也不绑定域名。**
 域名先解析到本机（A 记录指向服务器公网 IP，用了 Cloudflare 等 CDN
 代理时解析到的是 CDN 节点，也能用），证书自己准备好（比如 Let's Encrypt
-的 certbot），再按下面示例配反代，指向 `127.0.0.1:1999`：
+的 certbot），再按下面示例配反代。反代在本机时指向 `127.0.0.1:1999`，
+在另一台服务器上时指向 `服务器IP:1999`（下面示例以远端反代写）：
 
 ```nginx
 # Nginx 示例：/etc/nginx/sites-available/cdt
@@ -109,7 +111,9 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/cdt.example.com/privkey.pem;
 
     location / {
-        proxy_pass http://127.0.0.1:1999;
+        # 远端反代指向 服务器IP:1999；反代在本机时改成 http://127.0.0.1:1999。
+        # 下面两行转发头必须带上，否则面板会把请求当成直访而 403。
+        proxy_pass http://服务器IP:1999;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -124,9 +128,13 @@ server {
 ```
 
 排障：`docker compose logs -f Alicloud_ECS_CDTPanel` 看面板日志；
-`curl http://127.0.0.1:1999/api/health` 在本机应返回 200，
-从外网用 `http://服务器IP:1999` 打不开是正常的。
+`curl http://127.0.0.1:1999/api/health` 在本机应返回 200（回环放行），
+从外网用 `http://服务器IP:1999` 打开会被 403，是正常的；
+反代后打不开时先看反代有没有透传 `X-Forwarded-For` / `X-Forwarded-Proto`
+（上面示例里那两行必须有）。
 `http://服务器:1999` 的旧访问方式已废弃，升级后打不开是正常的。
+想再严一点可以在服务器防火墙上只放行反代服务器的 IP 访问 1999 端口，
+面板本身不做 IP 白名单。
 
 > 镜像名纠正：GHCR 镜像名必须全小写，且不能带仓库地址的 `.git` 后缀，
 > 所以是 `ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`，
@@ -584,7 +592,7 @@ USD：USD 账单 + CNY 账单 ÷ 汇率，2 位小数）；小字第二行会注
 （下载备份/恢复备份，见“备份与恢复”）。
 
 DDNS 设置（域名 + 账户邮箱 + API Token + 时区）在顶级导航的**域名管理**页，不在全局设置；
-网页访问框体已移除（监听地址/端口由启动参数决定，本地直接跑默认 `0.0.0.0:1999`；Docker 部署时 compose 把 1999 只绑本机回环 `127.0.0.1:1999`，见“部署安全”）。
+网页访问框体已移除（监听地址/端口由启动参数决定，本地直接跑默认 `0.0.0.0:1999`；Docker 部署时直接用 IP:端口访问会被应用层拦截，须走反代，见“部署安全”）。
 登录与安全（改密码、注册指纹、Google/GitHub OAuth 配置）在账号设置页
 的“登录与安全”卡片里，见“主题与登录方式”。
 

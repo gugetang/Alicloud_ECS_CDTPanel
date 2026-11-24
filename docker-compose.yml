@@ -1,6 +1,7 @@
-# 部署安全：1999 只发布在本机回环地址上（127.0.0.1:1999），
-# 服务器 IP:1999 从外面打不开；想访问面板，必须在前面配自己的反代
-#（Nginx / Caddy / Cloudflare 等）+ 自己的证书，反代指向 127.0.0.1:1999。
+# 部署安全：反代不一定在本机，所以 1999 不能只绑 127.0.0.1（远端反代连不上）。
+# 端口正常发布，应用层拦截直访：CDT_PROXY_ONLY=1 时面板只接受带反代转发标识头
+#（X-Forwarded-For / X-Forwarded-Proto / CF-Connecting-IP）的请求，
+# 直接用服务器 IP:端口打开会被 403；反代（本机或远端）转发的请求正常访问。
 # 项目本身不申请、不续期、不管理证书，见 README“部署安全”。
 services:
   Alicloud_ECS_CDTPanel:
@@ -8,14 +9,12 @@ services:
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
-    # 只绑本机回环：外网用 IP:1999 打不开；本机上的反代可以访问 127.0.0.1:1999。
     ports:
-      - "127.0.0.1:1999:1999"
+      - "1999:1999"
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
-      # 可选：配了以后面板只认这个域名 Host，IP / 其它 Host 直接 403；
-      # 不配则不限制。写在同目录 .env 里：CDT_PUBLIC_DOMAIN=cdt.example.com
-      CDT_PUBLIC_DOMAIN: ${CDT_PUBLIC_DOMAIN:-}
+      # 只接受经过反代的请求：直接用 IP:端口打开会被 403。
+      CDT_PROXY_ONLY: "1"
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
