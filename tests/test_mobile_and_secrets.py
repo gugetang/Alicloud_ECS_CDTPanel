@@ -682,38 +682,35 @@ def test_buttons_accent_border_not_filled():
     assert 'background: "#EA4335"' in tsx
 
 
-def test_group_card_action_buttons_like_server_card():
+def test_group_card_ddns_toggle_only():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
     # 分组卡片与服务器卡片同一布局：右上只有 ⚙（与服务器卡片一样的 icon-btn
     # 齿轮 SVG，不再是 btn ghost + ⚙️ emoji），删除移到设置区底部（红色实心，
-    # 与服务器卡片的删除实例一样）；右下 4 个操作图标按钮：刷新/启动/重启/停机
+    # 与服务器卡片的删除实例一样）；右下只剩一个 DDNS 开关（恢复以前那种），
+    # 刷新/重启按钮已取消，启动/停机合并成这一个开关
     assert '<button className="icon-btn" title={t("分组设置")}' in group_card
     assert "⚙️" not in group_card
     assert 'className="icon-btn danger" title={t("删除")}' not in group_card
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' in group_card
     assert '{t("删除分组")}' in group_card
-    # 4 个操作按钮：刷新逐台刷新成员数据；启动取消暂停（只在已暂停时可点，
-    # 绿色三角，否则灰色方块不可点）；重启只重启运行中的成员（先确认）；
-    # 停机暂停分组（先确认）
-    assert 'gbtn("refresh", t("刷新")' in group_card
-    assert 'gbtn("start", t("启动"), !g.paused' in group_card
-    assert 'gbtn("restart", t("重启"), !members.some((m) => m.instance_status === "Running")' in group_card
-    assert 'gbtn("stop", t("停机"), !!g.paused' in group_card
-    assert 'for (const m of members) await post(`/api/accounts/${m.id}/refresh`, {})' in group_card
-    assert 'for (const m of members.filter((x) => x.instance_status === "Running")) await post(`/api/accounts/${m.id}/restart`, {})' in group_card
-    assert 't("停止分组 {name}？"' in group_card
-    assert 't("重启分组 {name} 内全部实例？"' in group_card
-    assert 'paused: 0' in group_card and 'paused: 1' in group_card
-    assert 'paused: g.paused ? 0 : 1' not in group_card
-    assert '<polygon points="6 3 20 12 6 21 6 3"' in group_card
-    assert '<rect x="6" y="6" width="12" height="12"' in group_card
-    # 旧的单按钮切换（启动分组/停止分组标题）已取消，英文表里的旧键随之删除
-    # （新键“停止分组 {name}？”是另一条，带冒号的精确匹配才算旧键还在）
-    assert 't("启动分组")' not in tsx and 't("停止分组")' not in tsx
+    # 只有 DDNS 开关：用现成的 Toggle 开关组件，状态一眼可辨（开=主题色，
+    # 关=灰色）；开=取消暂停（paused: 0），关=暂停（paused: 1），域名指向
+    # 0.0.0.0、不分配实例（后端 engine.py 已是这个逻辑）；关时先弹确认
+    assert 'gbtn(' not in group_card
+    assert 'groupAction' not in group_card
+    assert '<Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)}' in group_card
+    assert 'const ddnsOn = !g.paused;' in group_card
+    assert 'paused: on ? 0 : 1' in group_card
+    assert 't("关闭分组 {name} 的 DDNS？域名将指向 0.0.0.0"' in group_card
+    assert 't("DDNS 已关闭，域名指向 0.0.0.0")' in group_card
+    assert 't("DDNS 已开启")' in group_card
+    # 刷新/重启的逐台操作已不在分组卡片上（服务器卡片的 ActionButtons 不动）
+    assert 'for (const m of members) await post(`/api/accounts/${m.id}/refresh`, {})' not in group_card
+    assert 'for (const m of members.filter((x) => x.instance_status === "Running")) await post(`/api/accounts/${m.id}/restart`, {})' not in group_card
+    assert 't("重启分组 {name} 内全部实例？"' not in group_card
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    assert '  启动分组: ' not in i18n and '  停止分组: ' not in i18n
-    for key in ("删除分组", "已刷新分组 {name}", "已重启分组 {name} 内全部实例", "重启分组 {name} 内全部实例？", "停止分组 {name}？"):
+    for key in ("DDNS 已开启", "DDNS 已关闭", "DDNS 已关闭，域名指向 0.0.0.0", "关闭分组 {name} 的 DDNS？域名将指向 0.0.0.0"):
         assert key in i18n, key
 
 
