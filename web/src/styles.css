@@ -295,8 +295,10 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   .app { padding:16px 12px 40px; }
   header h1 { font-size:22px; }
   header p { margin-bottom:14px; }
-  nav { margin-bottom:14px; }
-  nav button { padding:10px 14px; }
+  /* 手机端主导航一行横向滑动，不换行：按钮不收缩、不换行，滚动条隐藏，触摸滑动顺滑；桌面端不动。 */
+  nav { margin-bottom:14px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; mask-image:linear-gradient(to right, black 92%, transparent); }
+  nav::-webkit-scrollbar { display:none; }
+  nav button { padding:10px 14px; flex:none; white-space:nowrap; }
   .card { padding:14px; margin-bottom:12px; }
   /* 手机端服务器卡片：高度降为原来的 2/3（自然高度约 390px → 260px），
      名称行固定顶部、操作按钮固定底部，中间内容（用量条、指标、状态说明、
@@ -315,8 +317,10 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   /* 手机端卡片窄，指标与状态详情恢复换行（桌面端不换行只在宽卡片上成立） */
   .stat b, .stat span, .status-detail { white-space:normal; }
   table { display:block; overflow-x:auto; }
-  .subtabs { overflow-x:auto; }
-  .subtabs button { flex:none; padding:10px 14px; }
+  /* 手机端子导航同样一行横向滑动：不换行、按钮不收缩不换行、滚动条隐藏。 */
+  .subtabs { overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; overscroll-behavior-x:contain; }
+  .subtabs::-webkit-scrollbar { display:none; }
+  .subtabs button { flex:none; padding:10px 14px; white-space:nowrap; }
   .subtabs button.active { padding:9px 13px; }
   .btn { padding:10px 16px; }
   .icon-btn { width:36px; height:36px; }
