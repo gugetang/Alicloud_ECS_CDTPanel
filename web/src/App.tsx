@@ -1844,6 +1844,8 @@ export default function App() {
   // 重启蓝色，节省停机红色，刷新默认色。
   const ActionButtons = ({ a }: { a: Any }) => {
     const busy = !!acting[a.id];
+    // ECS 实例 ID 以 i- 开头，轻量应用服务器（SWAS）是 UUID：只有 ECS 能换 EIP。
+    const isEcs = String(a.instance_id || "").startsWith("i-");
     const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "节省停机中…", "stop-normal": "普通停机中…", "replace-eip": "更换 EIP 中…" } as const;
     const stopped = a.instance_status === "Stopped";
     const btn = (action: "refresh" | "start" | "restart" | "stop", label: string,
@@ -1868,7 +1870,7 @@ export default function App() {
           <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
         {btn("stop", t("节省停机"), a.instance_status !== "Running",
           <Ico label={t("节省停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
-        <button className="icon-btn" title={acting[a.id] === "replace-eip" ? t("更换 EIP 中…") : t("更换 EIP")} aria-label={t("更换 EIP")} disabled={busy}
+        <button className="icon-btn" title={acting[a.id] === "replace-eip" ? t("更换 EIP 中…") : isEcs ? t("更换 EIP") : t("轻量应用服务器没有 EIP，无法更换")} aria-label={t("更换 EIP")} disabled={busy || !isEcs}
           onClick={() => replaceEip(a)}>
           <Ico label={t("更换 EIP")}><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></Ico>
         </button>
