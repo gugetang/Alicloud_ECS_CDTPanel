@@ -148,7 +148,9 @@ html[data-theme="light"] .bar { background:#e2e8f0; }
    原来的五项一行同样放不下，已改成与运行概览一样的三列。 */
 .stats { display:grid; grid-template-columns:repeat(3,auto); justify-content:space-between; gap:10px 16px; margin-top:12px; }
 .stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }
-.stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; white-space:nowrap; }
+/* 指标值与标签同字号（12px），只加粗：站点/国际站、地域、IP、流量、
+   费用、阈值等所有 .stat 值都按这个规则，不再比标签大。 */
+.stat b { font-size:12px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }
 /* 服务器卡片状态详情行：单行显示不换行（手机端恢复换行，见媒体查询） */
 .status-detail { white-space:nowrap; }
 .icon-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; background:transparent; border:1px solid var(--seg-off); border-radius:8px; color:var(--text); cursor:pointer; }
@@ -289,7 +291,8 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   .grid2 { gap:12px; }
   /* M-05：手机端指标改 1 列（以前 2 列挤在一起）。 */
   .stats { grid-template-columns:1fr; gap:8px 12px; }
-  .stat b { font-size:16px; }
+  /* 手机端指标值与标签同字号（12px）、只加粗，与桌面端一致。 */
+  .stat b { font-size:12px; font-weight:700; }
   /* 手机端卡片窄，指标与状态详情恢复换行（桌面端不换行只在宽卡片上成立） */
   .stat b, .stat span, .status-detail { white-space:normal; }
   table { display:block; overflow-x:auto; }

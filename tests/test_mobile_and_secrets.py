@@ -353,9 +353,9 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     # 本月流量“已取得”与当前费用“已查询”小字都用主题色、14px
     assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
     assert 'className="muted" style={{ fontSize: 14 }}' not in tsx
-    # 服务器卡片统计数值不加粗
-    assert ".stat b { font-size:18px; font-weight:400;" in css
-    assert ".stat b { font-size:18px; font-weight:600;" not in css
+    # 服务器卡片统计数值与标签同字号（12px）、只加粗
+    assert ".stat b { font-size:12px; font-weight:700;" in css
+    assert ".stat b { font-size:12px; font-weight:600;" not in css
 
 
 def test_small_notes_removed():
@@ -1200,7 +1200,7 @@ def test_server_cards_one_per_row_no_wrap():
     assert ".stats.five" not in css and "stats five" not in tsx
     # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
     assert ".stat span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
-    assert ".stat b { font-size:18px; font-weight:400; overflow-wrap:anywhere; white-space:nowrap; }" in css
+    assert ".stat b { font-size:12px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
     assert ".status-detail { white-space:nowrap; }" in css
     assert tsx.count('className="muted status-detail"') == 2
     assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
@@ -1471,8 +1471,8 @@ def test_stat_values_uniform_weight():
     # 列表流量已用数不再包 <b>（两张列表：运行概览与实例管理）
     assert '<td><b>{fmtGb(a.traffic_used_gb)}</b>' not in tsx
     assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
-    # 卡片数值仍在 .stat b 里（400 常规粗细），流量/费用/阈值与地域/IP/实例 ID 同款
-    assert '.stat b { font-size:18px; font-weight:400;' in css
+    # 卡片数值仍在 .stat b 里，与标签同字号（12px）、只加粗（700），流量/费用/阈值与地域/IP/实例 ID 同款
+    assert '.stat b { font-size:12px; font-weight:700;' in css
     assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
 
 
