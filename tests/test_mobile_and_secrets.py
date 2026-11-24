@@ -850,39 +850,66 @@ def test_dash_footer_no_pause_button_refresh_zero_off():
     assert 'scheduler_paused: sRefresh === "0" ? "1" : "0"' in tsx
 
 
-def test_two_line_labels_with_two_char_indent():
+def test_parent_labels_16px_children_14px_and_no_two_line_label():
+    # 父项字体统一 16px，子项字体统一 14px，父项比子项大一号（应用全局）。
+    # “负载均衡”父项字已取消：全局切换模式不再用 TwoLineLabel，只留单行缩进标签
+    # （与分组卡片同款）；TwoLineLabel 组件已删除。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 复合标签分两行：第一行父项，第二行子项缩进 2 字符（全局设置 + 分组设置）
-    assert "function TwoLineLabel" in tsx
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert "function TwoLineLabel" not in tsx
+    assert "TwoLineLabel" not in tsx
     assert 'paddingLeft: "2em"' in tsx
-    # 父项（负载均衡）字体与定时轮巡 h3 一样大（16px），子项保持 13px
-    assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
-    # API 刷新时间标签字体也与定时轮巡 h3 一样大（16px）
+    # 子项字体统一 14px：全局 label 规则
+    assert "label { display:block; font-size:14px;" in css
+    # 父项字体统一 16px：API 刷新时间标签与全局/分组的父标签
     assert '<label className="req" style={{ fontSize: 16 }}>{t("API 刷新时间 *（分钟）")}</label>' in tsx
-    # 负载均衡切换模式（只剩全局 1 处：切换模式；切换阀值已移到切换模式下面，
-    # 父级“负载均衡”字已取消，只留单行缩进标签，不再用 TwoLineLabel）
-    assert tsx.count('<TwoLineLabel parent="负载均衡"') == 1
-    assert tsx.count('<TwoLineLabel parent="负载均衡" child="切换模式"') == 1
-    assert '<TwoLineLabel parent="负载均衡" child="切换阀值' not in tsx
+    assert tsx.count('<label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>') == 2
+    assert tsx.count('<label className="lbl" style={{ fontSize: 16 }}>{t("阈值动作")}</label>') == 2
+    assert tsx.count('<label className="lbl" style={{ fontSize: 16 }}>{t("阈值恢复")}</label>') == 2
+    assert tsx.count('style={{ paddingLeft: "2em", fontSize: 16 }}>{t("动态切换间隔")}</label>') == 2
+    assert tsx.count('style={{ paddingLeft: "2em", fontSize: 16 }}>{t("轮巡周期")}</label>') == 2
+    # 全局切换模式是单行缩进标签（子项，14px 走全局 label 规则），不再有父项“负载均衡”行
+    assert '<label className="req"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>' in tsx
     # 全局切换阀值在切换模式下面（不再左右两列），单行缩进标签
     assert tsx.index('<Seg value={sMode}') < tsx.index('t("切换阀值 *（%）")')
     assert '<label className="req"><span style={{ paddingLeft: "2em" }}>{t("切换阀值 *（%）")}</span></label>' in tsx
     assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label>' in tsx
-    # 分组侧不再用 TwoLineLabel（父级“负载均衡”字已取消），只留子标签：
-    # 切换模式与切换阀值（%）/（GB）都是单行缩进标签
+    # 分组侧同样只留子标签：切换模式与切换阀值（%）/（GB）都是单行缩进标签
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
-    assert '<TwoLineLabel parent="负载均衡"' not in group_card
     assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>' in group_card
-    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（%）")}</span></label>' in group_card
-    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label>' in group_card
-    # 分组定时轮巡的父级“定时轮巡”字已取消（与负载均衡分支 2026-11-23 的改法一致），
-    # 只留单行缩进的“轮巡周期”标签；全局设置没有定时轮巡的 TwoLineLabel
-    assert '<TwoLineLabel parent="定时轮巡"' not in tsx
-    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</span></label>' in group_card
-    assert '<TwoLineLabel parent="定时轮巡" child="切换参数" />' not in tsx
-    for label in ("轮巡周期", "自定义间隔", "开始时间"):
-        assert f'style={{{{ paddingLeft: "2em" }}}}>{{t("{label}")}}' in tsx, label
 
+
+def test_subsection_h3_indent_two_chars_under_card_title():
+    # 子项 h3（登录与安全下的修改密码/指纹登录/Google 登录/GitHub 登录，
+    # 分组卡片的选择成员实例/域名选择，通知的每日推送）对应父项（卡片 h2
+    # 标题）留 2 字符空位：h3 缩进 2em，与其下已缩进的内容对齐。应用全局。
+    # 概览顶卡（实例状态/本月流量/当前费用）与弹窗标题是卡片主标题，不缩进。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    for h3 in ['<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("修改密码")}</h3>',
+                '<h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("指纹登录")}</h3>',
+                '<h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("Google 登录")}</h3>',
+                '<h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("GitHub 登录")}</h3>',
+                '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("选择成员实例")}</h3>',
+                '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("域名选择")}</h3>',
+                '<h3 style={{ margin: 0, paddingLeft: "2em" }}>{t("每日推送")}</h3>']:
+        assert h3 in tsx, h3
+    # 概览顶卡标题不缩进
+    assert '<h3>{t("实例状态")}</h3>' in tsx
+    assert '<h3>{t("本月流量")}</h3>' in tsx
+
+
+def test_buttons_hover_zoom_global():
+    # 按钮悬停放大特效，应用全局：主按钮 / Seg / 图标按钮（设置 ⚙、删除 🗑、
+    # 操作图标）/ 导航 / 子标签 / OAuth / 主题卡片，悬停时整体放大 1.08 倍，
+    # 过渡 0.15s；禁用按钮不放大。transform 只影响视觉，不推开其它元素。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".btn, .seg button, .icon-btn, nav button, .subtabs button, .oauth-btn, .theme-card { transition:transform .15s ease; }" in css
+    assert "transform:scale(1.08);" in css
+    for sel in (".btn:hover:not(:disabled)", ".seg button:hover:not(:disabled)",
+                ".icon-btn:hover:not(:disabled)", "nav button:hover:not(:disabled)",
+                ".subtabs button:hover:not(:disabled)", ".oauth-btn:hover:not(:disabled)",
+                ".theme-card:hover:not(:disabled)"):
+        assert sel in css, sel
 
 def test_seg_selected_is_accent_border():
     # 选中项用主题色边框 + 加粗，不用填充色、不写死蓝字（填充与写死色都已取消），
@@ -959,7 +986,7 @@ def test_group_mode_seg_no_dynamic_option():
     assert '<Seg value={(g.switch_mode == null ? "follow" : g.switch_mode === "time" ? "time" : "load_balance")}' in group_card
     # 顶层标签已由“切换模式”改名“运行模式”（只改分组卡片顶层这一处；新建分组表单
     # 与负载均衡切换方式的“切换模式”标签不动）
-    assert '<label className="lbl">{t("运行模式")}</label>' in group_card
+    assert '<label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>' in group_card
     assert '<label className="lbl">{t("切换模式")}</label>' not in tsx
     assert '{ value: "time", label: t("定时轮巡") }' in group_card
     assert '{ value: "load_balance", label: t("负载均衡") }' in group_card
@@ -1005,13 +1032,15 @@ def test_group_mode_follow_global_effective_mode():
 
 def test_parent_child_hierarchy_global():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 父栏标题比子栏大一号：TwoLineLabel 父项 16px、子项 13px；h3 标题 16px
-    assert '<span style={{ fontSize: 16 }}>{t(parent)}</span>' in tsx
+    # 父栏标题比子栏大一号：父项字体统一 16px（内联 fontSize:16），子项字体
+    # 统一 14px（全局 label 规则）；h3 标题 16px（TwoLineLabel 已删）
+    assert '<label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>' in tsx
+    assert "label { display:block; font-size:14px;" in (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     assert ".card h3 { margin:0 0 8px; font-size:16px; }" in (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 父栏下的所有子栏后退两字符：分组卡片的选择成员实例、域名选择按键区也缩进 2em
     # （PR #8 后两区改成两列 member-grid 网格，class 变了，缩进 2em 的规则没变）
-    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("选择成员实例")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
+    assert '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("域名选择")}</h3>\n      <div className="seg member-grid" style={{ paddingLeft: "2em" }}>' in tsx
     # 两列布局本身：手机/平板（≤1024px）下 member-grid 是两列网格，
     # 桌面端保持原来的自适应横排不变
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -1044,7 +1073,7 @@ def test_settings_cards_use_parent_child_layout():
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
     # 通知渠道：字段区缩进；每日推送升为 h3 父标题、其控件缩进
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ margin: 0 }}>{t("每日推送")}</h3>' in tsx
+    assert '<h3 style={{ margin: 0, paddingLeft: "2em" }}>{t("每日推送")}</h3>' in tsx
     # 备份与恢复：按钮行缩进
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
@@ -1196,12 +1225,12 @@ def test_group_settings_follow_global_layout_indent():
     # 分组名称
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="req">{t("分组名称 *")}</label>' in tsx
     # 运行模式（顶层标签已由“切换模式”改名）
-    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("运行模式")}</label>' in tsx
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>' in tsx
     # 阈值动作 / 阈值恢复（与全局设置一样，整个 label+Seg 区块缩进 2em）
-    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值动作")}</label>' in tsx
-    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl">{t("阈值恢复")}</label>' in tsx
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl" style={{ fontSize: 16 }}>{t("阈值动作")}</label>' in tsx
+    assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n        <label className="lbl" style={{ fontSize: 16 }}>{t("阈值恢复")}</label>' in tsx
     # 全局设置侧的阈值动作/阈值恢复同样缩进 2em（对照）
-    assert tsx.count('<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n              <label className="lbl">{t("阈值动作")}</label>') == 1
+    assert tsx.count('<div style={{ marginTop: 12, paddingLeft: "2em" }}>\n              <label className="lbl" style={{ fontSize: 16 }}>{t("阈值动作")}</label>') == 1
 
 
 def test_backup_cloud_and_local_buttons_same_height():
@@ -1399,7 +1428,7 @@ def test_group_time_follow_custom():
     # （继承全局），选其它即切到自定义；从跟随系统切出来时把全局的时间值填入
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 框体外的“定时轮巡”父级字已取消，只留单行缩进的“轮巡周期”标签
-    assert '<label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</span></label>' in tsx
+    assert '<label className="lbl" style={{ paddingLeft: "2em", fontSize: 16 }}>{t("轮巡周期")}</label>' in tsx
     assert '<Seg value={interval} options={[' in tsx
     assert '{ value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") }' in tsx
     assert 'savePatch({ interval_hours: null, custom_interval_minutes: null, interval_start_time: null })' in tsx
@@ -1554,9 +1583,10 @@ def test_global_settings_run_mode_above_lb():
     # 负载均衡两项，动态模式仍在下面的负载均衡切换方式里选）；顶层只分
     # 两项，动态/both 都归负载均衡（与分组卡片顶层同款映射）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行模式在月度流量额度/流量保护阈值之后、负载均衡 TwoLineLabel 之前
-    i_run = tsx.index('<label className="lbl">{t("运行模式")}</label>', tsx.index('id="s-prot"'))
-    i_lb = tsx.index('<TwoLineLabel parent="负载均衡"', i_run)
+    # 运行模式在月度流量额度/流量保护阈值之后、负载均衡切换模式标签之前
+    # （“负载均衡”父项字已取消，TwoLineLabel 已删，只留单行缩进的切换模式标签）
+    i_run = tsx.index('<label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>', tsx.index('id="s-prot"'))
+    i_lb = tsx.index('<label className="req"><span style={{ paddingLeft: "2em" }}>{t("切换模式")}</span></label>', i_run)
     assert i_run < i_lb
     run_seg = tsx[i_run:i_lb]
     assert '<Seg value={sRunMode} options={' in run_seg
@@ -1611,18 +1641,18 @@ def test_status_pill_follows_dot_and_mode_label_no_parens():
 
 
 def test_group_name_and_section_labels_font_size_swapped():
-    # 分组卡片：组名称与“选择成员实例”“域名选择”两处标题的字号对调——
-    # 组名称改小（14px，与正文/按钮同款），两处标题保持 h3（.card h3 16px），
-    # 现在标题比组名称大，层级反过来了。
+    # 分组卡片：父项字体统一 16px——组名称与“选择成员实例”“域名选择”两处
+    # h3 标题同为 16px（父项），不再是组名称 14px < 标题 16px 的倒挂；
+    # 两处 h3 对应父项（卡片标题）缩进 2 字符；子项标签走全局 label 规则 14px。
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (root / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 组名称是 14px
-    assert '<b style={{ fontSize: 14 }}>{g.name as string}</b>' in tsx
-    # 两处标题仍是 h3，字号 16px（.card h3），比组名称大
-    assert '<h3 style={{ marginTop: 12 }}>{t("选择成员实例")}</h3>' in tsx
-    assert '<h3 style={{ marginTop: 12 }}>{t("域名选择")}</h3>' in tsx
+    # 组名称是 16px（父项，统一）
+    assert '<b style={{ fontSize: 16 }}>{g.name as string}</b>' in tsx
+    # 两处标题仍是 h3，字号 16px（.card h3），与组名称同大（父项统一）
+    assert '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("选择成员实例")}</h3>' in tsx
+    assert '<h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("域名选择")}</h3>' in tsx
     assert ".card h3 { margin:0 0 8px; font-size:16px; }" in css
 
 def test_login_logo_left_admin_account_remember():
@@ -1688,16 +1718,16 @@ def test_server_card_stats_three_equal_columns():
 
 
 def test_group_card_labels_match_group_name_font_size():
-    # 分组卡片：顶上的组名称是 14px（<b style fontSize:14>），下面设置区
-    # 的“分组名称 *”等标签走全局 label 规则只有 13px，比标题小一号；
-    # 分组卡片内的标签统一改成 14px，与组名称同字号。
+    # 分组卡片：顶上的组名称是父项，统一 16px；下面设置区的标签是子项，
+    # 走全局 label 规则统一 14px——父项比子项大一号，且父项/子项各自统一大小。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert 'className="card group-card"' in tsx
-    assert ".group-card label { font-size:14px; }" in css
-    # 组名称本身仍是 14px（不动），全局 label 规则仍是 13px（只分组卡片覆盖）
-    assert '<b style={{ fontSize: 14 }}>{g.name as string}</b>' in tsx
-    assert "label { display:block; font-size:13px;" in css
+    # 组名称是 16px（父项），不再有 .group-card 的 14px 覆盖
+    assert '<b style={{ fontSize: 16 }}>{g.name as string}</b>' in tsx
+    assert ".group-card label" not in css
+    assert 'className="card group-card"' not in tsx
+    # 全局 label 规则是 14px（子项，统一）
+    assert "label { display:block; font-size:14px;" in css
 
 
 def test_group_card_ddns_switch_top_right_delete_icon_bottom_right():
@@ -1708,7 +1738,7 @@ def test_group_card_ddns_switch_top_right_delete_icon_bottom_right():
     assert '<span title={ddnsOn ? t("DDNS 已开启") : t("DDNS 已关闭")}' in tsx
     assert tsx.count('<Toggle checked={ddnsOn} onChange={(v) => void toggleDdns(v)}') == 1
     # 标题行里 Toggle 在 ⚙ 前面（同一行内顺序）
-    hdr = tsx[tsx.index('<b style={{ fontSize: 14 }}>{g.name as string}</b>'):]
+    hdr = tsx[tsx.index('<b style={{ fontSize: 16 }}>{g.name as string}</b>'):]
     assert hdr.index("<Toggle checked={ddnsOn}") < hdr.index('title={t("分组设置")}')
     # 卡片右下角是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
     assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx

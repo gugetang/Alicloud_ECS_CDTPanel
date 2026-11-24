@@ -228,13 +228,11 @@ header .icon-btn { width:36px; height:36px; }
 .card-actions { margin-left:auto; flex:none; }
 .spacer { flex:1; }
 input,select,textarea { background:var(--input); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; width:100%; }
-label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
 /* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（GiB）） */
 label.req { font-weight:700; color:var(--text); }
 /* 参数标签加粗（如切换模式、切换阀值、间隔切换周期） */
 label.lbl { font-weight:700; color:var(--text); }
-/* 分组卡片设置区的标签与卡片顶上的组名称（14px）同字号，不比标题小一号。 */
-.group-card label { font-size:14px; }
 .form2 { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; }
 @media (max-width:800px){ .form2{grid-template-columns:1fr;} }
 .notice { background:rgba(23,37,84,0.5); border:1px solid #1e3a8a; border-radius:10px; padding:12px 16px; color:#bfdbfe; font-size:14px; margin-bottom:16px; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
@@ -253,6 +251,13 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
 /* 选择器字默认不加粗，只在选中或悬停时加粗；选中/悬停时字不换主题色，
    框体（边框）变主题色 */
 .seg button:hover { font-weight:600; border-color:var(--accent); }
+/* 按钮悬停放大：应用全局（主按钮 / Seg / 图标按钮 / 导航 / 子标签 / OAuth /
+   主题卡片），悬停时整体放大 1.08 倍，过渡 0.15s；transform 只影响视觉，
+   不推开其它元素；禁用按钮不放大 */
+.btn, .seg button, .icon-btn, nav button, .subtabs button, .oauth-btn, .theme-card { transition:transform .15s ease; }
+.btn:hover:not(:disabled), .seg button:hover:not(:disabled), .icon-btn:hover:not(:disabled),
+nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
+.oauth-btn:hover:not(:disabled), .theme-card:hover:not(:disabled) { transform:scale(1.08); }
 /* 分组成员按键：圆点 + 两行文字（上面名称，下面 IP），文字居中，
    圆点用 flex 垂直居中，落在两行文字的中心高度。 */
 .member-btn { display:inline-flex; align-items:center; text-align:center; }
