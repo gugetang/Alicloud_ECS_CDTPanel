@@ -138,10 +138,16 @@ def _create_kwargs(attrs: dict[str, Any]) -> dict[str, Any]:
     config = attrs.get("Config") or {}
     host = attrs.get("HostConfig") or {}
     name = (attrs.get("Name") or "").lstrip("/")
+    # 环境变量原样带过去，但 CDT_VERSION / CDT_COMMIT_SHA 除外：这两个是
+    # 镜像构建时注入的版本标记，旧容器的 inspect 里也有（镜像 ENV 会进
+    # Config.Env）。原样带过去会盖住新镜像自己的值，新容器永远报旧提交，
+    # 更新铃铛就一直消不掉。
+    env = [e for e in (config.get("Env") or [])
+           if not e.startswith(("CDT_VERSION=", "CDT_COMMIT_SHA="))]
     kw: dict[str, Any] = {
         "image": f"{IMAGE_REPO}:{IMAGE_TAG}",
         "name": name,
-        "environment": list(config.get("Env") or []),
+        "environment": env,
         "command": config.get("Cmd"),
         "entrypoint": config.get("Entrypoint"),
         "ports": _ports_from_bindings(host.get("PortBindings") or {}),
