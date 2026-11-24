@@ -20,7 +20,7 @@
   语言按钮按用户 2026-11-23 19:58 要求改成下拉菜单：按钮只显示当前语言
   （中 或 En，.lang-on 主题色高亮），不再同时显示两种语言；点按钮开菜单
   选简体中文/English；.lang-off/.lang-sep 已删。按钮仍与主题/退出图标
-  按钮同大（3px 4px、9px）。
+  按钮同大（36×36 圆角正方形）。
 - 主题风格 CSS 已恢复：html[data-accent] 五条规则（500 档 --accent）与
   .theme-grid/.theme-card/.theme-swatch/.theme-check/.theme-name/.theme-en
   卡片样式都在 styles.css 里；:root 的 --accent:#2563eb 只作 fallback。
@@ -514,7 +514,7 @@ def test_header_lang_dropdown_and_logout():
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 语言切换：按钮只显示当前语言（中 或 En，主题色高亮），点按钮开下拉菜单
     # 选简体中文/English，不再点一下直接切换、也不再同时显示两种语言；
-    # 语言键与主题/退出图标按钮同大（padding 3px 4px，9px 字/图标）；
+    # 语言键与主题/退出图标按钮同大（36×36 圆角正方形，内容居中）；
     # 语言与主题两个下拉菜单互斥（开一个关另一个）
     assert 'className="btn ghost lang-btn"' in tsx
     assert 'setLang(lang === "zh" ? "en" : "zh")' not in tsx
@@ -529,16 +529,21 @@ def test_header_lang_dropdown_and_logout():
     assert ".lang-off" not in css and ".lang-sep" not in css
     assert "lang-off" not in tsx and "lang-sep" not in tsx
     # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
-    # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大
-    assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大。
+    # 三个按钮都是 36×36 圆角正方形（宽高相等、圆角 10px、内容居中）；
+    # 页眉顶栏（站点名称、介绍、三个图标）sticky 固定在页面顶部，导航仍随页面滚动。
+    assert ".btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
-    # 主题键图标放大 1/2（9px→14px，页眉与登录页各一处，ThemeIcon size={14}）；
-    # 退出键仍是 9px 小图标不动，中英切换键仍是 9px 字不动；
-    # .btn.theme-btn 同样紧凑（padding 3px 4px）；点主题键仍弹出亮色/暗色/跟随系统菜单
-    assert tsx.count("size={14}") == 2
-    assert tsx.count("size={9}") == 0
-    assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 2  # 退出图标仍是 9px
-    assert ".btn.theme-btn { padding:3px 4px;" in css
+    assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:8px; }" in css
+    assert "nav { position:sticky" not in css and "nav { position:fixed" not in css
+    # 主题键图标与退出图标按 36px 按钮等比放大（主题 14→18px，页眉与登录页
+    # 各一处；退出 9→16px，同样两处）；语言字 9→14px，不挤压；
+    # .btn.theme-btn 同样是 36×36 圆角正方形；点主题键仍弹出亮色/暗色/跟随系统菜单
+    assert tsx.count("size={18}") == 2
+    assert tsx.count("size={14}") == 0
+    assert tsx.count('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"') == 2  # 退出图标 16px，两处
+    assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 0
+    assert ".btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
     # 登录页右上角同样是这排图标按钮（语言键 + 主题图标 + 退出图标，右对齐一行）
     assert '<div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>' in tsx
@@ -1075,12 +1080,12 @@ def test_dynamic_mode_heading_not_bold():
 
 
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
-    # 语言按钮与主题/退出图标按钮同大（3px 4px 内边距、9px 字/图标），
+    # 语言按钮与主题/退出图标按钮同大（36×36 圆角正方形，内容居中），
     # 按钮只显示当前语言（中 或 En），用主题色高亮（.lang-on）；
     # 必须是双类选择器 .btn.lang-btn/.btn.theme-btn，单类会被后写的 .btn 覆盖
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert ".btn.theme-btn { padding:3px 4px; display:flex; align-items:center; }" in css
-    assert ".btn.lang-btn { padding:3px 4px; font-size:9px; line-height:1; display:flex; align-items:center; }" in css
+    assert ".btn.theme-btn { width:36px; height:36px; min-height:36px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
+    assert ".btn.lang-btn { width:36px; height:36px; min-height:36px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
     assert ".lang-off" not in css and ".lang-sep" not in css
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
