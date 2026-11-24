@@ -107,6 +107,29 @@ def test_mobile_media_query():
     assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr)" in CSS
 
 
+def test_mobile_server_card_fixed_header_footer():
+    # 手机端服务器卡片：高度降为原来的 2/3（自然高度约 390px → 260px），
+    # 名称行固定顶部、操作按钮固定底部，中间内容在卡片内上下滑动；桌面端不动。
+    m = re.search(r"@media\s*\(max-width:\s*800px\)\s*\{(.*)\}\s*$", CSS, re.S)
+    assert m, "mobile media query missing"
+    block = m.group(1)
+    assert ".server-card { height:260px; overflow:hidden; }" in block
+    assert ".server-card-head { flex:none; }" in block
+    assert ".server-card-body { flex:1 1 auto; min-height:0; overflow-y:auto;" in block
+    assert ".server-card-foot { flex:none; }" in block
+    # 固定高度只在手机端媒体查询里，桌面端卡片高度不变
+    assert ".server-card" not in CSS.split("@media (max-width: 800px)")[0]
+    # 运行概览与实例管理两处服务器卡片：名称行 + 可滚动中间区
+    assert TSX.count('className="card server-card"') == 2
+    assert TSX.count('className="row server-card-head"') == 2
+    assert TSX.count('<div className="server-card-body">') == 2
+    # 底部固定按钮行只在实例管理卡片（运行概览卡片本来就没有操作按钮）
+    assert TSX.count('className="row server-card-foot"') == 1
+    # 状态说明在可滚动中间区里，不在底部按钮行里
+    body = TSX.split('<div className="server-card-body">')[1]
+    assert 'className="muted status-detail"' in body
+
+
 def test_dark_bg_is_not_pure_black():
     m = re.search(r'html\[data-theme="dark"\]\s*\{([^}]*)\}', CSS)
     assert m, "dark theme block missing"
@@ -578,18 +601,18 @@ def test_traffic_obtained_line_uses_theme_color():
 def test_theme_lines_alignment_dash_left_accounts_left():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 运行概览：主题字体的小字行都钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）——
-    # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”、服务器卡片状态详情
-    # 调度状态行是 flex 行：文字在左、恢复/暂停按钮在右，仍用 marginTop: auto 钉在卡片底部
+    # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”；服务器卡片的状态详情
+    # 不再钉底，改在卡片内上下滑动的中间区里（手机端名称固定顶部、按钮固定底部）。
     assert 'marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8' in tsx
     assert '<span style={{ color: "var(--accent)" }}>{t("调度")}' in tsx
     assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
     assert tsx.count('color: "var(--accent)", fontSize: 14, marginTop: "auto"') >= 2
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
-    dash_detail = [l for l in tsx.splitlines() if 'marginTop: "auto"' in l and "status_detail" in l]
-    assert len(dash_detail) == 1 and 'textAlign' not in dash_detail[0]
-    # 账户管理：状态详情行移到卡片左下角——与操作按钮同一行、居左，
-    # 操作按钮在右；不再是单独一行放在按钮上面
-    assert 'justifyContent: "space-between", alignItems: "center", marginTop: "auto", paddingTop: 12' in tsx
+    # 服务器卡片状态详情在可滚动中间区（server-card-body）里，不再用 marginTop: auto 钉底
+    assert 'marginTop: "auto", paddingTop: 6' not in tsx
+    # 账户管理：状态详情行移到可滚动中间区里（指标下面），操作按钮单独一行固定在卡片底部靠右；
+    # 不再是状态与按钮同一行
+    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12 }}>' in tsx
     assert 'marginTop: 4, color: (a.status_dot' not in tsx
     assert 'justifyContent: "flex-end", marginTop: 12 }}><ActionButtons' not in tsx
 
@@ -1078,8 +1101,9 @@ def test_card_settings_gear_top_right_no_wrap():
     # 第二行左对齐。修法：顶行不换行（flexWrap nowrap）+ 顶对齐（flex-start），
     # 名称区可收缩（minWidth 0，pill 在名称区内换行），齿轮容器不收缩（flex none）。
     # 运行概览卡片与实例管理卡片各一处，共 2 处；分组卡片的设置齿轮不在此列。
+    # 顶行同时是手机端固定头（server-card-head），名称固定在卡片顶部。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert tsx.count('<div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>') == 2
+    assert tsx.count('<div className="row server-card-head" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>') == 2
     assert tsx.count('<div style={{ minWidth: 0 }}>{dotEl(a.status_dot') == 2
     assert tsx.count('<div className="row" style={{ gap: 6, flex: "none" }}>') == 2
 

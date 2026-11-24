@@ -298,6 +298,13 @@ pre { background:var(--card2); border:1px solid var(--border); border-radius:8px
   nav { margin-bottom:14px; }
   nav button { padding:10px 14px; }
   .card { padding:14px; margin-bottom:12px; }
+  /* 手机端服务器卡片：高度降为原来的 2/3（自然高度约 390px → 260px），
+     名称行固定顶部、操作按钮固定底部，中间内容（用量条、指标、状态说明、
+     卡片设置）在卡片内上下滑动；桌面端卡片高度与布局不变。 */
+  .server-card { height:260px; overflow:hidden; }
+  .server-card-head { flex:none; }
+  .server-card-body { flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
+  .server-card-foot { flex:none; }
   /* 手机端卡片细节（实例 ID/站点/阈值）全部直接显示，不再折叠隐藏。 */
   .grid3 { gap:12px; }
   .grid2 { gap:12px; }
