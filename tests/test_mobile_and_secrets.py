@@ -1079,20 +1079,34 @@ def test_backup_card_cloud_button_local_button_and_dialog():
 def test_card_settings_gear_same_size_as_action_icons():
     # 服务器卡片右上角的设置齿轮与下面 4 个操作图标（刷新/启动/重启/停机）一样大：
     # 都是 icon-btn（30×30 框）+ Ico 16×16 SVG，不再是 btn ghost + ⚙️ emoji；
-    # 设置图标应用到全局：运行概览卡片、实例管理卡片、实例管理列表行各一处，共 3 处
+    # 设置图标只在实例管理：实例管理卡片、实例管理列表行各一处，共 2 处
+    # （运行概览卡片/列表不设设置按钮，见 test_overview_no_settings_button）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     import re
     gears = re.findall(r'<button className="([^"]*)" title=\{t\("卡片设置"\)\}.*?</button>', tsx)
-    assert len(gears) == 3, f"expected 3 card-settings gear buttons, got {len(gears)}"
+    assert len(gears) == 2, f"expected 2 card-settings gear buttons, got {len(gears)}"
     assert all(c == "icon-btn" for c in gears), gears
-    # 三处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
+    # 两处齿轮按钮里都是 Ico 齿轮 SVG（circle + path），不是 emoji
     for m in re.finditer(r'title=\{t\("卡片设置"\)\}.*?</button>', tsx):
         assert '<Ico label={t("卡片设置")}>' in m.group(0)
         assert '⚙️' not in m.group(0)
-    # 运行概览卡片点齿轮也能打开卡片设置（与实例管理卡片同款单行形式）；
-    # 实例管理列表行是多行形式 {cardSettingsId === a.id && (，另算
-    assert tsx.count('{cardSettingsId === a.id && <CardSettings a={a} />}') == 2
+    # 实例管理卡片点齿轮打开卡片设置（单行形式）；实例管理列表行是多行形式
+    # {cardSettingsId === a.id && (，另算；运行概览卡片不再有设置区
+    assert tsx.count('{cardSettingsId === a.id && <CardSettings a={a} />}') == 1
     assert '{cardSettingsId === a.id && (' in tsx
+
+
+def test_overview_no_settings_button():
+    # 运行概览卡片和列表不设设置按钮：dash 区域里没有任何“卡片设置”齿轮
+    # 和 CardSettings 渲染；实例管理卡片/列表的设置按钮保留（各一处，共 2 处）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    dash = tsx[tsx.index('{tab === "dash" && ('):tsx.index('{tab === "accounts" && (')]
+    assert "卡片设置" not in dash
+    assert "CardSettings" not in dash
+    assert "setCardSettingsId" not in dash
+    # 运行概览列表（overview-table）没有操作列/设置按钮
+    assert "overview-table" in dash
+    assert tsx.count('title={t("卡片设置")}') == 2
 
 
 def test_card_settings_gear_top_right_no_wrap():
@@ -1100,12 +1114,13 @@ def test_card_settings_gear_top_right_no_wrap():
     # 根因：.row 默认 flex-wrap:wrap，手机上名称 + 状态 pill 占满一行后齿轮被挤到
     # 第二行左对齐。修法：顶行不换行（flexWrap nowrap）+ 顶对齐（flex-start），
     # 名称区可收缩（minWidth 0，pill 在名称区内换行），齿轮容器不收缩（flex none）。
-    # 运行概览卡片与实例管理卡片各一处，共 2 处；分组卡片的设置齿轮不在此列。
+    # 运行概览与实例管理卡片顶行各一处，共 2 处；齿轮容器只剩实例管理卡片一处
+    # （运行概览卡片不设设置按钮）；分组卡片的设置齿轮不在此列。
     # 顶行同时是手机端固定头（server-card-head），名称固定在卡片顶部。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert tsx.count('<div className="row server-card-head" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>') == 2
     assert tsx.count('<div style={{ minWidth: 0 }}>{dotEl(a.status_dot') == 2
-    assert tsx.count('<div className="row" style={{ gap: 6, flex: "none" }}>') == 2
+    assert tsx.count('<div className="row" style={{ gap: 6, flex: "none" }}>') == 1
 
 
 def test_dynamic_mode_heading_not_bold():
