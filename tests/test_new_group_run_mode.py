@@ -47,6 +47,33 @@ def test_create_group_invalid_mode_rejected(tmpdb):
         tmpdb.create_group({"name": "坏分组", "switch_mode": "both"})
 
 
+def test_create_group_id_backfills_deleted(tmpdb):
+    # 新库自带默认分组 id=1；再建两个得 2、3
+    g2 = tmpdb.create_group({"name": "B"})
+    g3 = tmpdb.create_group({"name": "C"})
+    assert (g2["id"], g3["id"]) == (2, 3)
+    # 删掉中间的 2，新建补 2
+    tmpdb.delete_group(2)
+    assert tmpdb.create_group({"name": "补位"})["id"] == 2
+    # 只剩 id=2 时删 1、3，新建补 1（不是继续往后排到 4）
+    tmpdb.delete_group(1)
+    tmpdb.delete_group(3)
+    assert tmpdb.create_group({"name": "再补"})["id"] == 1
+    # 1、2 都有了，下一个是 3
+    assert tmpdb.create_group({"name": "下一个"})["id"] == 3
+
+
+def test_delete_group_clears_group_flags(tmpdb):
+    tmpdb.create_group({"name": "B"})  # id=2
+    for key in ("night_done:2", "fixed_done:2", "last_time_switch:2"):
+        tmpdb.set_flag(key, "2026-11-25")
+    tmpdb.set_flag("night_done:1", "2026-11-25")  # 别的组的不动
+    tmpdb.delete_group(2)
+    for key in ("night_done:2", "fixed_done:2", "last_time_switch:2"):
+        assert tmpdb.get_flag(key) == ""
+    assert tmpdb.get_flag("night_done:1") == "2026-11-25"
+
+
 def _client():
     return TestClient(create_app())
 
