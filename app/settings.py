@@ -93,8 +93,6 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "google_oauth_client_secret": "",
     "github_oauth_client_id": "",
     "github_oauth_client_secret": "",
-    "webhook_enabled": "0",
-    "webhook_url": "",
     # 通知事件开关（截图 6 项）
     "notify_traffic_protection": "1",
     "notify_dns_change": "1",
@@ -111,7 +109,7 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # 面板更新：发现新版本时推送一次（每个版本只推一次）
     "notify_update_available": "1",
     # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
-    # 只推已启用的 Telegram/邮件/Webhook 渠道
+    # 只推已启用的 Telegram/邮件渠道
     "daily_report_enabled": "1",
     "daily_report_time": "00:00",
     # 数据清理：每天在 cleanup_time（默认 03:00）自动清理一次过期日志

@@ -1,4 +1,4 @@
-"""通知：Telegram（走通知专用代理，支持 http 代理 / SOCKS5）+ SMTP + Webhook。
+"""通知：Telegram（走通知专用代理，支持 http 代理 / SOCKS5）+ SMTP。
 
 - 事件开关：settings.notify_*，关闭的事件不发。
 - 去重：持续故障只在首次发生和恢复时通知（fault registry 由调用方用 db.flags
@@ -290,7 +290,7 @@ class Notifier:
     def send(self, event: str, title: str, body: str,
              channel: str | None = None, force: bool = False) -> list[str]:
         """按已启用的渠道发送，返回实际发送的渠道名。开关关闭时返回 []。
-        channel 指定时只发该渠道（telegram/email/webhook），用于通知设置里
+        channel 指定时只发该渠道（telegram/email），用于通知设置里
         各渠道框体右下角的“发送测试”。force=True（测试）时跳过事件开关——
         测试是用户主动点的，不应被事件开关拦住（否则“发送测试通知”点了也
         收不到，还误以为 TG 配置有问题）。失败原因记在 self.last_errors。"""
@@ -311,12 +311,6 @@ class Notifier:
                 sent.append("email")
             elif detail:
                 self.last_errors["email"] = detail
-        if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
-            if self._webhook(title, text):
-                sent.append("webhook")
-            else:
-                # E-07：Webhook 失败以前不进 last_errors，调度器也看不到。
-                self.last_errors["webhook"] = "Webhook 发送失败（HTTP 非 2xx 或连接失败）"
         return sent
 
     def send_daily_report(self, accounts: list[dict], date_str: str,
@@ -325,7 +319,7 @@ class Notifier:
                           channel: str | None = None) -> list[str]:
         """发送每日财报。返回实际发送的渠道名。
 
-        渠道复用现有的 Telegram/邮件/Webhook 开关（只推已启用的渠道）。
+        渠道复用现有的 Telegram/邮件开关（只推已启用的渠道）。
         force=False 时要求 daily_report_enabled=1 且 notify_daily_report=1；
         force=True（“发送测试财报”）跳过这两个开关，但仍只走已启用的渠道。
         skip_global_switch=True（调度器已按全局开关过滤过）时只跳过
@@ -356,11 +350,6 @@ class Notifier:
                     sent.add("email")
                 elif detail:
                     self.last_errors["email"] = detail
-            if (channel is None or channel == "webhook") and self.s.get("webhook_enabled") == "1":
-                if self._webhook(title, ch["text"]):
-                    sent.add("webhook")
-                else:
-                    self.last_errors["webhook"] = "Webhook 发送失败（HTTP 非 2xx 或连接失败）"
         return sorted(sent)
 
     def _tg_post(self, url: str, payload: dict) -> "requests.Response":
@@ -473,18 +462,6 @@ class Notifier:
                "<p style=\"font-size:12px;color:#666\">由 alicloud_ECS_CDT 每日推送</p>"
                "</body></html>")
         return self._email(subject, text, html_body=doc)
-
-    def _webhook(self, title: str, text: str) -> bool:
-        url = (self.s.get("webhook_url") or "").strip()
-        if not url:
-            return False
-        try:
-            r = requests.post(url, json={"title": title, "text": text},
-                              proxies=self._proxies(), timeout=15)
-            return r.status_code < 300
-        except Exception as exc:
-            log.warning("Webhook 发送失败: %s", exc)
-            return False
 
 
 def _tg_error_detail(resp) -> str:
