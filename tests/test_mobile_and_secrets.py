@@ -1632,9 +1632,11 @@ def test_stat_values_uniform_weight():
     assert 'className="mono"' not in tsx
     assert '<span className="mono">{maskIp(a.public_ip)}</span>' not in tsx
     assert '<span className="mono">{maskInstanceId(id)}</span>' not in tsx
-    # 列表流量已用数不再包 <b>（两张列表：运行概览与实例管理）
-    assert '<td><b>{fmtGb(a.traffic_used_gb)}</b>' not in tsx
-    assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
+    # 列表流量已用数：两张列表（运行概览与实例管理）都按用户新要求（2026-11-24）
+    # 把“/”前的已用量加粗并整格不换行，覆盖了早期的统一粗细规则；
+    # plain 格式已不存在，两处都是 nowrap + <b> 格式
+    assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 0
+    assert tsx.count('<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
     # 卡片数值仍在 .stat b 里，与标签同字号（12px）、只加粗（700），流量/费用/阈值与地域/IP/实例 ID 同款
     assert '.stat b { font-size:12px; font-weight:700;' in css
     assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
@@ -1713,6 +1715,8 @@ def test_login_logo_left_admin_account_remember():
 def test_list_value_columns_not_bold_and_overview_padding():
     # 列表值加粗（.overview-table/.accounts-table td 700）之后，用户截图指出
     # 地域/站点/流量/阈值这几列的值不该加粗（名称、ID、IP、费用保持加粗）；
+    # 例外：两张列表的流量列“/”前的已用量按用户新要求（2026-11-24）单独加粗，
+    # 整格不换行——td 本身仍是 400（nth-child 规则不变），只 <b> 里的已用量是 700。
     # 运行概览列表同时行距放宽（默认 10px 8px 太挤）。
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     # 基础加粗规则仍在：两张列表的 td 默认 700
@@ -1723,6 +1727,19 @@ def test_list_value_columns_not_bold_and_overview_padding():
     assert ".accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }" in css
     # 运行概览列表行距放宽：14px 12px（默认 th,td 是 10px 8px）
     assert ".overview-table th, .overview-table td { padding:14px 12px; }" in css
+
+def test_accounts_traffic_no_wrap_and_used_bold():
+    # 两张列表的流量列：值不换行显示（27.79 / 200 GiB (13.90%) 一行放下），
+    # “/”前面的已用量加粗（<b>），后面“/ 额度 GiB (百分比)”不加粗。
+    # 先只改了实例管理列表，用户随后要求运行概览列表也同样改动，两处同款。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    cell = '<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>'
+    accounts = tsx.split('<table className="accounts-table">')[1]
+    assert cell in accounts
+    dash = tsx.split('<table className="overview-table"')[1].split("</table>")[0]
+    assert cell in dash
+    assert tsx.count(cell) == 2
+
 
 
 def test_server_card_stats_three_equal_columns():

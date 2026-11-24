@@ -2102,7 +2102,7 @@ export default function App() {
                     <td>{a.region as string}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                    <td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table>
@@ -2170,7 +2170,7 @@ export default function App() {
                 <td>{a.region as string}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                <td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                 <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
