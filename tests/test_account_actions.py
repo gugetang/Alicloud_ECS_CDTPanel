@@ -87,6 +87,22 @@ def test_start_restart_stop(client, account_id):
     assert FakeAliyun.calls == ["start", "reboot", "stop"]
 
 
+def test_manual_stop_charging_flag(client, account_id):
+    # 手动停机分两种：电源键=节省停机（stop_charging=True，默认），
+    # 普通开关机键=普通停机（stop_charging=False，KeepCharging）。
+    # 两个按钮共用 /api/accounts/{id}/stop，用请求体区分（2026-11-24 用户要求）。
+    seen = []
+    class RecAliyun(FakeAliyun):
+        def stop_instance(self, stop_charging=False):
+            seen.append(stop_charging)
+    with patch("app.aliyun.AliyunClient", RecAliyun), \
+         patch("app.scheduler.AliyunClient", RecAliyun):
+        assert client.post(f"/api/accounts/{account_id}/stop", json={}).status_code == 200
+        assert client.post(f"/api/accounts/{account_id}/stop", json={"stop_charging": True}).status_code == 200
+        assert client.post(f"/api/accounts/{account_id}/stop", json={"stop_charging": False}).status_code == 200
+    assert seen == [True, True, False]
+
+
 def test_account_actions_errors(client, account_id):
     assert client.post("/api/accounts/999999/refresh").status_code == 404
     assert client.post("/api/accounts/999999/start").status_code == 404

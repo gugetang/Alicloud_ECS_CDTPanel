@@ -864,17 +864,22 @@ def restart_account(aid: int, _: bool = Depends(_admin_required)):
 
 
 @router.post("/accounts/{aid}/stop")
-def stop_account(aid: int, _: bool = Depends(_admin_required)):
+def stop_account(aid: int, body: dict | None = None, _: bool = Depends(_admin_required)):
+    # stop_charging：True=节省停机（电源键，默认，StoppedMode=StopCharging，停机后停止计费），
+    # False=普通停机（普通开关机键，KeepCharging，停机后继续计费）。
+    # 轻量服务器没有节省停机概念，aliyun.py 里回退为普通停机。
+    stop_charging = True if body is None else bool(body.get("stop_charging", True))
     a, client, AliyunError = _account_client(aid)
+    action_name = "节省停机" if stop_charging else "普通停机"
     try:
-        client.stop_instance(stop_charging=False)
+        client.stop_instance(stop_charging=stop_charging)
     except AliyunError as exc:
-        raise HTTPException(400, f"停机失败：{exc}")
-    db.add_event("info", "手动停机", f"{a['name']} 已发送停机指令", account_id=aid)
+        raise HTTPException(400, f"{action_name}失败：{exc}")
+    db.add_event("info", f"手动{action_name}", f"{a['name']} 已发送{action_name}指令", account_id=aid)
     # 推送：实例停机，原因=手动操作（开关默认开）
     Notifier(db.get_settings()).send(
         "instance_stop", "实例停机",
-        f"{a['name']} 已停机（普通停机），原因：手动操作")
+        f"{a['name']} 已停机（{action_name}），原因：手动操作")
     row = scheduler.refresh_one_account(aid)
     # 手动停机成功 → 记 manual，保活不拉起，直到手动启动/定时开机/
     # 阈值恢复拉起/刷新发现 Running/下一次 API 刷新显示用量在阈值内时清除。

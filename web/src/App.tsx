@@ -95,7 +95,7 @@ function Seg({ value, options, onChange }: {
   );
 }
 
-// 单台操作图标（内联 SVG）：刷新 / 启动 / 重启 / 停机。
+// 单台操作图标（内联 SVG）：刷新 / 启动 / 重启 / 节省停机。
 function Ico({ label, children }: { label: string; children: any }) {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1796,13 +1796,21 @@ export default function App() {
     return labels;
   };
 
-  // ---------- 单台操作：刷新 / 启动 / 重启 / 停机 ----------
-  const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop") => {
-    const label = action === "refresh" ? t("刷新") : action === "start" ? t("启动") : action === "restart" ? t("重启") : t("停机");
-    if (action === "stop" && !confirm(t("停机 {name}？若它仍在被域名指向，保活在排除期内不会把它重新拉起；但下一次 API 刷新显示用量在阈值内时，保活就会重新拉起。", { name: a.name }))) return;
-    setActing((m) => ({ ...m, [a.id]: action }));
+  // ---------- 单台操作：刷新 / 普通开关机 / 重启 / 节省停机 ----------
+  // 普通开关机（方块键）：停机时绿色三角开机，运行时方块普通停机（KeepCharging，可点）；
+  // 节省停机（电源键）：停机并停止计费（StopCharging），只在运行时可点。
+  // 两个停机按钮共用 /api/accounts/{id}/stop，用 stop_charging 区分（默认 true=节省停机）。
+  const accountAction = async (a: Any, action: "refresh" | "start" | "restart" | "stop", stopCharging = true, busyKey?: string) => {
+    const label = action === "refresh" ? t("刷新") : action === "start" ? t("启动") : action === "restart" ? t("重启") : (stopCharging ? t("节省停机") : t("普通停机"));
+    if (action === "stop") {
+      const key = stopCharging
+        ? "节省停机 {name}？若它仍在被域名指向，保活在排除期内不会把它重新拉起；但下一次 API 刷新显示用量在阈值内时，保活就会重新拉起。"
+        : "普通停机 {name}？若它仍在被域名指向，保活在排除期内不会把它重新拉起；但下一次 API 刷新显示用量在阈值内时，保活就会重新拉起。";
+      if (!confirm(t(key, { name: a.name }))) return;
+    }
+    setActing((m) => ({ ...m, [a.id]: busyKey ?? action }));
     try {
-      await post(`/api/accounts/${a.id}/${action}`, {});
+      await post(`/api/accounts/${a.id}/${action}`, action === "stop" ? { stop_charging: stopCharging } : {});
       setMsg(t("已执行{label}：{name}", { label, name: a.name }));
       await load();
     } catch (e) { setMsg(String((e as Error).message)); }
@@ -1811,31 +1819,34 @@ export default function App() {
     }
   };
   // 单台操作图标按钮（放卡片右下角；列表的操作列同样用图标）。
-  // 启动按钮随状态变：已停机时绿色三角可点，其余状态灰色方块不可点；
-  // 重启蓝色，停机红色，刷新默认色。
+  // 普通开关机随状态变：已停机时绿色三角（开机），运行时方块（普通停机，可点）；
+  // 重启蓝色，节省停机红色，刷新默认色。
   const ActionButtons = ({ a }: { a: Any }) => {
     const busy = !!acting[a.id];
-    const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "停机中…" } as const;
+    const busyLabel = { refresh: "刷新中…", start: "启动中…", restart: "重启中…", stop: "节省停机中…", "stop-normal": "普通停机中…" } as const;
     const stopped = a.instance_status === "Stopped";
     const btn = (action: "refresh" | "start" | "restart" | "stop", label: string,
-                 disabled: boolean, icon: JSX.Element, cls = "") => (
-      <button key={action} className={cls ? `icon-btn ${cls}` : "icon-btn"} title={acting[a.id] === action ? t(busyLabel[action]) : label}
-        aria-label={label} disabled={busy || disabled}
-        onClick={() => accountAction(a, action)}>{icon}</button>
-    );
+                 disabled: boolean, icon: JSX.Element, cls = "", stopCharging = true, busyKey?: string) => {
+      const key = busyKey ?? action;
+      return (
+        <button key={key} className={cls ? `icon-btn ${cls}` : "icon-btn"} title={acting[a.id] === key ? t(busyLabel[key as keyof typeof busyLabel]) : label}
+          aria-label={label} disabled={busy || disabled}
+          onClick={() => accountAction(a, action, stopCharging, key)}>{icon}</button>
+      );
+    };
     return (
       <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
         {btn("refresh", t("刷新"), false,
           <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
-        {btn("start", t("启动"), !stopped,
-          stopped
-            ? <Ico label={t("启动")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>
-            : <Ico label={t("启动")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>,
-          stopped ? "green" : "gray")}
+        {stopped
+          ? btn("start", t("普通开关机"), false,
+            <Ico label={t("普通开关机")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>, "green")
+          : btn("stop", t("普通开关机"), false,
+            <Ico label={t("普通开关机")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>, "gray", false, "stop-normal")}
         {btn("restart", t("重启"), a.instance_status !== "Running",
           <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
-        {btn("stop", t("停机"), a.instance_status !== "Running",
-          <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
+        {btn("stop", t("节省停机"), a.instance_status !== "Running",
+          <Ico label={t("节省停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
         <span style={{ width: 30, flex: "none" }} />
         <button className="icon-btn danger" title={t("删除实例")} aria-label={t("删除实例")} disabled={busy}
           onClick={() => { if (confirm(t("删除实例 {name}？删除后域名将重新分配。", { name: a.name }))) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), t("已删除")); } }}>

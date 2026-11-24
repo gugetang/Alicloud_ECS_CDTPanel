@@ -1944,6 +1944,34 @@ def test_delete_instance_icon_after_stop_with_gap():
     assert 't("删除实例")' not in cs
 
 
+def test_power_buttons_save_stop_and_normal_toggle():
+    # 单台电源键分两种（2026-11-24 用户截图要求，应用到其它实例与新建）：
+    # ① 方块键=普通开关机：停机时绿色三角开机，运行时方块普通停机（KeepCharging，可点）；
+    # ② 电源键=节省停机：停机并停止计费（StopCharging），悬停提示“节省停机”，只在运行时可点。
+    # 两个按钮共用 /api/accounts/{id}/stop，用 stop_charging 区分；共用 ActionButtons，
+    # 所以其它实例与新建实例自动都有。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    ab = tsx.split("const ActionButtons")[1].split("const CardSettings")[0]
+    # 方块键：停机时 start（绿色三角），运行时 stop + stop_charging=false（方块，可点）
+    assert 'btn("start", t("普通开关机"), false,' in ab
+    assert 'btn("stop", t("普通开关机"), false,' in ab
+    assert '"stop-normal"' in ab
+    assert 'false, "stop-normal"' in ab
+    # 电源键：stop + stop_charging=true（默认），悬停提示“节省停机”
+    assert 'btn("stop", t("节省停机"), a.instance_status !== "Running",' in ab
+    # accountAction 按 stop_charging 区分确认框与请求体
+    aa = tsx.split("const accountAction")[1].split("const ActionButtons")[0]
+    assert 'stopCharging = true' in aa
+    assert '{ stop_charging: stopCharging }' in aa
+    assert '"节省停机 {name}？若它仍在被域名指向' in aa
+    assert '"普通停机 {name}？若它仍在被域名指向' in aa
+    # i18n 有这两个键
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert '普通开关机: "Power on/off"' in i18n
+    assert '"普通停机中…"' in i18n
+    assert '"节省停机中…"' in i18n
+
+
 def test_delete_icon_on_all_account_cards_and_lists():
     # 删除图标应用到所有实例管理卡片和列表，包括新建实例：删除按钮在共用的
     # ActionButtons 组件里（按实例渲染，不是按实例配置），实例管理页的卡片
