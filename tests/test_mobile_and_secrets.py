@@ -273,11 +273,16 @@ def test_group_member_shows_masked_ip():
     # 分组成员按键：圆点 + 两行文字，上面名称、下面当前 IP（A.B 显示，C.D 用 * 代替），
     # IP 单独一行居中，圆点用 flex 垂直居中，落在两行文字的中心高度
     assert 'className={(on ? "seg-on " : "") + "member-btn"}' in tsx
-    assert '{dotEl(leftGroup ? "gray" : a.status_dot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text">' in tsx
-    # 未选中的成员不在本组排队：全局排队中（黄点）时显示离队（灰点），不显示排队；
-    # 仍被域名指向的未选中成员继续显示在线，其它状态不动
-    assert 'const leftGroup = !on && a.status_dot === "yellow";' in tsx
+    assert '{dotEl(mDot, leftGroup ? t("离队") : (a.status_detail || a.status_label || ""))}<span className="member-text">' in tsx
+    # 未选中的成员不在本组运行：全局在线（绿点）、启动中（闪烁绿）或排队中
+    # （黄点）时都显示离队（灰点），不显示在线/启动中/排队；已停机（红点）
+    # 是实例本身的状态，仍显示已停机，其它灰点状态不动
+    assert 'const { dot: mDot, leftGroup } = groupMemberDot(on, a.status_dot);' in tsx
     assert 'const mLabel = leftGroup ? t("离队")' in tsx
+    member_dot = (ROOT / "web" / "src" / "memberDot.ts").read_text(encoding="utf-8")
+    assert 'statusDot === "green"' in member_dot
+    assert 'statusDot === "green_pulse"' in member_dot
+    assert 'statusDot === "yellow"' in member_dot
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
     assert "离队" in i18n
     assert '<span className="member-name">{a.name as string}</span>' in tsx
