@@ -1841,7 +1841,7 @@ export default function App() {
   };
   // 单台操作图标按钮（放卡片右下角；列表的操作列同样用图标）。
   // 普通开关机随状态变：已停机时绿色三角（开机），运行时方块（普通停机，可点）；
-  // 重启蓝色，节省停机红色，刷新默认色。
+  // 节省停机红色；刷新与重启按钮已取消。
   const ActionButtons = ({ a }: { a: Any }) => {
     const busy = !!acting[a.id];
     // ECS 实例 ID 以 i- 开头，轻量应用服务器（SWAS）是 UUID：只有 ECS 能换 EIP。
@@ -1859,15 +1859,11 @@ export default function App() {
     };
     return (
       <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-        {btn("refresh", t("刷新"), false,
-          <Ico label={t("刷新")}><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Ico>)}
         {stopped
           ? btn("start", t("普通开关机"), false,
             <Ico label={t("普通开关机")}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" stroke="none" /></Ico>, "green")
           : btn("stop", t("普通开关机"), false,
             <Ico label={t("普通开关机")}><rect x="6" y="6" width="12" height="12" fill="currentColor" stroke="none" /></Ico>, "gray", false, "stop-normal")}
-        {btn("restart", t("重启"), a.instance_status !== "Running",
-          <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
         {btn("stop", t("节省停机"), a.instance_status !== "Running",
           <Ico label={t("节省停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
         <button className="icon-btn" title={acting[a.id] === "replace-eip" ? t("更换 EIP 中…") : isEcs ? t("更换 EIP") : t("轻量应用服务器没有 EIP，无法更换")} aria-label={t("更换 EIP")} disabled={busy || !isEcs}
