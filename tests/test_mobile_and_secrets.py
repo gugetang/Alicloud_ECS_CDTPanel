@@ -2133,20 +2133,20 @@ def test_notify_event_toggle_eip_replace():
 
 
 def test_header_bell_and_palette_icons():
-    # 页眉图标顺序（左→右）：铃铛（有消息才显示）→ 语言 → 主题模式 →
-    # 调色板（风格）→ 退出登录。铃铛在中英切换前面，无消息不显示；
+    # 页眉图标顺序（左→右）：铃铛（常驻显示）→ 语言 → 主题模式 →
+    # 调色板（风格）→ 退出登录。铃铛一直显示，有更新时才带红点角标；
     # 调色板在退出按钮前面。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 铃铛：只有 update_available 时渲染，带红点角标
+    # 铃铛：常驻渲染，不再只在 update_available 时出现；红点角标只在有更新时出现
     assert 'function BellIcon' in tsx
-    assert '{upd?.update_available && (' in tsx
+    assert '{upd?.update_available && (' not in tsx
     assert '<BellIcon size={18} />' in tsx
-    assert '<span className="bell-dot" />' in tsx
+    assert '{upd?.update_available && <span className="bell-dot" />}' in tsx
     assert ".bell-dot { position:absolute; top:5px; right:5px; width:8px; height:8px; border-radius:50%; background:#EA4335;" in css
-    # 铃铛在语言键前面（页眉右行里，铃铛条件块先于 lang-btn）
+    # 铃铛在语言键前面（页眉右行里，铃铛先于 lang-btn）
     hdr = tsx[tsx.index("function App("):]
-    assert hdr.index("upd?.update_available") < hdr.index("lang-btn")
+    assert hdr.index("BellIcon") < hdr.index("lang-btn")
     # 铃铛下拉：当前/最新版本（短 SHA）、最新提交信息、立即更新、检查更新
     assert 'aria-label={t("面板更新")}' in tsx
     assert 't("发现新版本")' in tsx and 't("当前版本")' in tsx and 't("最新版本")' in tsx

@@ -189,8 +189,9 @@ def test_footer_version_shows_tag_not_sha():
     assert 'shortVersion(upd.current_version)' in tsx
     assert 'String(upd.current_version).slice(0, 7)' not in tsx
     assert '(upd.current_version || "").slice(0, 7)' not in tsx
-    # 最新版本仍是提交 SHA，保持截 7 位
-    assert '(upd.latest_version || "").slice(0, 7)' in tsx
+    # 最新版本仍是提交 SHA，保持截 7 位（铃铛常驻后菜单可能在 upd 为空时
+    # 打开，这里用 upd?. 做空安全，截 7 位的行为不变）
+    assert '(upd?.latest_version || "").slice(0, 7)' in tsx
 
 
 def test_site_logo_buttons_right_icons():
