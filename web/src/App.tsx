@@ -2095,24 +2095,24 @@ export default function App() {
             <h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>
           </div>
           <div className="row">
-            {upd?.update_available && (
-              <div className="theme-menu">
-                <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={() => { setUpdMenuOpen(!updMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setAccentMenuOpen(false); }}>
-                  <BellIcon size={18} />
-                  <span className="bell-dot" />
-                </button>
-                {updMenuOpen && (
-                  <>
-                    <div className="menu-backdrop" onClick={() => setUpdMenuOpen(false)} />
-                    <div className="menu" style={{ minWidth: 260 }}>
-                      <div style={{ padding: "8px 10px", fontSize: 14 }}>
-                        <div style={{ fontWeight: 700 }}>{t("发现新版本")}</div>
-                        <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{shortVersion(upd.current_version) || "—"}</div>
-                        <div className="muted">{t("最新版本")}：{(upd.latest_version || "").slice(0, 7) || "—"}</div>
-                        {upd.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
-                        {upd.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
-                      </div>
-                      <button disabled={updBusy} onClick={async () => {
+            {/* 铃铛常驻显示：有更新时带红点角标，没更新时点开能看当前/最新版本、手动检查更新。 */}
+            <div className="theme-menu">
+              <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={() => { setUpdMenuOpen(!updMenuOpen); setLangMenuOpen(false); setThemeMenuOpen(false); setAccentMenuOpen(false); }}>
+                <BellIcon size={18} />
+                {upd?.update_available && <span className="bell-dot" />}
+              </button>
+              {updMenuOpen && (
+                <>
+                  <div className="menu-backdrop" onClick={() => setUpdMenuOpen(false)} />
+                  <div className="menu" style={{ minWidth: 260 }}>
+                    <div style={{ padding: "8px 10px", fontSize: 14 }}>
+                      <div style={{ fontWeight: 700 }}>{upd?.update_available ? t("发现新版本") : t("面板更新")}</div>
+                      <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{shortVersion(upd?.current_version) || "—"}</div>
+                      <div className="muted">{t("最新版本")}：{(upd?.latest_version || "").slice(0, 7) || "—"}</div>
+                      {upd?.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
+                      {upd?.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
+                    </div>
+                    <button disabled={updBusy || !upd?.update_available} onClick={async () => {
                         setUpdBusy(true);
                         try {
                           const r: any = await post("/api/update/run", {});
@@ -2131,8 +2131,7 @@ export default function App() {
                     </div>
                   </>
                 )}
-              </div>
-            )}
+            </div>
             <div className="theme-menu">
               <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={() => { setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
