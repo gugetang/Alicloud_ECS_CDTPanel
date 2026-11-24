@@ -16,6 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 完整历史 + 标签：git describe --tags 要找最近的发布标签
+          fetch-depth: 0
+      - name: 确定版本号
+        id: version
+        run: |
+          echo "version=$(git describe --tags --always)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: 登录 GHCR
         uses: docker/login-action@v3
         with:
@@ -28,7 +36,8 @@ jobs:
           context: .
           push: true
           build-args: |
-            VERSION=${{ github.sha }}
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT_SHA=${{ steps.version.outputs.sha }}
           tags: |
             ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
             ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ github.sha }}
