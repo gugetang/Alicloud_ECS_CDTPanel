@@ -148,7 +148,10 @@ def test_frontend_site_and_refresh_and_footer():
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
     assert "https://t.me/AliLang_AgentBot" in tsx
-    assert "TG @AliLang_AgentBot" in tsx
+    assert "Telegram @AliLang_AgentBot" in tsx
+    # TG 超链是黑色字体（var(--text)，亮色下近黑、夜间可读），与项目地址同款
+    # 图标在前文字在后；它本来就是 <a> 超链
+    assert 'href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)"' in tsx
     assert 't("联系邮箱")' not in tsx
     assert "alicloudadmin@gmail.com" not in tsx
     assert "mailto:" not in tsx

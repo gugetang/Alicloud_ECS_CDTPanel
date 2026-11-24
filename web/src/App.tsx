@@ -930,12 +930,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         ]} onChange={(v) => { setGRecovery(v); savePatch({ recovery_action: v }); }} />
       </div>
       </>)}
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="icon-btn danger" title={t("删除分组")}
-          onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
-          <Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
-        </button>
-      </div>
       </>)}
       <h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("选择成员实例")}</h3>
       <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
@@ -971,6 +965,12 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
             </button>
           );
         })}
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+        <button className="icon-btn danger" title={t("删除分组")}
+          onClick={() => { if (confirm(t("删除分组 {name}？须先移走其账户/域名。", { name: g.name }))) run(() => del(`/api/groups/${g.id}`), t("已删除")); }}>
+          <Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+        </button>
       </div>
     </div>
   );
@@ -1485,7 +1485,7 @@ export default function App() {
   // 拖动排序：分组管理卡片和实例管理列表可拖拽换位；服务器卡片和实例管理
   // 卡片不支持拖动排序（卡片太宽，手机上不好拖），要调整顺序请用列表。
   const [dragId, setDragId] = useState<number | null>(null);
-  const [dragKind, setDragKind] = useState<"account" | "group" | null>(null);
+  const [dragKind, setDragKind] = useState<"account" | "group" | "domain" | null>(null);
   const [dragOverId, setDragOverId] = useState<number | null>(null);
   const [settings, setSettings] = useState<Any>({});
   const [timezones, setTimezones] = useState<Any[]>([]);
@@ -1701,15 +1701,15 @@ export default function App() {
 
   // 拖动排序：把卡片拖到另一张卡片上松手，即按新顺序保存
   const clearDrag = () => { setDragId(null); setDragKind(null); setDragOverId(null); };
-  const moveItem = (kind: "account" | "group", fromId: number, toId: number) => {
-    const list = kind === "account" ? accounts : groups;
+  const moveItem = (kind: "account" | "group" | "domain", fromId: number, toId: number) => {
+    const list = kind === "account" ? accounts : kind === "group" ? groups : domains;
     const ids = list.map((x: Any) => x.id as number);
     const from = ids.indexOf(fromId); const to = ids.indexOf(toId);
     if (from < 0 || to < 0 || from === to) return;
     ids.splice(to, 0, ids.splice(from, 1)[0]);
-    run(() => post(`/api/${kind === "account" ? "accounts" : "groups"}/reorder`, { order: ids }), t("已调整顺序"));
+    run(() => post(`/api/${kind === "account" ? "accounts" : kind === "group" ? "groups" : "domains"}/reorder`, { order: ids }), t("已调整顺序"));
   };
-  const dragProps = (kind: "account" | "group", id: number) => ({
+  const dragProps = (kind: "account" | "group" | "domain", id: number) => ({
     draggable: true,
     onDragStart: (e: ReactDragEvent) => { setDragId(id); setDragKind(kind); e.dataTransfer.effectAllowed = "move"; },
     onDragOver: (e: ReactDragEvent) => { e.preventDefault(); if (dragId != null && dragKind === kind && dragId !== id) setDragOverId(id); },
@@ -1831,6 +1831,11 @@ export default function App() {
           <Ico label={t("重启")}><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></Ico>, "blue")}
         {btn("stop", t("停机"), a.instance_status !== "Running",
           <Ico label={t("停机")}><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></Ico>, "danger")}
+        <span style={{ width: 30, flex: "none" }} />
+        <button className="icon-btn danger" title={t("删除实例")} aria-label={t("删除实例")} disabled={busy}
+          onClick={() => { if (confirm(t("删除实例 {name}？删除后域名将重新分配。", { name: a.name }))) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), t("已删除")); } }}>
+          <Ico label={t("删除实例")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+        </button>
       </div>
     );
   };
@@ -1848,12 +1853,6 @@ export default function App() {
           try { await navigator.clipboard.writeText(text); setMsg(t("配置摘要已复制")); }
           catch { setMsg(text); }
         }}>⧉ {t("复制配置摘要")}</button>
-      </div>
-      <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-        <button className="btn" title={t("删除实例")} style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}
-          onClick={() => { if (confirm(t("删除实例 {name}？删除后域名将重新分配。", { name: a.name }))) { setCardSettingsId(null); run(() => del(`/api/accounts/${a.id}`), t("已删除")); } }}>
-          {t("删除实例")}
-        </button>
       </div>
     </div>
   );
@@ -2335,9 +2334,9 @@ export default function App() {
                 run(() => put(`/api/domains/${d.id}`, payload), t("已保存成功"));
               };
               return (
-              <tr key={d.id as number}><td>{String(i + 1).padStart(2, "0")}<br />
-                <button className="btn ghost" disabled={i === 0 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i - 1] : j === i - 1 ? domains[i] : x).id) }); }, t("已调整顺序"))} title={t("上移")}>↑</button>
-                <button className="btn ghost" disabled={i === domains.length - 1 || editing} onClick={() => run(async () => { await post("/api/domains/reorder", { order: domains.map((x, j) => (j === i ? domains[i + 1] : j === i + 1 ? domains[i] : x).id) }); }, t("已调整顺序"))} title={t("下移")}>↓</button></td>
+              <tr key={d.id as number} {...(editing ? {} : dragProps("domain", d.id as number))}
+                style={{ cursor: editing ? "default" : "grab", ...(dragOverId === d.id && dragKind === "domain" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === d.id && dragKind === "domain" ? { opacity: 0.5 } : {}) }}>
+                <td title={t("拖动排序")}>⠿</td>
                 <td>{editing ? <input value={editDomName} onChange={(e) => setEditDomName(e.target.value)} onBlur={() => saveDomEdit(editDomName, editDomGroup)} style={{ width: "100%" }} /> : <b>{d.name as string}</b>}</td>
                 <td>{editing ? (
                   <select value={editDomGroup} onChange={(e) => { const gv = e.target.value; setEditDomGroup(gv); saveDomEdit(editDomName, gv); }}>
@@ -2356,14 +2355,14 @@ export default function App() {
                     <button className="icon-btn" title={t("取消")} onClick={() => setEditDomId(null)}>
                       <Ico label={t("取消")}><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></Ico>
                     </button>
+                    <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) { setEditDomId(null); run(() => del(`/api/domains/${d.id}`), t("已删除")); } }}>
+                      <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
+                    </button>
                   </div>
                 ) : (
                   <div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
                     <button className="icon-btn" title={t("编辑")} onClick={() => { setEditDomId(d.id as number); setEditDomName(d.name as string); setEditDomGroup(d.group_id ? String(d.group_id) : ""); }}>
                       <Ico label={t("编辑")}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></Ico>
-                    </button>
-                    <button className="icon-btn danger" title={t("删除")} onClick={() => { if (confirm(t("删除域名 {name}？", { name: d.name }))) run(() => del(`/api/domains/${d.id}`), t("已删除")); }}>
-                      <Ico label={t("删除")}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Ico>
                     </button>
                   </div>
                 )}</td></tr>
@@ -2397,7 +2396,7 @@ export default function App() {
           <div className="form2" style={{ paddingLeft: "2em" }}>
             <div><label className="req">{t("域名 *")}</label>
               <input type="text" id="cf-zone" defaultValue={(settings.cloudflare_zone as string) || ""} placeholder={t("Zone 名，如 domainname.com")} onBlur={() => saveSettings(ddnsPatch())} /></div>
-            <div><label>{t("账户邮箱")}</label>
+            <div><label className="lbl">{t("账户邮箱")}</label>
               <input type="text" id="cf-email" defaultValue={(settings.cloudflare_email as string) || ""} placeholder={t("Cloudflare 账户邮箱")} onBlur={() => saveSettings(ddnsPatch())} /></div>
             <div><label className="req">{t("Cloudflare API Token *")}</label>
               <input type="password" id="cf-token" key={String(settings.cloudflare_configured)} defaultValue={settings.cloudflare_configured ? SECRET_MASK : ""} placeholder={settings.cloudflare_configured ? t("已配置，留空保持不变") : t("未配置，填写 Cloudflare API Token")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.cloudflare_configured)); saveSettings(ddnsPatch()); }} />
@@ -2681,9 +2680,9 @@ export default function App() {
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
             {t("项目地址")}
           </a>
-          <a href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--muted)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+          <a href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-            TG @AliLang_AgentBot
+            Telegram @AliLang_AgentBot
           </a>
         </div>
       </footer>

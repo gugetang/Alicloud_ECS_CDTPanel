@@ -743,9 +743,11 @@ def test_buttons_accent_border_not_filled():
     assert "color:var(--text)" in body
     assert "background:var(--accent)" not in body
     assert "var(--accent)" not in body
-    # 删除实例仍是红色实心（内联样式，不受 .btn 影响）
+    # 删除实例已改成红色垃圾桶图标（icon-btn danger，停机按钮后面、空一个按钮位），
+    # 不再是红色实心文字按钮（内联 #EA4335 背景已删）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert 'background: "#EA4335"' in tsx
+    assert 'background: "#EA4335"' not in tsx
+    assert '<button className="icon-btn danger" title={t("删除实例")}' in tsx
 
 
 def test_group_card_ddns_toggle_only():
@@ -1818,17 +1820,91 @@ def test_group_card_ddns_switch_top_right_delete_icon_in_settings():
     # 删除按钮是红色垃圾桶图标按钮（icon-btn danger + Feather trash），带确认
     assert '<button className="icon-btn danger" title={t("删除分组")}' in tsx
     assert '<Ico label={t("删除分组")}><polyline points="3 6 5 6 21 6"' in tsx
-    # 删除按钮在设置区里（showSettings 块内、选择成员实例之前），
-    # 不在卡片底部：域名选择之后不再有删除按钮
+    # 删除按钮在卡片框体右下角（域名选择之后、卡片结束之前），常显；
+    # 不再藏在设置区里（2026-11-24 用户截图要求“放在框体右下”）
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
     del_idx = group_card.index('<button className="icon-btn danger" title={t("删除分组")}')
-    assert del_idx > group_card.index("{showSettings && (")
-    assert del_idx < group_card.index('{t("选择成员实例")}')
     after_dom = group_card.index('{t("域名选择")}')
-    assert '<button className="icon-btn danger" title={t("删除分组")}' not in group_card[after_dom:]
-    # 设置区里不再有红色实心“删除分组”文字按钮（删除实例仍是红色实心，不动）
+    assert del_idx > after_dom
+    assert del_idx > group_card.index("{showSettings && (")
+    assert group_card.index('{t("选择成员实例")}') < del_idx
+    # 设置区里不再有红色实心“删除分组”文字按钮（删除实例也已改成图标，不在设置区里）
     assert 'style={{ background: "#EA4335", borderColor: "#EA4335", color: "#fff" }}' not in group_card
     assert '{t("删除分组")}\n        </button>' not in group_card
+
+
+def test_delete_instance_icon_after_stop_with_gap():
+    # 删除实例：红色垃圾桶图标（icon-btn danger + Feather trash SVG），放在
+    # 停机按钮后面，中间空出一个按钮位（30px spacer，与 icon-btn 同宽）；
+    # 设置区里不再有红色实心“删除实例”文字按钮
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    ab = tsx.split("const ActionButtons")[1].split("const CardSettings")[0]
+    assert '<button className="icon-btn danger" title={t("删除实例")}' in ab
+    assert '<Ico label={t("删除实例")}><polyline points="3 6 5 6 21 6"' in ab
+    # 顺序：停机按钮 → 30px 空位 → 删除图标
+    stop_idx = ab.index('btn("stop"')
+    del_idx = ab.index('title={t("删除实例")}')
+    assert stop_idx < del_idx
+    assert '<span style={{ width: 30, flex: "none" }} />' in ab[stop_idx:del_idx]
+    # 删除仍先 confirm，文案不变
+    assert 'confirm(t("删除实例 {name}？删除后域名将重新分配。"' in ab
+    # 设置区里没有删除按钮了
+    cs = tsx.split("const CardSettings")[1].split("// ----------")[0]
+    assert 't("删除实例")' not in cs
+
+
+def test_delete_icon_on_all_account_cards_and_lists():
+    # 删除图标应用到所有实例管理卡片和列表，包括新建实例：删除按钮在共用的
+    # ActionButtons 组件里（按实例渲染，不是按实例配置），实例管理页的卡片
+    # 视图和列表视图都用同一个 ActionButtons，新建实例进列表/卡片后自动有
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # ActionButtons 在实例管理页出现两处：卡片底行 + 列表操作列
+    assert tsx.count("<ActionButtons a={a} />") == 2
+    # 两处都在 accounts.map 里（卡片视图与列表视图各一次），新建实例自动带上
+    assert tsx.count("{accounts.map((a) => (") >= 2
+
+
+def test_domain_delete_inside_edit_mode_only():
+    # 域名删除：列表常态下操作列只有编辑（铅笔）按钮，删除（红垃圾桶）不在
+    # 列表里；点编辑进入行内编辑态后，删除按钮才在操作列里（取消按钮旁边）
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    dom = tsx.split('<table className="domains-table">')[1].split("</table>")[0]
+    # 操作列是行内最后一个 <td>{editing ? ( ... }（分组列也有一个 editing 分支，
+    # 但操作列是最后一个）
+    op_td = dom.split("<td>{editing ? (")[-1]
+    edit_branch = op_td.split(") : (")[0]
+    assert 'title={t("取消")}' in edit_branch
+    assert '<button className="icon-btn danger" title={t("删除")}' in edit_branch
+    assert 'confirm(t("删除域名 {name}？"' in edit_branch
+    # 常态分支：只有编辑，没有删除
+    normal_branch = op_td.split(") : (")[1].split(")}</td>")[0]
+    assert 'title={t("编辑")}' in normal_branch
+    assert 'title={t("删除")}' not in normal_branch
+    assert "icon-btn danger" not in normal_branch
+
+
+def test_ddns_account_email_label_is_child_font():
+    # DDNS 设置卡片的“账户邮箱”标签是子项字体：14px 黑色加粗（lbl），
+    # 与其它必填标签同款（只是没 * 号）；子项字体规则：14px 黑色加粗
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<label className="lbl">{t("账户邮箱")}</label>' in tsx
+    assert '<label>{t("账户邮箱")}</label>' not in tsx
+
+
+def test_domain_priority_drag_sort_no_sequence_number():
+    # 域名优先顺序改成拖动排序（与实例列表同款）：行可拖动，首列是 ⠿ 拖柄，
+    # 不再显示 01 序号与上移/下移按钮；编辑态时行不可拖动
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    dom = tsx.split('<table className="domains-table">')[1].split("</table>")[0]
+    assert 'padStart(2, "0")' not in dom
+    assert 'title={t("上移")}' not in dom
+    assert 'title={t("下移")}' not in dom
+    assert '<td title={t("拖动排序")}>⠿</td>' in dom
+    # 行挂 dragProps("domain", ...)，编辑态不挂
+    assert 'dragProps("domain", d.id as number)' in dom
+    assert 'dragKind === "domain"' in dom
+    # moveItem 支持 domain，走 /api/domains/reorder
+    assert 'kind === "group" ? "groups" : "domains"' in tsx
 
 
 def test_tables_fill_row_width_via_table_wrap():
