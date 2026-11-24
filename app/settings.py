@@ -18,6 +18,10 @@ LISTEN_HOST = os.environ.get("CDT_LISTEN_HOST", "0.0.0.0")
 LISTEN_PORT = int(os.environ.get("CDT_LISTEN_PORT", "1999"))
 TZ = os.environ.get("TZ", "Asia/Shanghai")
 
+# 部署安全：只接受经过反代的请求（见 main.py 的 _ProxyOnlyMiddleware）。
+# compose 默认开（CDT_PROXY_ONLY=1）；本地直接跑、测试默认不开。
+PROXY_ONLY = os.environ.get("CDT_PROXY_ONLY", "") == "1"
+
 # 全局调度参数默认值（截图值）
 DEFAULT_SETTINGS: dict[str, str] = {
     "quota_gb": "200",

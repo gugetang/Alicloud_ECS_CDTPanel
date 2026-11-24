@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # alicloud_ECS_CDT 一键部署 / 升级 / 卸载脚本
 #
-# 一键安装（默认端口 1999，数据目录 /opt/docker/alicloud_ECS_CDT）：
+# 一键安装（数据目录 /opt/docker/alicloud_ECS_CDT）：
 #   curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | bash
-# 改端口 / 改目录：
-#   curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | PORT=18288 DIR=/srv/cdt bash
+# 注意：装好后直接用服务器 IP:端口打不开（应用层只接受经过反代的请求）；
+# 必须在前面配自己的反代（Nginx / Caddy / Cloudflare 等）+ 自己的证书，
+# 反代可以和面板不在同一台机器上，指向 服务器IP:1999，见 README“部署安全”。
+# 项目本身不申请、不管理证书。
+# 改目录：
+#   curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | DIR=/srv/cdt bash
 # 升级：重跑同一条命令（git 已是最新时不重建容器）。
 # 卸载：
 #   curl -fsSL https://raw.githubusercontent.com/gugetang/Alicloud_ECS_CDTPanel/main/install.sh | UNINSTALL=1 bash
 #
 # 环境变量：
-#   PORT       对外端口，默认 1999
 #   DIR        项目目录（内含 docker-compose.yml 与 data/），默认 /opt/docker/alicloud_ECS_CDT
 #   REPO_URL   仓库地址，默认 https://github.com/gugetang/Alicloud_ECS_CDTPanel.git
 #              （如需换仓库，直接传 REPO_URL）
 #   UNINSTALL  设为 1 时卸载
 set -euo pipefail
 
-PORT="${PORT:-1999}"
 # DIR 是代码目录（克隆仓库的位置），默认 /opt/docker/alicloud_ECS_CDT。
 # 数据卷在 docker-compose.yml 里写死为绝对路径
 # /opt/docker/cdt-alicloud_ecs_cdtpanel:/data，数据固定落在那里，与 DIR 无关。
@@ -76,9 +78,9 @@ if [ "${UNINSTALL:-0}" = "1" ]; then
   exit 0
 fi
 
-# ---------------- 安装 Docker ----------------
+# ---------------- 拉镜像之前：先检查 Docker，没有先装 ----------------
 install_docker() {
-  log "未检测到 Docker，尝试自动安装…"
+  log "正在安装 Docker / Docker Compose…"
   if command -v apt-get >/dev/null 2>&1; then
     $SUDO apt-get update -y
     $SUDO apt-get install -y docker.io docker-compose-plugin git curl ca-certificates \
@@ -102,11 +104,20 @@ install_docker() {
   fi
 }
 
+# 拉镜像之前先检查 Docker：没有就先装 Docker，装完必须能用，
+# 装不上就明确报错退出，不继续往下拉镜像、不谎报成功。
 if ! command -v docker >/dev/null 2>&1; then
-  install_docker
+  log "未检测到 Docker，先安装 Docker…"
+  install_docker || die "Docker 安装失败，请手动安装 Docker（https://docs.docker.com/engine/install/）后重跑"
 fi
 if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
-  install_docker
+  log "未检测到 Docker Compose，先安装…"
+  install_docker || die "Docker Compose 安装失败，请手动安装 Docker Compose 后重跑"
+fi
+# 装完再确认一次：docker 命令和 compose 必须能用，否则直接报错退出。
+command -v docker >/dev/null 2>&1 || die "Docker 安装失败：本机没有 docker 命令，请手动安装 Docker 后重跑"
+if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev/null 2>&1; then
+  die "Docker Compose 安装失败：找不到 docker compose 插件或 docker-compose 命令，请手动安装后重跑"
 fi
 
 # 启动 Docker 守护进程（systemd / OpenRC / service 均尝试，失败则报错）
@@ -143,8 +154,8 @@ elif [ -f "$DIR/$COMPOSE_FILE" ]; then
     if [ "$BEFORE" = "$AFTER" ] && [ "$BEFORE" != "none" ] \
        && docker ps --format '{{.Names}}' | grep -qx Alicloud_ECS_CDTPanel; then
       log "已是最新版本，容器正在运行，无需重建"
-      (cd "$DIR" && PORT="$PORT" compose up -d)
-      log "访问地址：http://$(hostname -I 2>/dev/null | awk '{print $1}'):${PORT}"
+      (cd "$DIR" && compose up -d)
+      log "直接用服务器 IP:端口打不开（只接受经过反代的请求）；请用你自己的反代（域名 + HTTPS）访问，见 README“部署安全”"
       exit 0
     fi
   fi
@@ -173,22 +184,19 @@ if ! chown -R 10001:10001 "$DATA_HOST_DIR" 2>/dev/null; then
 fi
 
 # ---------------- 拉取镜像并启动 ----------------
-# 精简版 compose 只拉 GHCR 镜像，不本地构建；端口固定 1999。
-if [ "$PORT" != "1999" ]; then
-  log "注意：精简版 compose 端口固定为 1999，PORT=$PORT 已忽略（改端口请编辑 docker-compose.yml 的 ports 一行）"
-  PORT=1999
-fi
+# 精简版 compose 只拉 GHCR 镜像，不本地构建；直接用 IP:端口访问会被应用层拦截，
+# 须走反代（见 README“部署安全”）。
 cd "$PROJECT_DIR"
-export PORT
-log "拉取镜像并启动（端口 $PORT，目录 $PROJECT_DIR）…"
+log "拉取镜像并启动（目录 $PROJECT_DIR）…"
 compose pull
 compose up -d
 
 # ---------------- 等待健康检查 ----------------
+# 健康检查走本机回环（应用层始终放行回环请求），宿主机上 curl http://127.0.0.1:1999 就能通。
 log "等待健康检查通过（最多 60 秒）…"
 ok=0
 for _ in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:1999/api/health" >/dev/null 2>&1; then
     ok=1; break
   fi
   sleep 1
@@ -198,10 +206,8 @@ done
   die "健康检查 60 秒未通过，请用 docker compose logs -f Alicloud_ECS_CDTPanel 查看日志"
 }
 
-HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-HOST_IP="${HOST_IP:-你的服务器地址}"
 log "部署完成！"
-log "访问地址：http://${HOST_IP}:${PORT}"
-log "下一步：打开页面 → 添加 Ali 账户 → 添加域名 → 全局设置 → 先点「调度试算」确认无误，再点「立即调度」。"
+log "直接用服务器 IP:端口打不开（只接受经过反代的请求）。"
+log "下一步：配好你自己的反代（域名 + HTTPS，指向 服务器IP:1999，见 README“部署安全”），再打开页面 → 添加 Ali 账户 → 添加域名 → 全局设置 → 先点「调度试算」确认无误，再点「立即调度」。"
 log "查看日志：cd $PROJECT_DIR && docker compose logs -f"
 log "升级：重跑本脚本即可。卸载：UNINSTALL=1 bash install.sh"

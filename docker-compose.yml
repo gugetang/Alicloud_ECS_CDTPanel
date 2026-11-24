@@ -1,3 +1,8 @@
+# 部署安全：反代不一定在本机，所以 1999 不能只绑 127.0.0.1（远端反代连不上）。
+# 端口正常发布，应用层拦截直访：CDT_PROXY_ONLY=1 时面板只接受带反代转发标识头
+#（X-Forwarded-For / X-Forwarded-Proto / CF-Connecting-IP）的请求，
+# 直接用服务器 IP:端口打开会被 403；反代（本机或远端）转发的请求正常访问。
+# 项目本身不申请、不续期、不管理证书，见 README“部署安全”。
 services:
   Alicloud_ECS_CDTPanel:
     image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
@@ -9,5 +14,7 @@ services:
     environment:
       TZ: Asia/Shanghai
       CDT_DATA_DIR: /data
+      # 只接受经过反代的请求：直接用 IP:端口打开会被 403。
+      CDT_PROXY_ONLY: "1"
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
