@@ -718,7 +718,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         }} />
       </div>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-        <label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>
+        <label className="lbl">{t("运行模式")}</label>
         {/* 顶层三项：定时轮巡 / 负载均衡 / 跟随系统；动态模式在下面的负载均衡
             切换方式里选，动态分组顶栏显示负载均衡（动态是负载均衡的子模式）。
             选跟随系统即清空 switch_mode（继承全局切换模式）。 */}
@@ -741,7 +741,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
               时间值填入（间隔、单位、开始时间），再按所选项保存。选自定义后
               数值输入直接跟在选项下面（数字 + 分钟/小时/天，可编辑），不再另
               起“自定义间隔”行。 */}
-          <label className="lbl" style={{ paddingLeft: "2em", fontSize: 16 }}>{t("轮巡周期")}</label>
+          <label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
           <div style={{ paddingLeft: "2em" }}><Seg value={interval} options={[
             { value: "follow", label: t("跟随系统"), title: t("定时轮巡参数继承全局设置") },
             { value: "3", label: t("3 小时") },
@@ -809,7 +809,6 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
                   <div><label className="lbl"><span style={{ paddingLeft: "2em" }}>{t("切换阀值（GB）")}</span></label><div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={diffGb} onChange={(e) => setDiffGb(e.target.value)} onBlur={() => savePatch({ switch_diff_gb: Number(diffGb) || 10 })} /></div></div>
                 )}
               </div>
-              <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>
             </div>
           )}
           {/* 动态模式的切换间隔两选一：跟随系统 / 自定义。选自定义弹对话框改
@@ -818,7 +817,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           {effMode === "dynamic" && (
             <div style={{ marginTop: 12 }}>
               <div className="form2">
-                <div><label className="lbl" style={{ paddingLeft: "2em", fontSize: 16 }}>{t("动态切换间隔")}</label>
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={dynInterval} options={[
                     { value: "follow", label: t("跟随系统"), title: t("动态切换间隔继承全局设置") },
                     { value: "0", label: t("自定义"), sub: dynInterval === "0" && (Number(dynCustVal) || 0) > 0 ? `${dynCustVal} ${t("分钟")}` : undefined },
@@ -849,7 +848,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         </div>
       )}
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-        <label className="lbl" style={{ fontSize: 16 }}>{t("阈值动作")}</label>
+        <label className="lbl">{t("阈值动作")}</label>
         <Seg value={gExcl} options={[
           { value: "", label: t("跟随系统") },
           { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
@@ -858,7 +857,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
         ]} onChange={(v) => { setGExcl(v); savePatch({ exclusion_action: v }); }} />
       </div>
       <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-        <label className="lbl" style={{ fontSize: 16 }}>{t("阈值恢复")}</label>
+        <label className="lbl">{t("阈值恢复")}</label>
         <Seg value={gRecovery} options={[
           { value: "", label: t("跟随系统") },
           { value: "start", label: t("恢复时拉起"), title: t("流量恢复后自动拉起实例") },
@@ -867,7 +866,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
       </div>
       </>)}
       </>)}
-      <h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("选择成员实例")}</h3>
+      <h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("选择成员实例")}</h3>
       <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
         {accounts.map((a) => {
           // 多对多：同一台实例可同时选进多个分组；选中=属于本分组，参与本组 DDNS
@@ -889,7 +888,7 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
           );
         })}
       </div>
-      <h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("域名选择")}</h3>
+      <h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("域名选择")}</h3>
       <div className="seg member-grid" style={{ paddingLeft: "2em" }}>
         {domains.map((d) => {
           const on = dom && (d.id as number) === (dom.id as number);
@@ -1077,7 +1076,7 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
 
   return (
     <div className="card"><h2>{t("登录与安全")}</h2>
-      <h3 style={{ marginTop: 12, paddingLeft: "2em" }}>{t("修改密码")}</h3>
+      <h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("修改密码")}</h3>
       <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>{t("当前密码")}</label><input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder={t("首次设置留空")} /></div>
         <div><label>{t("新密码")}</label><input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder={t("至少 6 位")} /></div>
@@ -1085,7 +1084,7 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
       <div className="row" style={{ marginTop: 8 }}>
         <button className="btn" onClick={changePw} disabled={busy} title={t("修改密码")}>{t("修改密码")}</button>
       </div></div>
-      <h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("指纹登录")}</h3>
+      <h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("指纹登录")}</h3>
       <div className="row" style={{ paddingLeft: "2em" }}>
         <button className="btn" onClick={registerFingerprint} disabled={busy} title={t("注册指纹")}>{t("注册指纹")}</button>
       </div>
@@ -1100,12 +1099,12 @@ function LoginSecurity({ saveSettings, settings, setMsg }: {
           </button>
         </div>
       ))}
-      <h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("Google 登录")}</h3>
+      <h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("Google 登录")}</h3>
       <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>Google Client ID</label><input id="oauth-google-id" defaultValue={String(settings.google_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGoogleOAuth} /></div>
         <div><label>Google Client Secret</label><input type="password" id="oauth-google-secret" key={String(settings.google_oauth_configured)} defaultValue={settings.google_oauth_configured ? SECRET_MASK : ""} placeholder={settings.google_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.google_oauth_configured)); saveGoogleOAuth(); }} /></div>
       </div></div>
-      <h3 style={{ marginTop: 20, paddingLeft: "2em" }}>{t("GitHub 登录")}</h3>
+      <h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("GitHub 登录")}</h3>
       <div style={{ paddingLeft: "2em" }}><div className="form2">
         <div><label>GitHub Client ID</label><input id="oauth-github-id" defaultValue={String(settings.github_oauth_client_id ?? "")} placeholder={t("未配置")} onBlur={saveGithubOAuth} /></div>
         <div><label>GitHub Client Secret</label><input type="password" id="oauth-github-secret" key={String(settings.github_oauth_configured)} defaultValue={settings.github_oauth_configured ? SECRET_MASK : ""} placeholder={settings.github_oauth_configured ? t("已配置，留空保持不变") : t("未配置")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.github_oauth_configured)); saveGithubOAuth(); }} /></div>
@@ -2196,7 +2195,6 @@ export default function App() {
         <>
         <div className="card">
           <div className="row" style={{ justifyContent: "flex-end", alignItems: "center" }}>
-            <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
             <button className="btn ghost" title={t("DDNS 设置")} onClick={() => setShowDdns(!showDdns)}>⚙️</button>
           </div>
           <table className="domains-table"><thead><tr><th>{t("优先顺序")}</th><th>{t("域名")}</th><th>{t("分组")}</th><th>Zone</th><th>{t("当前记录快照")}</th><th>{t("记录设置")}</th><th>{t("操作")}</th></tr></thead>
@@ -2247,6 +2245,9 @@ export default function App() {
                   </div>
                 )}</td></tr>
               ); })}</tbody></table>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+            <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
+          </div>
           {showAddDom && (
             <div className="modal-overlay" onClick={() => setShowAddDom(false)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -2405,7 +2406,7 @@ export default function App() {
             {sMode === "dynamic" && (
             <div style={{ marginTop: 12 }}>
               <div className="form2">
-                <div><label className="lbl" style={{ paddingLeft: "2em", fontSize: 16 }}>{t("动态切换间隔")}</label>
+                <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("动态切换间隔")}</label>
                   <div style={{ paddingLeft: "2em" }}><Seg value={sDynInterval} options={[
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
                     { value: "90", label: t("90 分钟") },
@@ -2418,11 +2419,10 @@ export default function App() {
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
             </div>
             )}
-            {sMode !== "dynamic" && (<div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("不适用定时轮巡。")}</div>)}
             </>)}
             <div style={{ marginTop: 12 }}>
             {sRunMode === "time" && (<div className="form2">
-              <div><label className="lbl" style={{ paddingLeft: "2em", fontSize: 16 }}>{t("轮巡周期")}</label>
+              <div><label className="lbl" style={{ paddingLeft: "2em" }}>{t("轮巡周期")}</label>
                 <div style={{ paddingLeft: "2em" }}><Seg value={sInterval} options={[
                   { value: "3", label: t("3 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
@@ -2440,7 +2440,7 @@ export default function App() {
                 </div></div></div>)}
             </div>)}
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-              <label className="lbl" style={{ fontSize: 16 }}>{t("阈值动作")}</label>
+              <label className="lbl">{t("阈值动作")}</label>
               <Seg value={sExcl} options={[
                 { value: "none", label: t("踢出DDNS"), title: t("只踢出 DDNS，实例继续运行，不停机") },
                 { value: "stop_charging", label: t("节省停机"), title: t("停机并停止计费，节省费用") },
@@ -2448,7 +2448,7 @@ export default function App() {
               ]} onChange={(v) => { setSExcl(v); saveParamSettings({ exclusion_action: v }); }} />
             </div>
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
-              <label className="lbl" style={{ fontSize: 16 }}>{t("阈值恢复")}</label>
+              <label className="lbl">{t("阈值恢复")}</label>
               <Seg value={sRecovery} options={[
                 { value: "start", label: t("恢复时拉起（默认）"), title: t("流量恢复后自动拉起实例") },
                 { value: "keep_stopped", label: t("恢复入池但保持停机"), title: t("流量恢复后重新加入轮巡，但保持停机") },
