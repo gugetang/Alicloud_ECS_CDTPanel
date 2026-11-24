@@ -1072,6 +1072,18 @@ def test_card_settings_gear_same_size_as_action_icons():
     assert '{cardSettingsId === a.id && (' in tsx
 
 
+def test_card_settings_gear_top_right_no_wrap():
+    # 服务器卡片顶行：名称再长，设置齿轮也贴在卡片右上角，不换到第二行单独占一行。
+    # 根因：.row 默认 flex-wrap:wrap，手机上名称 + 状态 pill 占满一行后齿轮被挤到
+    # 第二行左对齐。修法：顶行不换行（flexWrap nowrap）+ 顶对齐（flex-start），
+    # 名称区可收缩（minWidth 0，pill 在名称区内换行），齿轮容器不收缩（flex none）。
+    # 运行概览卡片与实例管理卡片各一处，共 2 处；分组卡片的设置齿轮不在此列。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert tsx.count('<div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>') == 2
+    assert tsx.count('<div style={{ minWidth: 0 }}>{dotEl(a.status_dot') == 2
+    assert tsx.count('<div className="row" style={{ gap: 6, flex: "none" }}>') == 2
+
+
 def test_dynamic_mode_heading_not_bold():
     # 全局设置里“动态切换间隔”紧跟在切换阀值三选一（百分比/固定流量/动态模式）
     # 下面，只在选了动态模式时显示；底部的“动态模式”小节标题已取消
