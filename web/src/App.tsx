@@ -2048,9 +2048,9 @@ export default function App() {
               <div className="grid2" style={{ marginTop: 12 }}>
                 {accounts.map((a) => (
                   <div className="card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
-                    <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
-                      <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
-                      <div className="row" style={{ gap: 6 }}>
+                    <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
+                      <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
+                      <div className="row" style={{ gap: 6, flex: "none" }}>
                         <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                       </div>
                     </div>
@@ -2103,11 +2103,11 @@ export default function App() {
           {accounts.map((a) => (
             <div className="card" key={a.id as number}
               style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
-              <div className="row" style={{ justifyContent: "space-between" }}>
-                <div>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
+                <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
                   <span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>
                 ))}{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
-                <div className="row" style={{ gap: 6 }}>
+                <div className="row" style={{ gap: 6, flex: "none" }}>
                   <button className="icon-btn" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                 </div>
               </div>
