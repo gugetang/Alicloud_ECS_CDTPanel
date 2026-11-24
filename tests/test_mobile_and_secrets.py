@@ -1637,6 +1637,9 @@ def test_global_settings_run_mode_above_lb():
     assert '{ value: "load_balance", label: t("负载均衡") }' in run_seg
     assert "动态模式" not in run_seg
     assert 'saveParamSettings({ switch_mode: v })' in run_seg
+    # 运行模式 Seg 缩进 2 字符（2026-11-24 用户截图红框要求：标签仍是父项
+    # 贴左，只有 Seg 整体缩进 2em，与下面的切换模式 Seg 对齐）
+    assert '<div style={{ paddingLeft: "2em" }}><Seg value={sRunMode} options={' in run_seg
     # 值映射：time→定时轮巡，其余→负载均衡；改完即存 switch_mode
     assert 'setSRunMode(settings.switch_mode === "time" ? "time" : "load_balance");' in tsx
     # 负载均衡切换方式里仍有动态模式（未动）

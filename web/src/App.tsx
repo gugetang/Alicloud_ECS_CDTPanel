@@ -2503,10 +2503,10 @@ export default function App() {
                 仍显示负载均衡，与分组卡片顶层同款映射）。 */}
             <div style={{ marginTop: 12 }}>
               <label className="lbl" style={{ fontSize: 16 }}>{t("运行模式")}</label>
-              <Seg value={sRunMode} options={[
+              <div style={{ paddingLeft: "2em" }}><Seg value={sRunMode} options={[
                 { value: "time", label: t("定时轮巡") },
                 { value: "load_balance", label: t("负载均衡") },
-              ]} onChange={(v) => { setSRunMode(v); saveParamSettings({ switch_mode: v }); }} />
+              ]} onChange={(v) => { setSRunMode(v); saveParamSettings({ switch_mode: v }); }} /></div>
             </div>
             {/* 运行模式=负载均衡时显示负载均衡段，=定时轮巡时隐藏（与分组卡片同款；
                 阈值动作/阈值恢复与 API 刷新时间不跟随，始终显示）。 */}
