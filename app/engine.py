@@ -542,10 +542,18 @@ def _maybe_stop_evicted(plan: Plan, current: AccountView, cfg: Config,
         return
     if excl in ("stop", "stop_charging"):
         stopped_ids.add(current.id)
+        # 阈值停机推送要写清用量与阈值（见 execute_plan 的 instance_stop
+        # 推送）：这里排班时 cfg 与用量都在手，直接写进 detail，推送与
+        # 日志都带上；流量未知时不写用量，只写停机方式。
+        _rate = current.usage_rate
+        _usage = (f"（用量 {_rate:.2f}% / {current.used_gb:.2f} GiB，"
+                  f"阈值 {_eff_protection(current, cfg):.0f}%）"
+                  if _rate is not None and current.used_gb is not None else "")
         plan.actions.append(Action("stop", domain_id=domain.id, account_id=current.id,
                                    reason="exclusion", stop_charging=(excl == "stop_charging"),
                                    detail=f"{current.name} 排除操作："
-                                          f"{'节省停机' if excl == 'stop_charging' else '停机'}"))
+                                          f"{'节省停机' if excl == 'stop_charging' else '停机'}"
+                                          f"{_usage}"))
         plan.notifications.append(
             ("exclusion", "排除操作完成",
              f"{current.name} 已执行{'节省停机' if excl == 'stop_charging' else '停机'}"))
@@ -969,6 +977,22 @@ class DnsOps:
         raise NotImplementedError
 
 
+# 推送里写原因用的中文标签：Action.reason 是代码里的原因分类
+# （keepalive / keepalive_before_switch / exclusion / keepalive_rejoin），
+# 直接推给用户看不懂，推送正文里用这里的中文；Action.reason 本身不变，
+# 不新增原因分类。
+ACTION_REASON_LABELS = {
+    "keepalive": "保活拉起",
+    "keepalive_before_switch": "切换前保活拉起",
+    "keepalive_rejoin": "流量更新后重新加入",
+    "exclusion": "阈值踢出",
+}
+
+
+def _reason_label(reason: str, fallback: str) -> str:
+    return ACTION_REASON_LABELS.get((reason or "").strip().lower()) or fallback
+
+
 def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainView],
                  cloud: CloudOps, dns: DnsOps,
                  notify_fn=None, dry_run: bool = False) -> dict:
@@ -993,7 +1017,7 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
                  f"{by_acc[act.account_id].name} 已启动"
                  + (f"（{act.detail}）" if act.detail else "")
                  + (f"，域名：{dom.name}" if dom else "")
-                 + f"，原因：{act.reason or '保活拉起'}"))
+                 + f"，原因：{_reason_label(act.reason, '保活拉起')}"))
     # 2) DNS 切换 / 备用地址
     for act in plan.actions:
         if act.kind in ("dns", "dns_fallback") and act.domain_id in by_dom:
@@ -1025,7 +1049,7 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
                  f"{acc.name} 已停机（{'节省停机' if stop_charging else '普通停机'}"
                  + (f"：{act.detail}" if act.detail else "")
                  + (f"，域名：{dom.name}" if dom else "")
-                 + f"，原因：{act.reason or '排除操作'}"))
+                 + f"，原因：{_reason_label(act.reason, '排除操作')}"))
     if notify_fn:
         for event, title, body in plan.notifications:
             notify_fn(event, title, body)

@@ -146,7 +146,8 @@ def test_execute_plan_start_notifies_instance_start():
                  dry_run=False)
     starts = [g for g in got if g[0] == "instance_start"]
     assert len(starts) == 1
-    assert "A1" in starts[0][2] and "keepalive" in starts[0][2]
+    assert "A1" in starts[0][2] and "保活拉起" in starts[0][2]
+    assert "keepalive" not in starts[0][2]  # 推送原因写中文，不推英文原因码
 
 
 def test_execute_plan_stop_notifies_instance_stop():
