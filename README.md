@@ -60,9 +60,14 @@ services:
       CDT_PROXY_ONLY: "1"
     volumes:
       - /opt/docker/cdt-alicloud_ecs_cdtpanel:/data
+      # 在线更新用：面板通过 Docker socket 拉镜像并重建自身容器；没有这行，
+      # 面板会报“未检测到 Docker socket，无法在线更新”。
+      - /var/run/docker.sock:/var/run/docker.sock
 ```
 
 镜像由 GitHub Actions 在 push 到 main 后自动构建并推送到 GHCR（`ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`）。升级：`docker compose pull && docker compose up -d`。
+
+已按旧版部署（compose 里没有上面 socket 那行）的：先把这行加进 `docker-compose.yml`，再跑一次 `docker compose pull && docker compose up -d` 重建容器，之后面板里的“立即更新”才能用。
 
 ### 部署安全：IP:端口打不开，必须走反代
 
