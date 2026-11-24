@@ -301,6 +301,33 @@ def _stop_exclusion_lifted(a: dict, used_gb: float | None,
     return ""
 
 
+def _keepalive_rejoined(before: list[dict], after: list[dict],
+                        settings: dict) -> dict[int, str]:
+    """本轮 API 刷新里重新加入保活的实例：刷新前停机原因标记为 manual /
+    threshold、实例状态为 Stopped，刷新后标记已被 _refresh_one 清除
+    （用量回到恢复线以下，见 _stop_exclusion_lifted）。返回
+    {account_id: 解除原因文案}，供 run_once 把本轮随即拉起的 start 动作
+    原因改成 keepalive_rejoin——否则拉起推送只写“保活拉起”，丢了
+    “流量更新后重新加入”这个上下文。刷新前已 Running 的不算（那是
+    阿里云控制台手动拉起后刷新发现 Running，不走这里）；未到刷新时间、
+    标记没被清除的也不算。
+    """
+    after_by_id = {a["id"]: a for a in after}
+    rejoined: dict[int, str] = {}
+    for row in before:
+        if (row.get("stop_reason") or "") not in ("manual", "threshold"):
+            continue
+        if (row.get("instance_status") or "") != "Stopped":
+            continue
+        new = after_by_id.get(row["id"])
+        if new is None or (new.get("stop_reason") or ""):
+            continue
+        reason = _stop_exclusion_lifted(row, new.get("traffic_used_gb"), settings)
+        if reason:
+            rejoined[row["id"]] = reason
+    return rejoined
+
+
 def _log_keepalive_skips(accounts: list[dict],
                          skipped: list[tuple[int, str]]) -> None:
     """保活跳过被排除实例的可观测性：每轮都写日志；事件只在同一停机标记
@@ -438,10 +465,15 @@ def run_once(dry_run: bool = False, refresh: bool = True,
     _last_run，避免每分钟一条日志刷屏。"""
     settings = db.get_settings()
     now = _now()
+    # 刷新前快照：用来判断本轮哪些停机标记是被 API 流量刷新解除的
+    # （_keepalive_rejoined），拉起推送里要写“流量更新后重新加入”。
+    _pre_refresh = db.list_accounts() if (refresh and not dry_run) else []
     if refresh and not dry_run:
         accounts = refresh_cloud_status(settings)
     else:
         accounts = db.list_accounts()
+    # 本轮刷新里重新加入保活的实例（标记被清除且用量在阈值内）。
+    _rejoined = _keepalive_rejoined(_pre_refresh, accounts, settings)
     domains = db.list_domains()
     cfg_obj = engine.Config.from_settings(settings)
     groups = _to_group_views(db.list_groups())
@@ -475,6 +507,17 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                                  fixed_done_by_group=fixed_by_group,
                                  last_switch_by_group=anchor_by_group,
                                  previously_evicted_ids=prev_evicted)
+    # 流量更新后重新加入的实例：本轮随即拉起的 start 动作原因改成
+    # keepalive_rejoin，推送里写清“流量更新后重新加入”，而不是只写
+    # “保活拉起”。只改原因/detail，不改动作本身；dry_run 也同样体现。
+    if _rejoined:
+        _by_id = {a["id"]: a for a in accounts}
+        for _act in plan.actions:
+            if _act.kind == "start" and _act.account_id in _rejoined:
+                _name = (_by_id.get(_act.account_id) or {}).get("name") or str(_act.account_id)
+                _act.reason = "keepalive_rejoin"
+                _act.detail = (f"{_name} 流量更新后重新加入保活拉起"
+                               f"（{_rejoined[_act.account_id]}）")
     notifier = Notifier(settings)
 
     def _notify(event, title, body):
