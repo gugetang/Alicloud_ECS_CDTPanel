@@ -48,7 +48,9 @@ docker compose down
 ```yaml
 services:
   Alicloud_ECS_CDTPanel:
-    image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
+    # 新部署只拉发布版本：main 上有了新提交、版本号变了，但没发新版本时，
+    # 再部署拉的还是这个版本标签；发新版本后把这里改成新版本号再拉取。
+    image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:v2.1.0
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
@@ -65,7 +67,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 ```
 
-镜像由 GitHub Actions 在 push 到 main 后自动构建并推送到 GHCR（`ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest`）。升级：`docker compose pull && docker compose up -d`。
+镜像由 GitHub Actions 自动构建并推送到 GHCR：push 到 main 后推 `latest`（跟随 main 的最新代码，未发布），打 `v*` 发布标签时再推一个版本标签（如 `v2.1.0`）。新部署只拉版本标签：main 上有了新提交、版本号变了，但没发新版本时，再部署拉的还是 `v2.1.0`，新版本号不会被拉取。升级到新发布版本：把 `docker-compose.yml` 里的版本标签改成新版本号，再 `docker compose pull && docker compose up -d`；一键部署重跑安装命令即可（脚本会 git pull 更新 compose）。想跟最新代码才用 `latest`（面板里的“立即更新”拉的就是 latest）。
 
 已按旧版部署（compose 里没有上面 socket 那行）的：先把这行加进 `docker-compose.yml`，再跑一次 `docker compose pull && docker compose up -d` 重建容器，之后面板里的“立即更新”才能用。
 
