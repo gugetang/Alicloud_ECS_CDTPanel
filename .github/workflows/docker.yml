@@ -1,7 +1,9 @@
 # 构建镜像并推送到 GHCR（GitHub Container Registry）。
-# 触发：push 到 main 分支，或打 v* 发布标签；
-# main 构建推 latest + 提交 SHA，标签构建再多推一个版本标签
-# （如 v2.1.0），新部署只拉版本标签，不跟 main 的最新代码。
+# 规则：latest 永远等于已发布版本。
+# - push 到 main：只推提交 SHA 标签，不动 latest；
+# - 打 v* 发布标签：推 latest + 版本标签（如 v2.1.0）+ SHA；
+# - 手动触发：补建旧发布版本的版本标签（如 v2.1.0），不动 latest。
+# 新部署只拉版本标签；拉 latest 拉到的也是已发布版本。
 # 镜像名与 docker-compose.yml 一致：
 # ghcr.io/gugetang/alicloud_ecs_cdtpanel（GHCR 镜像名必须全小写）。
 name: docker
@@ -10,6 +12,16 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要构建的 tag 或分支（默认 v2.1.0）'
+        required: false
+        default: 'v2.1.0'
+      version_tag:
+        description: '要推送的版本标签（默认 v2.1.0）'
+        required: false
+        default: 'v2.1.0'
 
 permissions:
   contents: read
@@ -23,6 +35,7 @@ jobs:
         with:
           # 完整历史 + 标签：git describe --tags 要找最近的发布标签
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
       - name: 确定版本号
         id: version
         run: |
@@ -31,13 +44,18 @@ jobs:
       - name: 确定镜像标签
         id: tags
         run: |
-          tags="ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
-          ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ github.sha }}"
-          # 发布标签触发时（如 v2.1.0）：再推一个版本标签，
-          # 新部署只拉这个版本标签，不跟 main 的最新代码。
+          tags="ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ steps.version.outputs.sha }}"
+          # 发布标签触发时（如 v2.1.0）：推 latest + 版本标签，
+          # latest 永远等于已发布版本。
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             tags="$tags
+          ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
           ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ github.ref_name }}"
+          fi
+          # 手动触发（补建旧发布版本，如 v2.1.0）：只推版本标签，不动 latest。
+          if [[ -n "${{ inputs.version_tag }}" ]]; then
+            tags="$tags
+          ghcr.io/gugetang/alicloud_ecs_cdtpanel:${{ inputs.version_tag }}"
           fi
           {
             echo "list<<EOF"
