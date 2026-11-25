@@ -43,7 +43,8 @@ def _settings(**over):
     s = {"telegram_enabled": "1", "telegram_token": "tok123",
          "telegram_chat_id": "123456789", "notify_proxy": "",
          "notify_instance_status": "1",
-         "notify_threshold_alarm": "1"}
+         "notify_threshold_alarm": "1",
+         "notify_group_change": "1"}
     s.update(over)
     return s
 
@@ -62,6 +63,7 @@ def test_new_notify_defaults_on():
     # 实例状态一个开关管四种事件；旧的分开关已删
     assert DEFAULT_SETTINGS["notify_instance_status"] == "1"
     assert DEFAULT_SETTINGS["notify_threshold_alarm"] == "1"
+    assert DEFAULT_SETTINGS["notify_group_change"] == "1"
     assert "notify_instance_start" not in DEFAULT_SETTINGS
     assert "notify_instance_stop" not in DEFAULT_SETTINGS
     assert "notify_eip_replace" not in DEFAULT_SETTINGS
@@ -69,6 +71,7 @@ def test_new_notify_defaults_on():
                   "eip_replace"):
         assert EVENT_TOGGLE_KEYS[event] == "notify_instance_status"
     assert EVENT_TOGGLE_KEYS["threshold_alarm"] == "notify_threshold_alarm"
+    assert EVENT_TOGGLE_KEYS["group_change"] == "notify_group_change"
     # 六个只记日志的事件不在开关表里，也没有默认开关
     assert LOG_ONLY_EVENTS == {"traffic_protection", "dns_change", "fallback",
                                "exclusion", "error", "recovery"}
@@ -81,9 +84,10 @@ def test_new_events_toggle_off_blocks_push(monkeypatch):
     posted = []
     _fake_post(monkeypatch, posted)
     for event in ("instance_start", "instance_stop", "instance_delete",
-                  "eip_replace", "threshold_alarm"):
+                  "eip_replace", "threshold_alarm", "group_change"):
         n = Notifier(_settings(notify_instance_status="0",
-                               notify_threshold_alarm="0"))
+                               notify_threshold_alarm="0",
+                               notify_group_change="0"))
         assert n.send(event, "t", "b") == []
         assert posted == []
 
@@ -92,10 +96,10 @@ def test_new_events_toggle_on_pushes(monkeypatch):
     posted = []
     _fake_post(monkeypatch, posted)
     for event in ("instance_start", "instance_stop", "instance_delete",
-                  "eip_replace", "threshold_alarm"):
+                  "eip_replace", "threshold_alarm", "group_change"):
         n = Notifier(_settings())
         assert n.send(event, "t", "b") == ["telegram"]
-    assert len(posted) == 5
+    assert len(posted) == 6
 
 
 def test_log_only_events_never_push(monkeypatch):
@@ -119,6 +123,7 @@ def test_get_notify_lists_new_events(tmpdb):
     events = r.json()["events"]
     assert events["instance_status"] is True
     assert events["threshold_alarm"] is True
+    assert events["group_change"] is True
     assert events["update_available"] is True
     assert "instance_start" not in events
     assert "instance_stop" not in events

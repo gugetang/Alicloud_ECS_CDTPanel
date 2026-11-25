@@ -2771,8 +2771,8 @@ export default function App() {
               <Toggle checked={drEnabled} label={t("启用每日推送")}
                 onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} />
             </div>
-            {(["instance_status", "threshold_alarm", "update_available"] as const).map((k) => {
-              const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
+            {(["instance_status", "threshold_alarm", "group_change", "update_available"] as const).map((k) => {
+              const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), group_change: t("分组动态"), update_available: t("面板更新") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />

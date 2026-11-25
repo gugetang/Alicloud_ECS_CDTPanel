@@ -123,6 +123,7 @@ export const EN: Record<string, string> = {
   停机: "Stop",
   // 运行概览
   实例状态: "Instance status",
+  分组动态: "Group dynamics",
   "服务器总数 {count}": "Total servers {count}",
   "在线状态 {count}": "Online {count}",
   "排队 {count}": "Queued {count}",
