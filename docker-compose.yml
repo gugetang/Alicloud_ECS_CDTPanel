@@ -5,9 +5,7 @@
 # 项目本身不申请、不续期、不管理证书，见 README“部署安全”。
 services:
   Alicloud_ECS_CDTPanel:
-    # 新部署只拉发布版本：main 上有了新提交、版本号变了，但没发新版本时，
-    # 再部署拉的还是这个版本标签；发新版本后把这里改成新版本号再拉取。
-    image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:v2.1.0
+    image: ghcr.io/gugetang/alicloud_ecs_cdtpanel:latest
     container_name: Alicloud_ECS_CDTPanel
     restart: unless-stopped
     init: true
