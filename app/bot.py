@@ -454,7 +454,8 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
     if cmd == "start":
         return _cmd_start(), None
     if cmd == "menu":
-        return "请选择：", _menu_keyboard()
+        # 主菜单标题就是站点名（跟随全局设置里的站点名称）。
+        return (settings.get("site_name") or "CDT 面板").strip(), _menu_keyboard()
     if cmd == "list":
         return _cmd_list(args)
     if cmd == "groups":

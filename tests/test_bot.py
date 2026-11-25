@@ -347,21 +347,24 @@ def test_back_buttons_and_action_callbacks(monkeypatch):
     monkeypatch.setattr(botmod, "_edit",
                         lambda s, c, mid, t, m=None: edited.append((t, m)) or True)
     monkeypatch.setattr(botmod, "_answer_callback", lambda *a, **k: None)
-    botmod._handle_callback(_settings(), {"id": "cb1", "data": "menu:menu",
-                                          "message": {"chat": {"id": 123456789},
-                                                      "message_id": 99,
-                                                      "text": "实例列表"}})
+    botmod._handle_callback(_settings(site_name="Alicloud-CDT"),
+                            {"id": "cb1", "data": "menu:menu",
+                             "message": {"chat": {"id": 123456789},
+                                         "message_id": 99,
+                                         "text": "实例列表"}})
     assert not sent
-    assert edited and edited[0][0] == "请选择："
+    # 主菜单标题就是站点名（不再是“请选择：”）
+    assert edited and edited[0][0] == "Alicloud-CDT"
     data = [b["callback_data"] for row in edited[0][1]["inline_keyboard"] for b in row]
     assert "menu:list" in data and "menu:groups" in data
     # 改不动（比如消息太旧）就发新消息
     monkeypatch.setattr(botmod, "_edit", lambda *a, **k: False)
-    botmod._handle_callback(_settings(), {"id": "cb1b", "data": "menu:menu",
-                                          "message": {"chat": {"id": 123456789},
-                                                      "message_id": 99,
-                                                      "text": "实例列表"}})
-    assert sent and sent[0][0] == "请选择："
+    botmod._handle_callback(_settings(site_name="Alicloud-CDT"),
+                            {"id": "cb1b", "data": "menu:menu",
+                             "message": {"chat": {"id": 123456789},
+                                         "message_id": 99,
+                                         "text": "实例列表"}})
+    assert sent and sent[0][0] == "Alicloud-CDT"
     # 节省停机与更换 EIP 的回调走到对应的处理函数，结果用 toast 回，不新发气泡
     calls = []
     monkeypatch.setattr(botmod, "_do_power_save",
