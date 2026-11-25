@@ -337,16 +337,15 @@ def _back_to_menu() -> dict:
 
 
 def _instance_detail(a: dict, settings: dict):
-    """实例详情页：标题跟随站点名；实例信息做成双行显示按钮（只显示，
-    不可点）：第 1 行圆点 + 名称，第 2 行 IP（只显示 A、B 两段，C、D
-    用 * 替换）；状态、分组两行已删。
+    """实例详情页：标题跟随站点名；实例信息做成显示按钮（只显示，
+    不可点）：圆点 + 加粗名称（IP 不显示：Telegram 按钮文字不支持
+    换行，名称加 IP 挤在一行会被截断）；状态、分组两行已删。
     下面是开关机、节省停机、更换 EIP、定时任务 + 返回实例列表/返回目录。
     更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）；定时任务在更换
     EIP 后面，点开是可编辑子菜单（开关、开机时间、关机时间）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
-    info = (f"{_status_dot(r)} {_bold(r['name'])}"
-            f"\nIP：{_mask_ip(r.get('public_ip'))}")
+    info = f"{_status_dot(r)} {_bold(r['name'])}"
     actions = [(_power_label(r), f"power:{r['id']}")]
     if (r.get("instance_status") or "").strip() == "Running":
         actions.append(("节省停机", f"powersave:{r['id']}"))
