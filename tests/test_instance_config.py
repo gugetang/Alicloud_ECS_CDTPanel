@@ -214,15 +214,19 @@ def test_daily_report_follows_global_switch(tmpdb, monkeypatch):
     # 全局关了就不推；全局开了就推；实例级字段不再起作用
     from app import scheduler
     a = _mk(tmpdb, used=37.77)
-    tmpdb.set_settings({"daily_report_enabled": "0"})
+    tmpdb.set_settings({"daily_report_enabled": "0", "telegram_enabled": "1"})
     calls = []
 
     class FakeNotifier:
         def __init__(self, settings):
             self.s = settings
+            self.last_errors = {}
+
+        def enabled(self, event):
+            return True
 
         def send_daily_report(self, accounts, date_str, force=False,
-                              skip_global_switch=False):
+                              skip_global_switch=False, channel=None):
             calls.append([x["id"] for x in accounts])
             return ["telegram"]
 

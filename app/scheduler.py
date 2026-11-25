@@ -994,24 +994,29 @@ def _maybe_notify_update(settings: dict) -> bool:
 
 
 def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
-    """每天在 daily_report_time（默认 00:00，可配）推送一次每日财报。
+    """每天在 daily_report_time（默认 00:00，可配）推送每日财报。
 
-    触发规则（用 flags 持久化，重启不丢）：
-    - 上次检查时刻记在 flags.daily_report_last_check；B-09：只在跨过推送
-      时刻、暂停/关闭、或首次检查时才更新，不再每分钟写一次；
-    - 只有当本次检查跨过了当日推送时刻（last_check < 当日时刻 <= now），
-      且当天未推过（flags.daily_report_done:<YYYY-MM-DD> 未设置）时才推；
-    - 改时间后若新时刻已过（last_check 已在新时刻之后），当天不补推，等明天；
+    规则（用 flags 持久化，重启不丢）：
+    - 每天固定时间，各渠道各推送一次。推送按“日期 + 设定时间 + 渠道”
+      记成功（flags.daily_report_sent:<YYYY-MM-DD>:<HH:MM>:<渠道>）：
+      同一设定时间同一渠道当天只推一次，已成功的绝不重发；
+      失败的渠道每轮重试，直到成功为止。
+    - 改时间后也推送：设定时间一改，新的“日期 + 时间”就是一次新的
+      推送（比如 00:00 已推过，改成 12:00 后到 12:00 依旧各推一次；
+      改成已过的时间，下一轮就补推，不等明天）。
     - 全新数据库第一次检查不补推（last_check 为空时只记下次检查起点）；
-    - 调度暂停或财报开关关闭时不推，但仍更新 last_check，避免恢复/重开后立刻补推。
-    返回 True 表示当日财报已触发。B-15：渠道全部失败（last_errors 非空）
-    时不记当天已推，并记一条 error 事件；未启用任何渠道时沿用旧行为
-    （记已推，避免每小时重复尝试）。
+    - 调度暂停或不刷新（API 刷新时间=0）时不推，但仍更新 last_check。
+    - 部分渠道失败时记一条 error 事件（以前只有全部失败才留痕），
+      同一渠道同一设定时间只记一次，避免每分钟重试都刷屏。
+    返回 True 表示本次检查触发了推送（或补推）。
     """
     hh, mm = _parse_hhmm(settings.get("daily_report_time") or "00:00")
     due = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
     today = now.strftime("%Y-%m-%d")
+    time_key = f"{hh:02d}:{mm:02d}"
     last_raw = db.get_flag("daily_report_last_check")
+    # 上次处理推送时刻时见到的设定时间；与当前设定时间不同即改过时间。
+    time_seen = db.get_flag("daily_report_time_seen")
 
     def _touch_last_check() -> None:
         db.set_flag("daily_report_last_check", now.isoformat())
@@ -1021,8 +1026,6 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     # 调度暂停或不刷新（API 刷新时间=0）时不推。
     if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
         _touch_last_check()
-        return False
-    if db.get_flag(f"daily_report_done:{today}"):
         return False
     if not last_raw:
         _touch_last_check()
@@ -1034,15 +1037,42 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
         return False
     if last.tzinfo is None:
         last = last.replace(tzinfo=now.tzinfo)
-    if not (last < due <= now):
-        # 未到推送时刻不写旗标（B-09）；已过时刻但上次检查已在时刻之后
-        # （如改时间后），写一次以免下次误判为跨过。
-        if now >= due:
-            _touch_last_check()
+    if now < due:
+        return False  # 未到推送时刻，不写旗标（B-09）
+    # 设定时间是否改过：只有到点后才更新 time_seen，未到点不更新，
+    # 这样改到未来的时间在到点时仍能认出是“改过时间”。
+    time_changed = time_seen != "" and time_seen != time_key
+    db.set_flag("daily_report_time_seen", time_key)
+    # 到点（或已过）：只推这个“日期 + 设定时间”还没成功的渠道。
+    # 已处理过（发过 / 因关开关、无账户、无渠道而跳过）的“日期 + 时间”
+    # 不再重复处理；改时间会产生新的“日期 + 时间”，照常推送。
+    # 上次检查已在推送时刻之后才认“已处理”（测试重置 last_check 后
+    # 应视为重新到点）。
+    handled_key = f"daily_report_handled:{today}:{time_key}"
+    if db.get_flag(handled_key) and last >= due:
         return False
-    _touch_last_check()
+    enabled = []
+    if settings.get("telegram_enabled") == "1":
+        enabled.append("telegram")
+    if settings.get("email_enabled") == "1":
+        enabled.append("email")
+    # 是否已尝试过这个“日期 + 时间”（有渠道已推成功，或有渠道失败留痕）：
+    # 尝试过 → 是重试；没尝试过、时间没改过、上次检查已过时刻 → 错过，不补推。
+    attempted = any(
+        db.get_flag(f"daily_report_sent:{today}:{time_key}:{ch}")
+        or db.get_flag(f"daily_report_fail_logged:{today}:{time_key}:{ch}")
+        for ch in enabled)
+    if not time_changed and not attempted and not last < due:
+        # 设定时间没改过、也没尝试过、且上次检查已在推送时刻之后
+        # （比如时区切换后同一时刻已过、或面板在到点时正好停着）：
+        # 当天不补推，记已处理，等明天。
+        db.set_flag(handled_key, now.isoformat())
+        _touch_last_check()
+        return False
     accounts = db.list_accounts()
     if not accounts:
+        db.set_flag(handled_key, now.isoformat())
+        _touch_last_check()
         return False
     from .api import _public_account, _status_context  # 延迟导入，避免循环导入
     from .notify import filter_daily_report_accounts
@@ -1050,25 +1080,68 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     pub = [_public_account(a, serving_map, queue_ranks) for a in accounts]
     pub = filter_daily_report_accounts(pub, settings)
     if not pub:
-        return False  # 全局关：不推，也不记当天已推
+        # 全局关：不推，记已处理（重开后不会立刻补推），并更新 last_check。
+        db.set_flag(handled_key, now.isoformat())
+        _touch_last_check()
+        return False
     notifier = Notifier(settings)
-    sent = notifier.send_daily_report(pub, today, skip_global_switch=True)
-    if sent:
-        db.set_flag(f"daily_report_done:{today}", now.isoformat())
-        db.add_event("daily_report", "每日财报已推送",
-                     f"{today} 共 {len(pub)} 个账户，渠道：{','.join(sent)}")
-    elif getattr(notifier, "last_errors", None):
-        # B-15：渠道已启用但全部发送失败：不记已推，并留一条 error 事件，
-        # 让失败在事件里看得到（原来只记“未推送”，且当天不再重试）。
-        db.add_event("error", "每日财报推送失败",
-                     f"{today} 通知渠道全部失败："
-                     + "; ".join(f"{k}：{v}" for k, v in
-                                 notifier.last_errors.items()))
-    else:
-        db.set_flag(f"daily_report_done:{today}", now.isoformat())
+    if not notifier.enabled("daily_report"):
+        db.set_flag(handled_key, now.isoformat())
+        _touch_last_check()
+        return False
+    if not enabled:
+        # 未启用任何通知渠道：记已处理，每个“日期 + 时间”只记一次。
+        db.set_flag(handled_key, now.isoformat())
+        _touch_last_check()
         db.add_event("daily_report", "每日财报未推送",
                      f"{today} 已到推送时间，但未启用任何通知渠道")
+        return True
+    pending = [ch for ch in enabled
+               if not db.get_flag(
+                   f"daily_report_sent:{today}:{time_key}:{ch}")]
+    if not pending:
+        return False  # 这个设定时间各渠道都已推过
+    # 有渠道已推过、现在只推剩下的，就是补推；一个都没推过就是首次推送。
+    is_retry = len(pending) < len(enabled)
+    _touch_last_check()
+    sent: list[str] = []
+    failed: dict[str, str] = {}
+    for ch in pending:
+        got = notifier.send_daily_report(pub, today, skip_global_switch=True,
+                                         channel=ch)
+        if ch in got:
+            db.set_flag(f"daily_report_sent:{today}:{time_key}:{ch}",
+                        now.isoformat())
+            sent.append(ch)
+        else:
+            detail = (getattr(notifier, "last_errors", None) or {}).get(ch, "")
+            failed[ch] = detail
+    if sent:
+        title = "每日财报已补推" if is_retry else "每日财报已推送"
+        db.add_event("daily_report", title,
+                     f"{today} {time_key} 共 {len(pub)} 个账户，"
+                     f"渠道：{','.join(sent)}")
+    if failed:
+        _log_daily_fail(today, time_key, failed, now)
     return True
+
+
+def _log_daily_fail(today: str, time_key: str, errors: dict,
+                    now: dt.datetime) -> None:
+    """记一条每日财报推送失败的 error 事件；同一渠道同一设定时间只记一次，
+    避免每分钟重试都刷一条。"""
+    new_fail = [ch for ch in errors
+                if not db.get_flag(
+                    f"daily_report_fail_logged:{today}:{time_key}:{ch}")]
+    if not new_fail:
+        return
+    for ch in new_fail:
+        db.set_flag(f"daily_report_fail_logged:{today}:{time_key}:{ch}",
+                    now.isoformat())
+    db.add_event("error", "每日财报推送失败",
+                 f"{today} {time_key} 通知渠道失败："
+                 + "; ".join(f"{ch}：{errors[ch] or '发送失败'}"
+                             for ch in new_fail))
 
 
 def _maybe_cleanup_daily(settings: dict,
