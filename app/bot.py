@@ -7,14 +7,21 @@
   Telegram 卡片里，改完 10 秒内生效，不用重启容器。
 - 命令：/start /menu /list /groups /timers /update /help
   （/status 已取消；/reboot 已取消；开关机并进 /list：列表只显示名称，
-  名称前圆点表示状态，点一台进详情页开关机；切换分组成员并进 /groups：
-  点分组进子菜单，点成员即切换）。
+  名称前圆点表示状态，点一台进详情页开关机；分组列表并进 /groups：
+  点分组进子菜单，只看成员，不可操作——当前服务实例由负载均衡控制，
+  手动切换无效）。
 - 列表圆点：绿=在线（含启动中），黄=排队，红=停机/停止中/离线，
   白=离队/未参与/未知/已跳出。
 - 开关机按钮：已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机
-  同款切换逻辑；关闭用节省停机（StopCharging）。
-- 所有操作复用面板现有逻辑：api.start_account / stop_account、
-  scheduler._DnsOps.set_record、db.update_domain、Notifier 推送。
+  同款切换逻辑。
+- 实例详情页：开机/关闭切换（跟面板普通开关机一致：关闭是普通停机）、
+  节省停机（仅运行中）、更换 EIP（仅 ECS，轻量服务器不显示），
+  底部有返回实例列表和返回目录。
+- 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/定时任务/
+  面板更新/帮助回目录；详情页和分组子菜单回上级 + 回目录。
+  返回按钮用图标显示：⬅️ 返回，🏠 返回目录。
+- 所有操作复用面板现有逻辑：api.start_account / stop_account /
+  replace_eip。
 """
 from __future__ import annotations
 
@@ -27,8 +34,7 @@ import requests
 from . import api as api_mod
 from . import db, scheduler
 from . import update as update_mod
-from .engine import _switch_rule_text
-from .notify import Notifier
+from .aliyun import is_swas_instance_id
 from .update import current_version
 
 log = logging.getLogger(__name__)
@@ -133,6 +139,18 @@ def _send(settings: dict, text: str, reply_markup: dict | None = None):
     return _api("sendMessage", payload, settings)
 
 
+def _edit(settings: dict, chat_id, message_id: int, text: str,
+          reply_markup: dict | None = None) -> bool:
+    """就地改一条已发消息的文字和按钮（editMessageText），不新发气泡。
+    改不动（消息太旧/已删）返回 False，调用方再发新消息。
+    内容没变时 Telegram 会报 message is not modified，也返回 False。"""
+    payload: dict = {"chat_id": chat_id, "message_id": message_id,
+                     "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    return _api("editMessageText", payload, settings) is not None
+
+
 def _answer_callback(settings: dict, callback_query_id: str, text: str | None = None):
     payload: dict = {"callback_query_id": callback_query_id}
     if text:
@@ -213,9 +231,12 @@ def _cmd_start() -> str:
 
 
 def _menu_keyboard() -> dict:
+    # 每行一个按钮，左右拉满（两列并排太窄）。
     return _kb([
-        [("实例列表", "menu:list"), ("分组列表", "menu:groups")],
-        [("定时任务", "menu:timers"), ("面板更新", "menu:update")],
+        [("实例列表", "menu:list")],
+        [("分组列表", "menu:groups")],
+        [("定时任务", "menu:timers")],
+        [("面板更新", "menu:update")],
         [("帮助", "menu:help")],
     ])
 
@@ -234,13 +255,19 @@ def _cmd_list(args: list[str]):
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
-    kb = _kb([[ (f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
-              for r in rows])
-    return "实例列表\n点一台查看详情开关机：", kb
+    kb_rows = [[(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
+               for r in rows]
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    return "实例列表\n点一台查看详情开关机：", _kb(kb_rows)
+
+
+def _back_to_menu() -> dict:
+    return _kb([[("🏠 返回目录", "menu:menu")]])
 
 
 def _instance_detail(a: dict):
-    """实例详情页：名称/状态/IP/分组 + 开关机切换按钮 + 返回列表。"""
+    """实例详情页：名称/状态/IP/分组 + 开关机、节省停机、更换 EIP
+    + 返回实例列表/返回目录。更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
     groups = {g["id"]: g["name"] for g in db.list_groups()}
@@ -249,11 +276,14 @@ def _instance_detail(a: dict):
     label = r.get("status_label") or r.get("instance_status") or "未知"
     text = (f"{_status_dot(r)} {r['name']}\n状态：{label}"
             f"\nIP：{r.get('public_ip') or '-'}\n分组：{gname}")
-    kb = _kb([
-        [(_power_label(r), f"power:{r['id']}")],
-        [("返回实例列表", "menu:list")],
-    ])
-    return text, kb
+    kb_rows = [[(_power_label(r), f"power:{r['id']}")]]
+    if (r.get("instance_status") or "").strip() == "Running":
+        kb_rows.append([("节省停机", f"powersave:{r['id']}")])
+    if not is_swas_instance_id(r.get("instance_id")):
+        kb_rows.append([("更换 EIP", f"eip:{r['id']}")])
+    kb_rows.append([("⬅️ 返回", "menu:list")])
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    return text, _kb(kb_rows)
 
 
 def _power_label(a: dict) -> str:
@@ -262,6 +292,8 @@ def _power_label(a: dict) -> str:
 
 
 def _do_power(aid: int) -> str:
+    """普通开关机（跟面板普通开关机一致）：已停机→开机；运行中→普通停机
+    （KeepCharging，停机后继续计费）。节省停机是单独的按钮（_do_power_save）。"""
     a = db.get_account(aid)
     if not a:
         return "账户不存在"
@@ -270,16 +302,50 @@ def _do_power(aid: int) -> str:
         if stopped:
             api_mod.start_account(aid, True)
         else:
-            # 关闭用节省停机（StopCharging），与面板节省停机按钮一致。
-            api_mod.stop_account(aid, {"stop_charging": True}, True)
+            api_mod.stop_account(aid, {"stop_charging": False}, True)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", None) or str(exc)
-        return f"{a['name']} {'开机' if stopped else '关闭'}失败：{detail}"
-    return f"{a['name']} 已发送{'开机' if stopped else '节省停机'}指令"
+        return f"{a['name']} {'开机' if stopped else '停机'}失败：{detail}"
+    return f"{a['name']} 已发送{'开机' if stopped else '停机'}指令"
+
+
+def _do_power_save(aid: int) -> str:
+    """节省停机（StopCharging，停机后停止计费）：仅运行中可用。"""
+    a = db.get_account(aid)
+    if not a:
+        return "账户不存在"
+    if (a.get("instance_status") or "").strip() != "Running":
+        return f"{a['name']} 未运行，无需节省停机"
+    try:
+        api_mod.stop_account(aid, {"stop_charging": True}, True)
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "detail", None) or str(exc)
+        return f"{a['name']} 节省停机失败：{detail}"
+    return f"{a['name']} 已发送节省停机指令"
+
+
+def _do_replace_eip(aid: int) -> str:
+    """更换 EIP：复用面板的 replace_eip（申请新 EIP → 解绑旧 → 绑新
+    → 带宽一致 → 刷新 IP/DNS → 释放旧；失败自动回滚）。成功/失败的
+    日志和推送由 replace_eip 自己记，这里只回一条结果。"""
+    a = db.get_account(aid)
+    if not a:
+        return "账户不存在"
+    try:
+        out = api_mod.replace_eip(aid)
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "detail", None) or str(exc)
+        return f"{a['name']} 更换 EIP 失败：{detail}"
+    msg = f"{a['name']} EIP 已更换：{out.get('old_ip')} → {out.get('new_ip')}"
+    if out.get("dns_domains"):
+        msg += f"；DNS 已切：{', '.join(out['dns_domains'])}"
+    if out.get("warning"):
+        msg += f"；{out['warning']}"
+    return msg
 
 
 def _cmd_groups(settings: dict, args: list[str]):
-    """分组列表：只显示分组名；点一个分组进子菜单，点成员即切换当前服务实例。"""
+    """分组列表：只显示分组名；点一个分组进子菜单看成员（只显示，不可操作）。"""
     groups = db.list_groups()
     if not groups:
         return "暂无分组", None
@@ -288,12 +354,15 @@ def _cmd_groups(settings: dict, args: list[str]):
         if not g:
             return f"找不到分组：{args[0]}", None
         return _group_detail(g, settings)
-    return "分组列表\n点一个分组切换成员：", _kb([[(g["name"], f"group:{g['id']}")]
-                                                for g in groups])
+    kb_rows = [[(g["name"], f"group:{g['id']}")] for g in groups]
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    return "分组列表\n点一个分组查看成员：", _kb(kb_rows)
 
 
 def _group_detail(group: dict, settings: dict):
-    """分组子菜单：分组信息 + 成员按钮（点成员即切换）+ 返回分组列表。"""
+    """分组子菜单：分组信息 + 成员列表（只显示，不可点）+ 返回。
+    成员只列在线/排队中的（带状态圆点），由负载均衡控制当前服务实例，
+    手动切换无效，所以成员不做按钮。"""
     gid = group["id"]
     domains = db.list_domains()
     accounts = {a["id"]: a for a in db.list_accounts()}
@@ -310,67 +379,20 @@ def _group_detail(group: dict, settings: dict):
     else:
         lines.append("当前服务：无")
     lines.append(f"成员：{len(members)}")
+    back = _kb([[("⬅️ 返回", "menu:groups")],
+                [("🏠 返回目录", "menu:menu")]])
     if not members:
-        return "\n".join(lines) + "\n该分组没有成员", _kb([[("返回分组列表", "menu:groups")]])
+        return "\n".join(lines) + "\n该分组没有成员", back
     current_id = d.get("current_account_id") if d else None
-    rows = []
-    for m in members:
+    # 只显示在线/排队中的成员（带状态圆点）；已停机/离队/离线的不显示。
+    shown = [m for m in members
+             if m.get("status_label") in ("在线", "排队中")]
+    if not shown:
+        return "\n".join(lines) + "\n暂无在线或排队中的成员", back
+    for m in shown:
         mark = "（当前服务）" if m["id"] == current_id else ""
-        rows.append([(f"{m['name']}{mark}", f"switchto:{gid}:{m['id']}")])
-    rows.append([("返回分组列表", "menu:groups")])
-    return "\n".join(lines) + "\n点一台切换当前服务实例：", _kb(rows)
-
-
-def _do_switch(gid: int, aid: int) -> str:
-    settings = db.get_settings()
-    groups = {g["id"]: g for g in db.list_groups()}
-    group = groups.get(gid)
-    if not group:
-        return "分组不存在"
-    doms = [d for d in db.list_domains() if d.get("group_id") == gid and d.get("enabled")]
-    if not doms:
-        return f"【{group['name']}】没有启用的域名"
-    d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0]
-    target = db.get_account(aid)
-    if not target:
-        return "实例不存在"
-    if aid not in [m["id"] for m in _group_members(gid)]:
-        return f"{target['name']} 不在分组【{group['name']}】里"
-    current_id = d.get("current_account_id")
-    if current_id == aid:
-        return f"{target['name']} 已是【{group['name']}】的当前服务实例"
-    if (target.get("instance_status") or "").strip() != "Running":
-        return (f"{target['name']} 未运行"
-                f"（当前状态：{target.get('instance_status') or '未知'}），请先开机")
-    ip = (target.get("public_ip") or "").strip()
-    if not ip:
-        return f"{target['name']} 没有公网 IP，无法切换"
-    # DNS 同步复用调度器的 _DnsOps（Cloudflare 同步、缓存的 zone/record ID）。
-    domain_view = scheduler._to_domain_views([d])[0]
-    try:
-        scheduler._DnsOps(settings).set_record(domain_view, ip)
-    except Exception as exc:  # noqa: BLE001
-        return f"DNS 同步失败：{exc}"
-    # set_record 只返回“是否实际改了记录”：本来就等于新 IP 时也算成功，
-    # 用库里 dns_records 的 ip 再校验一次（与换 EIP 同款做法）。
-    rec = db.get_dns_record(d["id"])
-    if rec and rec.get("ip") and rec.get("ip") != ip:
-        return f"DNS 同步失败：记录仍指向 {rec.get('ip')}"
-    current = db.get_account(current_id) if current_id else None
-    db.update_domain(d["id"], {"fallback_active": 0, "current_account_id": aid,
-                               "current_ip": ip})
-    mode = (group.get("switch_mode") or settings.get("switch_mode") or "load_balance")
-    rule = _switch_rule_text("manual", mode)
-    if current:
-        body = f"【{group['name']}】{current['name']} 已替换为 {target['name']}（{rule}）"
-    elif d.get("fallback_active"):
-        body = f"【{group['name']}】备用地址已替换为 {target['name']}（{rule}）"
-    else:
-        body = f"【{group['name']}】{target['name']} 已接管服务（{rule}）"
-    # 手动切换也是一次 A→B：推一条分组动态，并记日志（与调度器 _notify 同款）。
-    Notifier(settings).send("group_change", "分组动态", body)
-    db.add_event("group_change", "分组动态", body, domain_id=d["id"])
-    return body
+        lines.append(f"{_status_dot(m)} {m['name']}{mark}")
+    return "\n".join(lines), back
 
 
 def _cmd_timers(settings: dict) -> str:
@@ -425,11 +447,11 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
     if cmd == "groups":
         return _cmd_groups(settings, args)
     if cmd == "timers":
-        return _cmd_timers(settings), None
+        return _cmd_timers(settings), _back_to_menu()
     if cmd == "update":
-        return _cmd_update(), None
+        return _cmd_update(), _back_to_menu()
     if cmd == "help":
-        return _cmd_help(), None
+        return _cmd_help(), _back_to_menu()
     return f"未知命令：/{cmd}\n输入 /help 查看命令", None
 
 
@@ -449,20 +471,41 @@ def _handle_message(settings: dict, message: dict) -> None:
 
 
 def _handle_callback(settings: dict, callback: dict) -> None:
-    chat = (callback.get("message") or {}).get("chat") or {}
+    msg = callback.get("message") or {}
+    chat = msg.get("chat") or {}
     if not _authorized(settings, chat.get("id")):
         return
-    _answer_callback(settings, callback.get("id") or "")
+    cb_id = callback.get("id") or ""
+    _answer_callback(settings, cb_id)
     data = callback.get("data") or ""
+    chat_id = chat.get("id")
+    message_id = msg.get("message_id")
+    current_text = msg.get("text") or ""
+
+    def show(text: str, markup: dict | None):
+        # 导航就地改同一条消息，不新发气泡；内容没变就什么都不做，
+        # 没消息可改或改不动（消息太旧）再发新消息。
+        if text == current_text:
+            return
+        if message_id and _edit(settings, chat_id, message_id, text, markup):
+            return
+        _send(settings, text, markup)
+
+    def refresh_detail(aid: int):
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if a:
+            reply, markup = _instance_detail(a)
+            show(reply, markup)
+
     if data.startswith("menu:"):
         key = data[5:]
-        mapping = {"list": "list", "groups": "groups",
+        mapping = {"menu": "menu", "list": "list", "groups": "groups",
                    "timers": "timers", "update": "update", "help": "help"}
         if key in mapping:
             reply, markup = _dispatch(settings, mapping[key], [])
         else:
             return
-        _send(settings, reply, markup)
+        show(reply, markup)
     elif data.startswith("detail:"):
         try:
             aid = int(data[7:])
@@ -470,16 +513,31 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         a = next((x for x in _public_accounts() if x["id"] == aid), None)
         if not a:
-            _send(settings, "实例不存在")
+            show("实例不存在", None)
             return
         reply, markup = _instance_detail(a)
-        _send(settings, reply, markup)
+        show(reply, markup)
     elif data.startswith("power:"):
         try:
             aid = int(data[6:])
         except ValueError:
             return
-        _send(settings, _do_power(aid))
+        _answer_callback(settings, cb_id, _do_power(aid))
+        refresh_detail(aid)
+    elif data.startswith("powersave:"):
+        try:
+            aid = int(data[10:])
+        except ValueError:
+            return
+        _answer_callback(settings, cb_id, _do_power_save(aid))
+        refresh_detail(aid)
+    elif data.startswith("eip:"):
+        try:
+            aid = int(data[4:])
+        except ValueError:
+            return
+        _answer_callback(settings, cb_id, _do_replace_eip(aid))
+        refresh_detail(aid)
     elif data.startswith("group:"):
         try:
             gid = int(data[6:])
@@ -487,17 +545,10 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         g = next((x for x in db.list_groups() if x["id"] == gid), None)
         if not g:
-            _send(settings, "分组不存在")
+            show("分组不存在", None)
             return
         reply, markup = _group_detail(g, settings)
-        _send(settings, reply, markup)
-    elif data.startswith("switchto:"):
-        try:
-            _, gid, aid = data.split(":")
-            gid, aid = int(gid), int(aid)
-        except ValueError:
-            return
-        _send(settings, _do_switch(gid, aid))
+        show(reply, markup)
 
 
 # ---------------------------------------------------------------------------
