@@ -105,6 +105,9 @@ DEFAULT_SETTINGS: dict[str, str] = {
     # 只推已启用的 Telegram/邮件渠道
     "daily_report_enabled": "1",
     "daily_report_time": "00:00",
+    # Telegram 机器人控制：默认关闭；开启后机器人用 getUpdates 轮询收命令，
+    # 只认绑定的 telegram_chat_id（见 app/bot.py）。
+    "bot_enabled": "0",
     # 数据清理：每天在 cleanup_time（默认 03:00）自动清理一次过期日志
     # （事件/流量采样）+ SQLite VACUUM + WAL 检查点 + 数据目录临时文件；
     # 非法值归一化回 "03:00"（见 db.norm_cleanup_time）。
