@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent
 import { get, post, put, del, getToken, setToken, getRememberedUsername, setRememberedUsername } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
+import { menuShouldFlipLeft } from "./menuFlip";
 
 type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
 type SubTab = "settings" | "account" | "notify" | "other" | "logs";
@@ -1639,7 +1640,10 @@ export default function App() {
   // （手机上顶栏按钮换行到左边缘，语言/主题/风格菜单按右对齐会伸出屏幕外）。
   const [menuLeft, setMenuLeft] = useState<Record<string, boolean>>({});
   const flipMenu = (key: string, w: number, e: { currentTarget: HTMLElement }) => {
-    setMenuLeft((m) => ({ ...m, [key]: e.currentTarget.getBoundingClientRect().right - w < 8 }));
+    // 同步量好按钮位置再 setState：React 在事件处理结束后会把 currentTarget
+    // 置空，塞进 setState 回调里再量会拿到 null，渲染时抛错、整页白屏。
+    const right = e.currentTarget.getBoundingClientRect().right;
+    setMenuLeft((m) => ({ ...m, [key]: menuShouldFlipLeft(right, w) }));
   };
   // 更新弹窗是可拖动窗口：打开时按铃铛位置落在屏幕内，拖标题区可移动。
   const [updPos, setUpdPos] = useState<{ left: number; top: number } | null>(null);
