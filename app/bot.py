@@ -314,9 +314,9 @@ def _site_title(settings: dict) -> str:
 
 
 def _cmd_list(settings: dict, args: list[str]):
-    """实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮双行显示：
-    第 1 行圆点 + 加粗名称，第 2 行 IP（只显示 A、B 两段，C、D 用 *
-    替换）；点一台进详情页开关机。标题跟随站点名。"""
+    """实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮只显示圆点 +
+    加粗名称（IP 不显示：Telegram 按钮文字不支持换行，名称加 IP 挤在
+    一行会被截断）；点一台进详情页开关机。标题跟随站点名。"""
     if args:
         a = _resolve_account(args[0])
         if not a:
@@ -326,8 +326,7 @@ def _cmd_list(settings: dict, args: list[str]):
     if not rows:
         return "暂无实例", None
     kb_rows = _pair_rows([
-        (f"{_status_dot(r)} {_bold(r['name'])}\nIP：{_mask_ip(r.get('public_ip'))}",
-         f"detail:{r['id']}")
+        (f"{_status_dot(r)} {_bold(r['name'])}", f"detail:{r['id']}")
         for r in rows])
     kb_rows.append(_back_row())
     return _site_title(settings), _kb(kb_rows)
@@ -533,11 +532,10 @@ def _group_detail(group: dict, settings: dict):
         kb_rows.append(_back_row("menu:groups"))
         return _site_title(settings), _kb(kb_rows)
     # 成员做成按钮但不可选中：一行两个按钮（拉伸铺满手机屏幕），每个按钮
-    # 双行显示：名称在上、IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换）；
+    # 只显示圆点 + 加粗名称（IP 不显示：Telegram 按钮文字不支持换行）；
     # 点一下只消掉加载圈，不做任何事（noop 回调）。
     kb_rows.extend(_pair_rows([
-        (f"{_status_dot(m)} {_bold(m['name'])}\nIP：{_mask_ip(m.get('public_ip'))}",
-         "noop")
+        (f"{_status_dot(m)} {_bold(m['name'])}", "noop")
         for m in shown]))
     kb_rows.append(_back_row("menu:groups"))
     return _site_title(settings), _kb(kb_rows)
