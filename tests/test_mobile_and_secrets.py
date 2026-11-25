@@ -2120,7 +2120,7 @@ def test_notify_event_toggle_update_available():
     # 通知事件里有“面板更新”开关（有更新时推 TG/Email，每个版本只推一次）；
     # 后端事件键与默认开关都已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '"threshold_alarm", "update_available"] as const' in tsx
+    assert '"group_change", "update_available"] as const' in tsx
     assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
@@ -2133,21 +2133,24 @@ def test_notify_event_toggle_update_available():
 
 
 def test_notify_event_toggle_instance_status():
-    # 通知事件只有三个开关：实例状态（启动/停机/删除/EIP 更换共用）、
-    # 阈值报警、面板更新；旧的分开关（实例启动/实例停机/更换 EIP）与
+    # 通知事件有四个开关：实例状态（启动/停机/删除/EIP 更换共用）、
+    # 阈值报警、分组动态、面板更新；旧的分开关（实例启动/实例停机/更换 EIP）与
     # 六个只记日志的事件已从列表里删掉；后端事件键与默认开关已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '["instance_status", "threshold_alarm", "update_available"] as const' in tsx
+    assert '["instance_status", "threshold_alarm", "group_change", "update_available"] as const' in tsx
     assert 'instance_status: t("实例状态")' in tsx
     assert 'threshold_alarm: t("阈值报警")' in tsx
+    assert 'group_change: t("分组动态")' in tsx
     assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
     assert '"notify_instance_status": "1"' in settings
+    assert '"notify_group_change": "1"' in settings
     assert '"instance_start": "notify_instance_status"' in settings
     assert '"instance_stop": "notify_instance_status"' in settings
     assert '"instance_delete": "notify_instance_status"' in settings
     assert '"eip_replace": "notify_instance_status"' in settings
+    assert '"group_change": "notify_group_change"' in settings
     assert '"notify_instance_start"' not in settings
     assert '"notify_eip_replace"' not in settings
     api = (ROOT / "app" / "api.py").read_text(encoding="utf-8")
@@ -2155,6 +2158,7 @@ def test_notify_event_toggle_instance_status():
     assert '"eip_replace", "更换 EIP 失败"' in api
     assert '"instance_delete", "实例删除"' in api
     assert '"instance_status": "notify_instance_status"' in api
+    assert '"group_change": "notify_group_change"' in api
 
 
 def test_header_bell_and_palette_icons():

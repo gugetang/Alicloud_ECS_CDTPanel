@@ -574,7 +574,8 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                  fixed_done_dates: set[str] | None = None,
                  last_time_switch_at: dt.datetime | None = None,
                  grouped: bool = False,
-                 previously_evicted_ids: set[int] | None = None) -> Plan:
+                 previously_evicted_ids: set[int] | None = None,
+                 group_name: str = "默认分组") -> Plan:
     """单个调度单元（一个分组，或 legacy 的全量）的排班。
     grouped=True 时 1 分组=1 域名：只调度该组优先级最高的 1 个域名，
     目标永远是池内用量最低的可分配 IP，不循环；grouped=False（legacy）
@@ -805,6 +806,11 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                  f"{_eff_protection(current, cfg):.0f}%，{d.name} 已切到 {target.name}"
                  + ("；排除操作=无，只踢出、不停机，用量回落后自动恢复。"
                     if excl == "none" else "")))
+            # 分组动态：当前服务实例 A 切到 B，写明规则与组名
+            plan.notifications.append(
+                ("group_change", "分组动态",
+                 _group_change_body(group_name, current.name, target.name,
+                                    "threshold_eviction", cfg.switch_mode)))
             _maybe_stop_evicted(plan, current, cfg, stopped_ids, d)
         elif reason in ("traffic_diff", "traffic_diff_gb", "night_optimize",
                         "fixed_time", "interval_switch", "dynamic_switch",
@@ -828,6 +834,11 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
             else:
                 detail = f"{d.name} → {target.name}（{reason}）"
             plan.notifications.append(("dns_change", "DNS 指向变化", detail))
+            # 分组动态：当前服务实例 A 切到 B，写明规则与组名
+            plan.notifications.append(
+                ("group_change", "分组动态",
+                 _group_change_body(group_name, current.name, target.name,
+                                    reason, cfg.switch_mode)))
 
     # --- 保活默认拉起全部（不在当前服务/切换目标里的备用停机实例也拉） ---
     # 每轮对所有符合条件的已停机实例都下发启动，不只限于当前服务/切换目标。
@@ -900,7 +911,8 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
         return _plan_single(accounts, domains, cfg, now,
                             night_done_dates, fixed_done_dates,
                             last_time_switch_at, grouped=False,
-                            previously_evicted_ids=previously_evicted_ids)
+                            previously_evicted_ids=previously_evicted_ids,
+                            group_name="默认分组")
     by_gid: dict[int, GroupView] = {g.id: g for g in groups}
     if 1 not in by_gid:
         by_gid[1] = GroupView(id=1, name="默认分组", switch_mode="load_balance")
@@ -931,7 +943,8 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
         anchor = _lookup(last_switch_by_group if last_switch_by_group is not None
                          else last_time_switch_at, gid, None)
         sub = _plan_single(gaccs, gdoms, gcfg, now, nd, fd, anchor, grouped=True,
-                           previously_evicted_ids=previously_evicted_ids)
+                           previously_evicted_ids=previously_evicted_ids,
+                           group_name=group.name)
         merged.assignments.update(sub.assignments)
         merged.actions.extend(sub.actions)
         merged.notifications.extend(sub.notifications)
@@ -991,6 +1004,41 @@ ACTION_REASON_LABELS = {
 
 def _reason_label(reason: str, fallback: str) -> str:
     return ACTION_REASON_LABELS.get((reason or "").strip().lower()) or fallback
+
+
+# 分组动态推送的切换规则中文：模式（顶栏同款映射：time→定时轮巡，
+# 其余→负载均衡，动态是负载均衡的子模式）+ 具体原因；both（legacy）
+# 不写模式，只写原因。
+SWITCH_MODE_LABELS = {
+    "time": "定时轮巡",
+    "load_balance": "负载均衡",
+    "dynamic": "负载均衡",
+}
+
+SWITCH_RULE_LABELS = {
+    "traffic_diff": "流量差值",
+    "traffic_diff_gb": "流量差值",
+    "night_optimize": "夜间优化",
+    "fixed_time": "固定时刻",
+    "interval_switch": "间隔切换",
+    "dynamic_switch": "动态切换",
+    "daily_window": "每日开机窗口",
+    "threshold_eviction": "阈值踢出",
+}
+
+
+def _switch_rule_text(reason: str, switch_mode: str) -> str:
+    rule = SWITCH_RULE_LABELS.get((reason or "").strip().lower(), reason or "")
+    mode = SWITCH_MODE_LABELS.get((switch_mode or "").strip().lower(), "")
+    if mode and mode != rule:
+        return f"{mode}：{rule}"
+    return rule
+
+
+def _group_change_body(group_name: str, current_name: str, target_name: str,
+                       reason: str, switch_mode: str) -> str:
+    return (f"【{group_name}】{current_name} 已替换为 {target_name}"
+            f"（{_switch_rule_text(reason, switch_mode)}）")
 
 
 def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainView],

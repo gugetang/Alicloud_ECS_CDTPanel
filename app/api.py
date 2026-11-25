@@ -1352,6 +1352,7 @@ def get_notify(_: bool = Depends(_admin_required)):
             "events": {k: s.get(v) == "1" for k, v in
                        {"instance_status": "notify_instance_status",
                         "threshold_alarm": "notify_threshold_alarm",
+                        "group_change": "notify_group_change",
                         "update_available": "notify_update_available"}.items()}}
 
 
