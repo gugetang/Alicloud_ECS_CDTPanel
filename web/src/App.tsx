@@ -3,6 +3,7 @@ import { get, post, put, del, getToken, setToken, getRememberedUsername, setReme
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
 import { menuShouldFlipLeft } from "./menuFlip";
+import { formatTimeInput } from "./timeInput";
 import { shouldReloadUpdate, UPDATE_COUNTDOWN_SECONDS } from "./updateCountdown";
 
 type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
@@ -1015,6 +1016,7 @@ function DailyReportCard({ drTime, setDrTime, saveSettings, showError }: {
         <div style={{ marginTop: 12 }}>
           <label>{t("时间设置")}</label>
           <input key={saved} defaultValue={saved} inputMode="numeric" placeholder="HH:MM" style={{ maxWidth: 160 }}
+            onChange={(e) => { e.currentTarget.value = formatTimeInput(e.currentTarget.value); }}
             onBlur={(e) => commitTime(e.currentTarget)}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
         </div>

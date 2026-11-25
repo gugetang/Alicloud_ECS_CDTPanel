@@ -1172,6 +1172,9 @@ def test_daily_report_card_on_top_telegram_first_time_input():
     assert '<select' not in daily
     assert 'placeholder="HH:MM"' in daily
     assert '/^([01]\\d|2[0-3]):[0-5]\\d$/' in daily
+    # 边输边自动补齐 ":"（输 0000 即 00:00），用 timeInput 的 formatTimeInput
+    assert 'formatTimeInput(e.currentTarget.value)' in daily
+    assert 'from "./timeInput"' in tsx
     assert '<input type="time"' not in daily
     # 通知页顺序：推送时间卡片 → Telegram → E-Mail
     notify = tsx.split('{tab === "config" && subTab === "notify" && (')[1].split('{tab === "config" && subTab === "logs"')[0]
