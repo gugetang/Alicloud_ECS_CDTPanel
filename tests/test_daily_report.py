@@ -142,7 +142,7 @@ def test_daily_default_0000_triggers_once(tmpdb):
     tmpdb.set_flag("daily_report_last_check",
                    _at(-1, 23, 0).isoformat())
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
-    assert tmpdb.get_flag("daily_report_done:2026-11-22") != ""
+    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") != ""
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 30)) is False
 
 
@@ -168,7 +168,7 @@ def test_daily_change_time_after_it_passed_no_catchup(tmpdb):
     tmpdb.set_settings({"daily_report_time": "08:30"})
     s = tmpdb.get_settings()
     assert scheduler._maybe_send_daily_report(s, _at(0, 10, 0)) is False
-    assert tmpdb.get_flag("daily_report_done:2026-11-22") == ""
+    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") == ""
     # 第二天 08:30：上次检查（昨天 10:00）跨过当日 08:30 → 推
     assert scheduler._maybe_send_daily_report(s, _at(1, 8, 30)) is True
 
@@ -177,9 +177,9 @@ def test_daily_disabled_and_no_accounts(tmpdb):
     from app import scheduler
     s = tmpdb.get_settings()
     tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
-    # 无账户：不推，也不记当天已推
+    # 无账户：不推，也不记当天已触发
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is False
-    assert tmpdb.get_flag("daily_report_done:2026-11-22") == ""
+    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") == ""
     _mk_account(tmpdb)
     # 关闭开关：不推，但仍更新上次检查时刻（重开后不会立刻补推）
     tmpdb.set_settings({"daily_report_enabled": "0"})
@@ -196,18 +196,119 @@ def test_daily_sends_via_notifier_channels(tmpdb, monkeypatch):
     class FakeNotifier:
         def __init__(self, settings):
             self.s = settings
+            self.last_errors = {}
+
+        def enabled(self, event):
+            return True
 
         def send_daily_report(self, accounts, date_str, force=False,
-                              skip_global_switch=False):
-            calls.append((len(accounts), date_str, skip_global_switch))
+                              skip_global_switch=False, channel=None):
+            calls.append((len(accounts), date_str, skip_global_switch, channel))
             return ["telegram"]
 
     monkeypatch.setattr(scheduler, "Notifier", FakeNotifier)
     s = tmpdb.get_settings()
     tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
-    assert calls == [(1, "2026-11-22", True)]
+    assert calls == [(1, "2026-11-22", True, None)]
     assert any(e["title"] == "每日财报已推送" for e in tmpdb.list_events(10))
+
+
+def test_daily_partial_failure_retries_failed_channel_only(tmpdb, monkeypatch):
+    """回归：到点时 TG 失败、邮件成功，旧逻辑会因邮件成功就记当天已推，
+    TG 当天再也不重试。新逻辑：邮件不再重发，TG 每轮重试直到成功。"""
+    from app import scheduler
+    _mk_account(tmpdb)
+    tmpdb.set_settings({"telegram_enabled": "1", "email_enabled": "1"})
+    s = tmpdb.get_settings()
+    tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
+
+    class FlakyNotifier:
+        def __init__(self, settings):
+            self.s = settings
+            self.last_errors = {}
+            self.calls = []
+            self._tg_failed = False
+
+        def enabled(self, event):
+            return True
+
+        def send_daily_report(self, accounts, date_str, force=False,
+                              skip_global_switch=False, channel=None):
+            self.calls.append(channel)
+            self.last_errors = {}
+            if channel is None:
+                # 首次全渠道：邮件成功，TG 失败
+                if not self._tg_failed:
+                    self._tg_failed = True
+                    self.last_errors = {"telegram": "mock fail"}
+                    return ["email"]
+                return ["email", "telegram"]
+            if channel == "telegram":
+                return ["telegram"]
+            if channel == "email":
+                return ["email"]
+            return []
+
+    fake = FlakyNotifier(s)
+    monkeypatch.setattr(scheduler, "Notifier", lambda settings: fake)
+    # 00:00 到点：邮件成功，TG 失败 → 返回 True，TG 当天不锁死
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:email") != ""
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:telegram") == ""
+    # 部分失败留了 error 事件
+    assert any(e["title"] == "每日财报推送失败" for e in tmpdb.list_events(10))
+    # 00:01 重试：只推 TG，不重发邮件
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 1)) is True
+    assert fake.calls == [None, "telegram"]
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:telegram") != ""
+    assert any(e["title"] == "每日财报已补推" for e in tmpdb.list_events(10))
+    # 都成功后不再推
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 2)) is False
+    assert fake.calls == [None, "telegram"]
+
+
+def test_daily_all_fail_then_retry(tmpdb, monkeypatch):
+    """到点时两渠道都失败，当天不锁死；下一轮重试，成功后不再推。"""
+    from app import scheduler
+    _mk_account(tmpdb)
+    tmpdb.set_settings({"telegram_enabled": "1", "email_enabled": "1"})
+    s = tmpdb.get_settings()
+    tmpdb.set_flag("daily_report_last_check", _at(-1, 23, 0).isoformat())
+
+    class FailOnceNotifier:
+        def __init__(self, settings):
+            self.s = settings
+            self.last_errors = {}
+            self.calls = []
+            self._failed = False
+
+        def enabled(self, event):
+            return True
+
+        def send_daily_report(self, accounts, date_str, force=False,
+                              skip_global_switch=False, channel=None):
+            self.calls.append(channel)
+            self.last_errors = {}
+            if not self._failed:
+                self._failed = True
+                self.last_errors = {"telegram": "mock fail",
+                                    "email": "mock fail"}
+                return []
+            if channel is None:
+                return ["telegram", "email"]
+            return [channel] if channel in ("telegram", "email") else []
+
+    fake = FailOnceNotifier(s)
+    monkeypatch.setattr(scheduler, "Notifier", lambda settings: fake)
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:telegram") == ""
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:email") == ""
+    # 下一轮重试两个渠道
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 1)) is True
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:telegram") != ""
+    assert tmpdb.get_flag("daily_report_sent:2026-11-22:email") != ""
+    assert scheduler._maybe_send_daily_report(s, _at(0, 0, 2)) is False
 
 
 def test_api_daily_preview_and_test(tmpdb):
@@ -289,12 +390,12 @@ def test_manual_push_does_not_consume_scheduled(tmpdb):
     assert r.status_code == 200
     assert r.json()["accounts"] == 1 and r.json()["sent"] == []
     assert "[CDT 面板每日报告]" in r.json()["preview"]["text"]
-    assert tmpdb.get_flag("daily_report_done:2026-11-22") == ""
+    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") == ""
     assert any(e["title"] == "手动推送日报" for e in tmpdb.list_events(10))
     # 定时时间到了：照常再推一次
     s = tmpdb.get_settings()
     assert scheduler._maybe_send_daily_report(s, _at(0, 0, 0)) is True
-    assert tmpdb.get_flag("daily_report_done:2026-11-22") != ""
+    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") != ""
     # 定时已推过，当天仍可手动再推
     r = client.post("/api/notify/send-daily")
     assert r.status_code == 200 and r.json()["accounts"] == 1

@@ -994,19 +994,23 @@ def _maybe_notify_update(settings: dict) -> bool:
 
 
 def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
-    """每天在 daily_report_time（默认 00:00，可配）推送一次每日财报。
+    """每天在 daily_report_time（默认 00:00，可配）推送每日财报。
 
     触发规则（用 flags 持久化，重启不丢）：
     - 上次检查时刻记在 flags.daily_report_last_check；B-09：只在跨过推送
       时刻、暂停/关闭、或首次检查时才更新，不再每分钟写一次；
     - 只有当本次检查跨过了当日推送时刻（last_check < 当日时刻 <= now），
-      且当天未推过（flags.daily_report_done:<YYYY-MM-DD> 未设置）时才推；
+      才记下今天已触发（flags.daily_report_triggered:<YYYY-MM-DD>）；
     - 改时间后若新时刻已过（last_check 已在新时刻之后），当天不补推，等明天；
     - 全新数据库第一次检查不补推（last_check 为空时只记下次检查起点）；
     - 调度暂停或财报开关关闭时不推，但仍更新 last_check，避免恢复/重开后立刻补推。
-    返回 True 表示当日财报已触发。B-15：渠道全部失败（last_errors 非空）
-    时不记当天已推，并记一条 error 事件；未启用任何渠道时沿用旧行为
-    （记已推，避免每小时重复尝试）。
+    - 每天只推一次的限制已取消：改成按渠道记成功
+      （flags.daily_report_sent:<YYYY-MM-DD>:<渠道>）。到点后，已成功的
+      渠道不再重发；失败的渠道每轮重试，直到当天成功为止。这样某个渠道
+      在到点瞬间失败，不会因为另一渠道成功就被锁死一整天。
+    - 部分渠道失败时记一条 error 事件（以前只有全部失败才留痕），
+      同一渠道当天只记一次，避免每分钟重试都刷屏。
+    返回 True 表示本次检查触发了推送（或补推）。
     """
     hh, mm = _parse_hhmm(settings.get("daily_report_time") or "00:00")
     due = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
@@ -1022,8 +1026,6 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     if settings.get("scheduler_paused") == "1" or _refresh_minutes(settings) == 0:
         _touch_last_check()
         return False
-    if db.get_flag(f"daily_report_done:{today}"):
-        return False
     if not last_raw:
         _touch_last_check()
         return False  # 全新数据库第一次检查：不补推，等下一次到点
@@ -1034,13 +1036,18 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
         return False
     if last.tzinfo is None:
         last = last.replace(tzinfo=now.tzinfo)
-    if not (last < due <= now):
-        # 未到推送时刻不写旗标（B-09）；已过时刻但上次检查已在时刻之后
-        # （如改时间后），写一次以免下次误判为跨过。
-        if now >= due:
-            _touch_last_check()
+
+    crossing = last < due <= now
+    if crossing:
+        _touch_last_check()
+    elif now < due:
+        return False  # 未到推送时刻，不写旗标（B-09）
+    elif not db.get_flag(f"daily_report_triggered:{today}"):
+        # 已过时刻但今天没触发过（改时间到已过的时刻 / 触发时暂停）：
+        # 不补推，等明天；写一次 last_check 避免下次误判为跨过。
+        _touch_last_check()
         return False
-    _touch_last_check()
+    # 到这里：今天已触发（刚跨过，或之前触发过、正在重试失败的渠道）。
     accounts = db.list_accounts()
     if not accounts:
         return False
@@ -1050,25 +1057,71 @@ def _maybe_send_daily_report(settings: dict, now: dt.datetime) -> bool:
     pub = [_public_account(a, serving_map, queue_ranks) for a in accounts]
     pub = filter_daily_report_accounts(pub, settings)
     if not pub:
-        return False  # 全局关：不推，也不记当天已推
+        return False  # 全局关：不推
     notifier = Notifier(settings)
-    sent = notifier.send_daily_report(pub, today, skip_global_switch=True)
+    if not notifier.enabled("daily_report"):
+        return False
+    if crossing:
+        # 首次到点：先记今天已触发，再全渠道一起推，逐个渠道记成功，
+        # 失败的留待重试。
+        db.set_flag(f"daily_report_triggered:{today}", now.isoformat())
+        sent = notifier.send_daily_report(pub, today, skip_global_switch=True)
+        for ch in sent:
+            db.set_flag(f"daily_report_sent:{today}:{ch}", now.isoformat())
+        errors = getattr(notifier, "last_errors", None) or {}
+        if sent:
+            db.add_event("daily_report", "每日财报已推送",
+                         f"{today} 共 {len(pub)} 个账户，渠道：{','.join(sent)}")
+        if errors:
+            # 部分失败也要留痕（以前只有全部失败才记，另一渠道成功时
+            # 失败的渠道在面板里完全看不到）。
+            _log_daily_fail(today, errors, now)
+        elif not sent:
+            db.add_event("daily_report", "每日财报未推送",
+                         f"{today} 已到推送时间，但未启用任何通知渠道")
+        return True
+    # 重试：只推今天还没成功的渠道，已成功的绝不重发。
+    enabled = []
+    if settings.get("telegram_enabled") == "1":
+        enabled.append("telegram")
+    if settings.get("email_enabled") == "1":
+        enabled.append("email")
+    pending = [ch for ch in enabled
+               if not db.get_flag(f"daily_report_sent:{today}:{ch}")]
+    if not pending:
+        return False  # 今天各渠道都已推过
+    sent: list[str] = []
+    failed: dict[str, str] = {}
+    for ch in pending:
+        got = notifier.send_daily_report(pub, today, skip_global_switch=True,
+                                         channel=ch)
+        if ch in got:
+            db.set_flag(f"daily_report_sent:{today}:{ch}", now.isoformat())
+            sent.append(ch)
+        else:
+            detail = (getattr(notifier, "last_errors", None) or {}).get(ch, "")
+            failed[ch] = detail
     if sent:
-        db.set_flag(f"daily_report_done:{today}", now.isoformat())
-        db.add_event("daily_report", "每日财报已推送",
+        db.add_event("daily_report", "每日财报已补推",
                      f"{today} 共 {len(pub)} 个账户，渠道：{','.join(sent)}")
-    elif getattr(notifier, "last_errors", None):
-        # B-15：渠道已启用但全部发送失败：不记已推，并留一条 error 事件，
-        # 让失败在事件里看得到（原来只记“未推送”，且当天不再重试）。
-        db.add_event("error", "每日财报推送失败",
-                     f"{today} 通知渠道全部失败："
-                     + "; ".join(f"{k}：{v}" for k, v in
-                                 notifier.last_errors.items()))
-    else:
-        db.set_flag(f"daily_report_done:{today}", now.isoformat())
-        db.add_event("daily_report", "每日财报未推送",
-                     f"{today} 已到推送时间，但未启用任何通知渠道")
+    if failed:
+        _log_daily_fail(today, failed, now)
     return True
+
+
+def _log_daily_fail(today: str, errors: dict, now: dt.datetime) -> None:
+    """记一条每日财报推送失败的 error 事件；同一渠道当天只记一次，
+    避免每分钟重试都刷一条。"""
+    new_fail = [ch for ch in errors
+                if not db.get_flag(f"daily_report_fail_logged:{today}:{ch}")]
+    if not new_fail:
+        return
+    for ch in new_fail:
+        db.set_flag(f"daily_report_fail_logged:{today}:{ch}", now.isoformat())
+    db.add_event("error", "每日财报推送失败",
+                 f"{today} 通知渠道失败："
+                 + "; ".join(f"{ch}：{errors[ch] or '发送失败'}"
+                             for ch in new_fail))
 
 
 def _maybe_cleanup_daily(settings: dict,

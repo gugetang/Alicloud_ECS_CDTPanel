@@ -220,9 +220,13 @@ def test_daily_report_follows_global_switch(tmpdb, monkeypatch):
     class FakeNotifier:
         def __init__(self, settings):
             self.s = settings
+            self.last_errors = {}
+
+        def enabled(self, event):
+            return True
 
         def send_daily_report(self, accounts, date_str, force=False,
-                              skip_global_switch=False):
+                              skip_global_switch=False, channel=None):
             calls.append([x["id"] for x in accounts])
             return ["telegram"]
 
