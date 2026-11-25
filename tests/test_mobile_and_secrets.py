@@ -1184,16 +1184,21 @@ def test_daily_report_card_on_top_telegram_first_time_input():
     assert '<input type="time"' not in channel
     assert "daily-push-row" not in tsx
     assert ".daily-push-row" not in css
-    # 渠道卡片的测试按钮还在（右对齐、可换行的一行）；测试财报已取消，
-    # 立即推送日报已移到通知事件卡片并改名立即推送
+    # 渠道卡片的测试按钮还在（右对齐、可换行的一行）；发送测试只推每日通知
+    # （走 test-daily，不再发通用测试通知）；立即推送日报改名立即推送，
+    # 位置不变（仍在各渠道卡片里，分渠道推）
     assert 'className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}' in channel
     assert '>{t("发送测试")}' in channel
+    assert '"/api/notify/test-daily"' in channel
+    assert '"/api/notify/test"' not in channel
+    assert '>{t("立即推送")}' in channel
     assert '>{t("发送测试财报")}' not in channel
     assert '>{t("立即推送日报")}' not in channel
     assert '>{t("检测连接")}' in channel
-    # 通知事件卡片底部有共用的立即推送按钮（不分渠道）
-    assert '>{t("立即推送")}' in notify
-    assert 'post("/api/notify/send-daily", {})' in notify
+    # 每日推送开关移到通知事件卡片（三个事件开关前面）；推送时间卡片里只剩时间输入
+    assert "启用每日推送" not in daily
+    assert "drEnabled" not in daily
+    assert notify.index('t("启用每日推送")') < notify.index('"instance_status"')
 
 
 def test_nav_and_subtabs_selected_are_accent_border():

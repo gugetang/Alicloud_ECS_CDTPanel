@@ -987,10 +987,10 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
 
 // ---------------- 通知渠道卡片：Email / Telegram 各一个框体 ----------------
 // 左上角依次列排列启用按键（选中蓝、未选灰）；每日财报设置与测试都放在框体内；
-// ---------------- 推送时间卡片（通知设置最上面）：开关 + 推送时间，二个渠道共用 ----------------
-function DailyReportCard({ drEnabled, drTime, setDrEnabled, setDrTime, saveSettings, showError }: {
-  drEnabled: boolean; drTime: string;
-  setDrEnabled: (v: boolean) => void; setDrTime: (v: string) => void;
+// ---------------- 推送时间卡片（通知设置最上面）：推送时间，二个渠道共用 ----------------
+function DailyReportCard({ drTime, setDrTime, saveSettings, showError }: {
+  drTime: string;
+  setDrTime: (v: string) => void;
   saveSettings: (patch: Any) => Promise<void>;
   showError: (s: string) => void;
 }) {
@@ -1011,8 +1011,7 @@ function DailyReportCard({ drEnabled, drTime, setDrEnabled, setDrTime, saveSetti
   return (
     <div className="card"><h2>{t("推送时间")}</h2>
       <div style={{ paddingLeft: "2em" }}>
-        <div className="row"><span>{t("每天固定时间推送一次每日财报。")}</span><span className="spacer" />
-          <Toggle checked={drEnabled} label={t("启用每日推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} /></div>
+        <span>{t("每天固定时间推送一次每日财报。")}</span>
         <div style={{ marginTop: 12 }}>
           <label>{t("推送时间")}</label>
           <input key={saved} defaultValue={saved} inputMode="numeric" placeholder="HH:MM" style={{ maxWidth: 160 }}
@@ -1098,7 +1097,8 @@ function ChannelCard({ kind, settings, saveSettings, run }: {
             return res;
           }, t("Telegram 连接正常"))} title={t("检测连接")}>{t("检测连接")}</button>
         )}
-        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试已发送到{title}", { title }))}>{t("发送测试")}</button>
+        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试已发送到{title}", { title }))}>{t("发送测试")}</button>
+        <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送")}</button>
       </div>
     </div>
   );
@@ -2760,12 +2760,17 @@ export default function App() {
 
       {tab === "config" && subTab === "notify" && (
         <>
-          <DailyReportCard drEnabled={drEnabled} drTime={drTime}
-            setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} showError={showError} />
+          <DailyReportCard drTime={drTime}
+            setDrTime={setDrTime} saveSettings={saveSettings} showError={showError} />
           <ChannelCard kind="telegram" settings={settings} saveSettings={saveSettings} run={run} />
           <ChannelCard kind="email" settings={settings} saveSettings={saveSettings} run={run} />
           <div className="card"><h2>{t("通知事件")}</h2>
             <p className="muted">{t("应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。")}</p>
+            <div className="row" style={{ padding: "6px 0 6px 2em" }}>
+              <span>{t("启用每日推送")}</span><span className="spacer" />
+              <Toggle checked={drEnabled} label={t("启用每日推送")}
+                onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} />
+            </div>
             {(["instance_status", "threshold_alarm", "update_available"] as const).map((k) => {
               const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
               return (
@@ -2777,17 +2782,6 @@ export default function App() {
               );
             })}
             <p className="muted">{t("持续故障仅在首次发生和恢复时通知。测试使用已保存的配置，调度暂停时也可发送。")}</p>
-            <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}>
-              <button className="btn" onClick={() => run(async () => {
-                const res: Any = await post("/api/notify/send-daily", {});
-                const sent: string[] = res?.sent || [];
-                if (!sent.length) {
-                  const errs = Object.values(res?.errors || {}).join("；");
-                  throw new Error(errs || t("发送失败：该渠道未启用或未配置"));
-                }
-                return res;
-              }, t("日报已手动推送"))}>{t("立即推送")}</button>
-            </div>
           </div>
         </>
       )}
