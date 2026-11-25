@@ -123,6 +123,7 @@ export const EN: Record<string, string> = {
   停机: "Stop",
   // 运行概览
   实例状态: "Instance status",
+  分组动态: "Group dynamics",
   "服务器总数 {count}": "Total servers {count}",
   "在线状态 {count}": "Online {count}",
   "排队 {count}": "Queued {count}",
@@ -579,6 +580,8 @@ export const EN: Record<string, string> = {
   立即推送: "Push now",
   检测连接: "Check connection",
   "Telegram 连接正常": "Telegram connection OK",
+  机器人控制: "Bot control",
+  "开启后可用 Telegram 机器人控制实例，仅绑定 Chat ID 可用。": "After enabling, control instances via the Telegram bot. Only the bound Chat ID can use it.",
   "发送失败：该渠道未启用或未配置": "Send failed: this channel is not enabled or not configured",
   "测试通知已发送到{title}": "Test notification sent to {title}",
   "测试已发送到{title}": "Test sent to {title}",

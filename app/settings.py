@@ -93,17 +93,21 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "google_oauth_client_secret": "",
     "github_oauth_client_id": "",
     "github_oauth_client_secret": "",
-    # 通知事件开关：实例状态（启动/停机/删除/EIP 更换）/ 阈值报警 / 面板更新，
-    # 默认全部开启。流量保护、DNS 指向变化、备用地址、排除操作、查询及操作
-    # 异常、故障恢复只记日志、不推送（见 LOG_ONLY_EVENTS）。
+    # 通知事件开关：实例状态（启动/停机/删除/EIP 更换）/ 阈值报警 / 面板更新 /
+    # 分组动态，默认全部开启。流量保护、DNS 指向变化、备用地址、排除操作、
+    # 查询及操作异常、故障恢复只记日志、不推送（见 LOG_ONLY_EVENTS）。
     "notify_instance_status": "1",
     "notify_threshold_alarm": "1",
+    "notify_group_change": "1",
     # 面板更新：发现新版本时推送一次（每个版本只推一次）
     "notify_update_available": "1",
     # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
     # 只推已启用的 Telegram/邮件渠道
     "daily_report_enabled": "1",
     "daily_report_time": "00:00",
+    # Telegram 机器人控制：默认关闭；开启后机器人用 getUpdates 轮询收命令，
+    # 只认绑定的 telegram_chat_id（见 app/bot.py）。
+    "bot_enabled": "0",
     # 数据清理：每天在 cleanup_time（默认 03:00）自动清理一次过期日志
     # （事件/流量采样）+ SQLite VACUUM + WAL 检查点 + 数据目录临时文件；
     # 非法值归一化回 "03:00"（见 db.norm_cleanup_time）。
@@ -150,6 +154,7 @@ EVENT_TOGGLE_KEYS = {
     "instance_delete": "notify_instance_status",
     "eip_replace": "notify_instance_status",
     "threshold_alarm": "notify_threshold_alarm",
+    "group_change": "notify_group_change",
     "update_available": "notify_update_available",
     "daily_report": "notify_daily_report",
 }

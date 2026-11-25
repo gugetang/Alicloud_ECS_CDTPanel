@@ -1085,6 +1085,12 @@ function ChannelCard({ kind, settings, saveSettings, run }: {
         <div style={{ marginTop: 12, paddingLeft: "2em" }}>
           <label>Bot Token</label><input type="password" id="tg-token" key={String(settings.telegram_configured)} defaultValue={settings.telegram_configured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, Boolean(settings.telegram_configured)); saveAll(); }} />
           <label>Chat ID</label><input id="tg-chat" defaultValue={String(settings.telegram_chat_id ?? "")} placeholder={t("如 123456789")} onBlur={saveAll} />
+          <div className="row" style={{ marginTop: 12 }}>
+            <span>{t("机器人控制")}</span><span className="spacer" />
+            <Toggle checked={settings.bot_enabled === "1"} label={t("机器人控制")}
+              onChange={(v) => saveSettings({ bot_enabled: v ? "1" : "0" })} />
+          </div>
+          <p className="muted">{t("开启后可用 Telegram 机器人控制实例，仅绑定 Chat ID 可用。")}</p>
         </div>
       )}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}>
@@ -2771,8 +2777,8 @@ export default function App() {
               <Toggle checked={drEnabled} label={t("启用每日推送")}
                 onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} />
             </div>
-            {(["instance_status", "threshold_alarm", "update_available"] as const).map((k) => {
-              const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
+            {(["instance_status", "threshold_alarm", "group_change", "update_available"] as const).map((k) => {
+              const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), group_change: t("分组动态"), update_available: t("面板更新") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />
