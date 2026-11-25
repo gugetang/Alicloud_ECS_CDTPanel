@@ -80,8 +80,9 @@ def test_list_keyboard_dots_only_names(monkeypatch):
         {"id": 6, "name": "A6", "status_dot": "red_pulse", "status_label": "停止中"},
     ]
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
-    text, kb = botmod._cmd_list([])
-    assert text.startswith("实例列表")
+    text, kb = botmod._cmd_list(_settings(site_name="Alicloud-CDT"), [])
+    # 列表标题跟随站点名
+    assert text == "Alicloud-CDT"
     btns = [b for row in kb["inline_keyboard"] for b in row]
     assert [b["text"] for b in btns] == [
         "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6", "🏠 返回目录"]
@@ -108,8 +109,13 @@ def test_instance_detail_page(monkeypatch):
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
     monkeypatch.setattr(botmod.db, "list_groups",
                         lambda: [{"id": 2, "name": "Premium"}])
-    text, kb = botmod._instance_detail(rows[0])
-    assert text == "🟢 A1\n状态：在线\nIP：203.0.113.1\n分组：Premium"
+    text, kb = botmod._instance_detail(rows[0],
+                                       _settings(site_name="Alicloud-CDT"))
+    # 详情页标题跟随站点名；实例信息做成双行显示按钮（第 1 行圆点 + 名称，
+    # 第 2 行 IP；状态、分组两行已删），点了一点反应都没有
+    assert text == "Alicloud-CDT"
+    assert kb["inline_keyboard"][0] == [{"text": "🟢 A1\nIP：203.0.113.1",
+                                         "callback_data": "noop"}]
     btns = [(b["text"], b["callback_data"])
             for row in kb["inline_keyboard"] for b in row]
     # 运行中的 ECS：开关机 + 节省停机 + 更换 EIP + 返回上级/返回目录
@@ -120,22 +126,25 @@ def test_instance_detail_page(monkeypatch):
     assert ("⬅️ 返回", "menu:list") in btns
     assert ("🏠 返回目录", "menu:menu") in btns
     # 已停机：开机，没有节省停机；ECS 仍有更换 EIP
-    _, kb2 = botmod._instance_detail(rows[1])
+    _, kb2 = botmod._instance_detail(rows[1], _settings())
     btns2 = [(b["text"], b["callback_data"])
              for row in kb2["inline_keyboard"] for b in row]
+    assert kb2["inline_keyboard"][0][0]["text"] == "🔴 A2\nIP：203.0.113.2"
     assert ("开机", "power:2") in btns2
     assert not any(t == "节省停机" for t, _ in btns2)
     assert ("更换 EIP", "eip:2") in btns2
     # 轻量服务器：没有更换 EIP
-    _, kb3 = botmod._instance_detail(rows[2])
+    _, kb3 = botmod._instance_detail(rows[2], _settings())
     btns3 = [(b["text"], b["callback_data"])
              for row in kb3["inline_keyboard"] for b in row]
+    assert kb3["inline_keyboard"][0][0]["text"] == "🟢 SWAS\nIP：203.0.113.3"
     assert ("节省停机", "powersave:3") in btns3
     assert not any(t == "更换 EIP" for t, _ in btns3)
-    # /list 带名字参数直接进详情页
-    text3, _ = botmod._cmd_list(["A2"])
-    assert text3.startswith("🔴 A2")
-    assert botmod._cmd_list(["没有这台"])[0] == "找不到实例：没有这台"
+    # /list 带名字参数直接进详情页（标题跟随站点名，信息在双行显示按钮里）
+    text3, kb4 = botmod._cmd_list(_settings(site_name="Alicloud-CDT"), ["A2"])
+    assert text3 == "Alicloud-CDT"
+    assert kb4["inline_keyboard"][0][0]["text"] == "🔴 A2\nIP：203.0.113.2"
+    assert botmod._cmd_list(_settings(), ["没有这台"])[0] == "找不到实例：没有这台"
 
 
 def test_keyboard_two_per_row_back_row_at_bottom(monkeypatch):
@@ -159,15 +168,17 @@ def test_keyboard_two_per_row_back_row_at_bottom(monkeypatch):
     monkeypatch.setattr(botmod.db, "list_groups",
                         lambda: [{"id": 2, "name": "Premium"}])
     # 实例列表：实例每行两个，最底部只有返回目录
-    _, kb_list = botmod._cmd_list([])
+    _, kb_list = botmod._cmd_list(_settings(), [])
     assert [[b["text"] for b in row]
             for row in kb_list["inline_keyboard"]] == [
         ["🟢 A1", "🟡 A2"], ["🔴 A3"], ["🏠 返回目录"]]
-    # 实例详情：操作按钮每行两个，最底部一行是返回（左）+ 返回目录（右）
-    _, kb_det = botmod._instance_detail(rows[0])
+    # 实例详情：最上面是双行显示按钮（圆点 + 名称 / IP），操作按钮每行两个，
+    # 最底部一行是返回（左）+ 返回目录（右）
+    _, kb_det = botmod._instance_detail(rows[0], _settings())
     assert [[b["text"] for b in row]
             for row in kb_det["inline_keyboard"]] == [
-        ["关闭", "节省停机"], ["更换 EIP"], ["⬅️ 返回", "🏠 返回目录"]]
+        ["🟢 A1\nIP：203.0.113.1"], ["关闭", "节省停机"], ["更换 EIP"],
+        ["⬅️ 返回", "🏠 返回目录"]]
 
 
 def test_power_label():
@@ -253,28 +264,40 @@ def _make_group(tmpdb):
 
 def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     g, a1, a2, d = _make_group(tmpdb)
-    text, kb = botmod._cmd_groups(_settings(), [])
-    assert text.startswith("分组列表")
+    text, kb = botmod._cmd_groups(_settings(site_name="Alicloud-CDT"), [])
+    # 分组列表标题跟随站点名
+    assert text == "Alicloud-CDT"
     btns = [b for row in kb["inline_keyboard"] for b in row]
     # 库里除了 Premium 还有默认分组（id=1，init_db 自带）
     assert [(b["text"], b["callback_data"]) for b in btns] == [
         ("默认分组", "group:1"), ("Premium", f"group:{g['id']}"),
         ("🏠 返回目录", "menu:menu")]
-    # 子菜单：分组信息 + 成员只显示（在线/排队中，带圆点，当前服务有标记，
-    # 不可点——负载均衡控制，手动切换无效）+ 返回上级/返回目录（图标）
-    text2, kb2 = botmod._group_detail(g, _settings())
-    assert "【Premium】（负载均衡）" in text2
-    assert "域名：premium.example.xyz" in text2
-    assert "当前服务：A1" in text2
-    assert "🟢 A1（当前服务）" in text2
-    assert "🟡 A2" in text2
+    # 子菜单：标题跟随站点名；分组信息做成双行显示按钮（第 1 行【分组名】
+    # （模式），第 2 行域名；“当前服务”“成员”两行已删）+ 成员做成按钮但
+    # 不可点（在线/排队中，带圆点；noop 回调，点了一点反应都没有）
+    # + 返回上级/返回目录（图标，最底部一行）
+    text2, kb2 = botmod._group_detail(g, _settings(site_name="Alicloud-CDT"))
+    assert text2 == "Alicloud-CDT"
+    assert "当前服务" not in text2 and "成员：" not in text2
+    assert "A1" not in text2 and "A2" not in text2
     btns2 = [b for row in kb2["inline_keyboard"] for b in row]
-    # 成员不是按钮：键盘里只有返回
+    # 分组信息是双行显示按钮，成员是按钮（不可选中）：键盘里是信息按钮 +
+    # 成员按钮 + 返回
     assert [(b["text"], b["callback_data"]) for b in btns2] == [
+        ("【Premium】（负载均衡）\n域名：premium.example.xyz", "noop"),
+        ("🟢 A1", "noop"), ("🟡 A2", "noop"),
         ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
-    # /groups 带名字参数直接进子菜单
-    text3, _ = botmod._cmd_groups(_settings(), ["Premium"])
-    assert "【Premium】" in text3
+    # 信息按钮独占一行，成员按钮每行两个，返回在最底部一行（左）+ 返回目录（右）
+    assert [[b["text"] for b in row]
+            for row in kb2["inline_keyboard"]] == [
+        ["【Premium】（负载均衡）\n域名：premium.example.xyz"],
+        ["🟢 A1", "🟡 A2"], ["⬅️ 返回", "🏠 返回目录"]]
+    # /groups 带名字参数直接进子菜单（标题跟随站点名，信息在双行显示按钮里）
+    text3, kb3 = botmod._cmd_groups(_settings(site_name="Alicloud-CDT"),
+                                     ["Premium"])
+    assert text3 == "Alicloud-CDT"
+    assert kb3["inline_keyboard"][0][0]["text"] == (
+        "【Premium】（负载均衡）\n域名：premium.example.xyz")
     assert botmod._cmd_groups(_settings(), ["没有这组"])[0] == "找不到分组：没有这组"
 
 
@@ -385,7 +408,7 @@ def test_back_buttons_and_action_callbacks(monkeypatch):
 
 def test_group_detail_only_online_or_queued(monkeypatch):
     # 分组子菜单只显示在线/排队中的成员（带圆点）；已停机/离队的不显示。
-    # 成员是纯文本行，不是按钮（负载均衡控制，不可操作）。
+    # 成员做成按钮但不可选中（noop 回调，点了一点反应都没有）。
     rows = [
         {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
          "instance_status": "Running", "public_ip": "203.0.113.1",
@@ -402,20 +425,27 @@ def test_group_detail_only_online_or_queued(monkeypatch):
     ]
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
     g = {"id": 2, "name": "Premium", "switch_mode": "load_balance"}
-    text, kb = botmod._group_detail(g, _settings())
-    assert "🟢 A1" in text
-    assert "🟡 A2" in text
+    text, kb = botmod._group_detail(g, _settings(site_name="Alicloud-CDT"))
+    # 标题跟随站点名；成员不在正文里（在按钮里），分组信息在双行显示按钮里
+    assert text == "Alicloud-CDT"
+    assert "A1" not in text and "A2" not in text
     assert "A3" not in text
     assert "A4" not in text
+    info = kb["inline_keyboard"][0][0]
+    assert info["text"].startswith("【Premium】（负载均衡）\n域名：")
+    assert info["callback_data"] == "noop"
     assert [(b["text"], b["callback_data"])
-            for row in kb["inline_keyboard"] for b in row] == [
+            for row in kb["inline_keyboard"][1:] for b in row] == [
+        ("🟢 A1", "noop"), ("🟡 A2", "noop"),
         ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
-    # 全是在线/排队中之外的成员：提示 + 只有返回按钮
+    # 全是在线/排队中之外的成员：提示做成显示按钮 + 只有返回按钮
     for r in rows:
         r["status_label"] = "已停机"
         r["status_dot"] = "red"
-    text2, kb2 = botmod._group_detail(g, _settings())
-    assert "暂无在线或排队中的成员" in text2
+    text2, kb2 = botmod._group_detail(g, _settings(site_name="Alicloud-CDT"))
+    assert text2 == "Alicloud-CDT"
     assert [(b["text"], b["callback_data"])
             for row in kb2["inline_keyboard"] for b in row] == [
+        (kb2["inline_keyboard"][0][0]["text"], "noop"),
+        ("暂无在线或排队中的成员", "noop"),
         ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]

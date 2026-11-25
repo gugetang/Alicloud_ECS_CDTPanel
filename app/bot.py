@@ -259,45 +259,50 @@ def _status_dot(r: dict) -> str:
     return STATUS_DOTS.get(r.get("status_dot") or "", "⚪")
 
 
-def _cmd_list(args: list[str]):
-    """实例列表：只显示名称，名称前圆点表示状态；点一台进详情页开关机。"""
+def _site_name(settings: dict) -> str:
+    """页面标题跟随站点名（全局设置里的站点名称）。"""
+    return (settings.get("site_name") or "CDT 面板").strip()
+
+
+def _cmd_list(settings: dict, args: list[str]):
+    """实例列表：只显示名称，名称前圆点表示状态；点一台进详情页开关机。
+    标题跟随站点名。"""
     if args:
         a = _resolve_account(args[0])
         if not a:
             return f"找不到实例：{args[0]}", None
-        return _instance_detail(a)
+        return _instance_detail(a, settings)
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
     kb_rows = _pair_rows([(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")
                          for r in rows])
     kb_rows.append(_back_row())
-    return "实例列表\n点一台查看详情开关机：", _kb(kb_rows)
+    return _site_name(settings), _kb(kb_rows)
 
 
 def _back_to_menu() -> dict:
     return _kb([[("🏠 返回目录", "menu:menu")]])
 
 
-def _instance_detail(a: dict):
-    """实例详情页：名称/状态/IP/分组 + 开关机、节省停机、更换 EIP
-    + 返回实例列表/返回目录。更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）。"""
+def _instance_detail(a: dict, settings: dict):
+    """实例详情页：标题跟随站点名；实例信息做成双行显示按钮（只显示，
+    不可点）：第 1 行圆点 + 名称，第 2 行 IP；状态、分组两行已删。
+    下面是开关机、节省停机、更换 EIP + 返回实例列表/返回目录。
+    更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
-    groups = {g["id"]: g["name"] for g in db.list_groups()}
-    gids = r.get("group_ids") or []
-    gname = groups.get(gids[0], "未分组") if gids else "未分组"
-    label = r.get("status_label") or r.get("instance_status") or "未知"
-    text = (f"{_status_dot(r)} {r['name']}\n状态：{label}"
-            f"\nIP：{r.get('public_ip') or '-'}\n分组：{gname}")
+    info = (f"{_status_dot(r)} {r['name']}"
+            f"\nIP：{r.get('public_ip') or '-'}")
     actions = [(_power_label(r), f"power:{r['id']}")]
     if (r.get("instance_status") or "").strip() == "Running":
         actions.append(("节省停机", f"powersave:{r['id']}"))
     if not is_swas_instance_id(r.get("instance_id")):
         actions.append(("更换 EIP", f"eip:{r['id']}"))
-    kb_rows = _pair_rows(actions)
+    kb_rows = [[(info, "noop")]]
+    kb_rows.extend(_pair_rows(actions))
     kb_rows.append(_back_row("menu:list"))
-    return text, _kb(kb_rows)
+    return _site_name(settings), _kb(kb_rows)
 
 
 def _power_label(a: dict) -> str:
@@ -359,7 +364,8 @@ def _do_replace_eip(aid: int) -> str:
 
 
 def _cmd_groups(settings: dict, args: list[str]):
-    """分组列表：只显示分组名；点一个分组进子菜单看成员（只显示，不可操作）。"""
+    """分组列表：只显示分组名；点一个分组进子菜单看成员（只显示，不可操作）。
+    标题跟随站点名。"""
     groups = db.list_groups()
     if not groups:
         return "暂无分组", None
@@ -370,42 +376,39 @@ def _cmd_groups(settings: dict, args: list[str]):
         return _group_detail(g, settings)
     kb_rows = _pair_rows([(g["name"], f"group:{g['id']}") for g in groups])
     kb_rows.append(_back_row())
-    return "分组列表\n点一个分组查看成员：", _kb(kb_rows)
+    return _site_name(settings), _kb(kb_rows)
 
 
 def _group_detail(group: dict, settings: dict):
-    """分组子菜单：分组信息 + 成员列表（只显示，不可点）+ 返回。
+    """分组子菜单：标题跟随站点名；分组信息做成双行显示按钮（只显示，
+    不可点）：第 1 行【分组名】（模式），第 2 行域名。
     成员只列在线/排队中的（带状态圆点），由负载均衡控制当前服务实例，
-    手动切换无效，所以成员不做按钮。"""
+    手动切换无效，所以成员按钮点了一点反应都没有（noop 回调）。
+    “当前服务”“成员”这两行字已删掉。"""
     gid = group["id"]
     domains = db.list_domains()
-    accounts = {a["id"]: a for a in db.list_accounts()}
     doms = [d for d in domains if d.get("group_id") == gid]
     d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0] if doms else None
     members = _group_members(gid)
-    current = accounts.get(d.get("current_account_id")) if d else None
-    lines = [f"【{group['name']}】（{_group_mode_label(group, settings)}）",
-             f"域名：{d['name'] if d else '无'}"]
-    if current:
-        lines.append(f"当前服务：{current['name']}")
-    elif d and d.get("fallback_active"):
-        lines.append("当前服务：备用地址")
-    else:
-        lines.append("当前服务：无")
-    lines.append(f"成员：{len(members)}")
-    back = _kb([_back_row("menu:groups")])
+    info = (f"【{group['name']}】（{_group_mode_label(group, settings)}）"
+            f"\n域名：{d['name'] if d else '无'}")
+    kb_rows = [[(info, "noop")]]
     if not members:
-        return "\n".join(lines) + "\n该分组没有成员", back
-    current_id = d.get("current_account_id") if d else None
+        kb_rows.append([("该分组没有成员", "noop")])
+        kb_rows.append(_back_row("menu:groups"))
+        return _site_name(settings), _kb(kb_rows)
     # 只显示在线/排队中的成员（带状态圆点）；已停机/离队/离线的不显示。
     shown = [m for m in members
              if m.get("status_label") in ("在线", "排队中")]
     if not shown:
-        return "\n".join(lines) + "\n暂无在线或排队中的成员", back
-    for m in shown:
-        mark = "（当前服务）" if m["id"] == current_id else ""
-        lines.append(f"{_status_dot(m)} {m['name']}{mark}")
-    return "\n".join(lines), back
+        kb_rows.append([("暂无在线或排队中的成员", "noop")])
+        kb_rows.append(_back_row("menu:groups"))
+        return _site_name(settings), _kb(kb_rows)
+    # 成员做成按钮但不可选中：点一下只消掉加载圈，不做任何事（noop 回调）。
+    kb_rows.extend(_pair_rows([(f"{_status_dot(m)} {m['name']}", "noop")
+                              for m in shown]))
+    kb_rows.append(_back_row("menu:groups"))
+    return _site_name(settings), _kb(kb_rows)
 
 
 def _cmd_timers(settings: dict) -> str:
@@ -455,9 +458,9 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
         return _cmd_start(), None
     if cmd == "menu":
         # 主菜单标题就是站点名（跟随全局设置里的站点名称）。
-        return (settings.get("site_name") or "CDT 面板").strip(), _menu_keyboard()
+        return _site_name(settings), _menu_keyboard()
     if cmd == "list":
-        return _cmd_list(args)
+        return _cmd_list(settings, args)
     if cmd == "groups":
         return _cmd_groups(settings, args)
     if cmd == "timers":
@@ -508,9 +511,12 @@ def _handle_callback(settings: dict, callback: dict) -> None:
     def refresh_detail(aid: int):
         a = next((x for x in _public_accounts() if x["id"] == aid), None)
         if a:
-            reply, markup = _instance_detail(a)
+            reply, markup = _instance_detail(a, settings)
             show(reply, markup)
 
+    if data == "noop":
+        # 展示用按钮（分组子菜单的成员）：点了一点反应都没有。
+        return
     if data.startswith("menu:"):
         key = data[5:]
         mapping = {"menu": "menu", "list": "list", "groups": "groups",
@@ -529,7 +535,7 @@ def _handle_callback(settings: dict, callback: dict) -> None:
         if not a:
             show("实例不存在", None)
             return
-        reply, markup = _instance_detail(a)
+        reply, markup = _instance_detail(a, settings)
         show(reply, markup)
     elif data.startswith("power:"):
         try:
