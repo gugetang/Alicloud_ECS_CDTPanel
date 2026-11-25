@@ -987,31 +987,36 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
 
 // ---------------- 通知渠道卡片：Email / Telegram 各一个框体 ----------------
 // 左上角依次列排列启用按键（选中蓝、未选灰）；每日财报设置与测试都放在框体内；
-// ---------------- 每日推送卡片（通知设置最上面）：开关 + 推送时间，二个渠道共用 ----------------
-function DailyReportCard({ drEnabled, drTime, setDrEnabled, setDrTime, saveSettings }: {
-  drEnabled: boolean; drTime: string;
-  setDrEnabled: (v: boolean) => void; setDrTime: (v: string) => void;
+// ---------------- 推送时间卡片（通知设置最上面）：推送时间，二个渠道共用 ----------------
+function DailyReportCard({ drTime, setDrTime, saveSettings, showError }: {
+  drTime: string;
+  setDrTime: (v: string) => void;
   saveSettings: (patch: Any) => Promise<void>;
+  showError: (s: string) => void;
 }) {
   const { t } = useI18n();
-  // 推送时间下拉：每半小时一档；已有时间不在档位里时（如 08:15）也保留为可选项，不丢配置。
-  const timeOptions = (() => {
-    const opts: string[] = [];
-    for (let h = 0; h < 24; h++) for (const m of ["00", "30"]) opts.push(`${String(h).padStart(2, "0")}:${m}`);
-    const cur = (drTime || "00:00").slice(0, 5);
-    if (!opts.includes(cur)) opts.unshift(cur);
-    return opts;
-  })();
+  const saved = (drTime || "00:00").slice(0, 5);
+  // 推送时间手动输入：失焦/回车时校验 HH:MM，合法才保存；非法恢复原值并提示。
+  const commitTime = (el: HTMLInputElement) => {
+    const v = el.value.trim();
+    if (v === saved) return;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) {
+      el.value = saved;
+      showError(t("时间格式不正确，请用 HH:MM，例如 08:15"));
+      return;
+    }
+    setDrTime(v);
+    saveSettings({ daily_report_time: v });
+  };
   return (
-    <div className="card"><h2>{t("每日推送")}</h2>
+    <div className="card"><h2>{t("推送时间")}</h2>
       <div style={{ paddingLeft: "2em" }}>
-        <div className="row"><span>{t("每天固定时间推送一次每日财报。")}</span><span className="spacer" />
-          <Toggle checked={drEnabled} label={t("启用每日推送")} onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} /></div>
+        <span>{t("每天固定时间推送一次每日财报。")}</span>
         <div style={{ marginTop: 12 }}>
           <label>{t("推送时间")}</label>
-          <select value={(drTime || "00:00").slice(0, 5)} style={{ maxWidth: 160 }} onChange={(e) => { setDrTime(e.target.value); saveSettings({ daily_report_time: e.target.value }); }}>
-            {timeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
+          <input key={saved} defaultValue={saved} inputMode="numeric" placeholder="HH:MM" style={{ maxWidth: 160 }}
+            onBlur={(e) => commitTime(e.currentTarget)}
+            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
         </div>
       </div>
     </div>
@@ -1092,9 +1097,8 @@ function ChannelCard({ kind, settings, saveSettings, run }: {
             return res;
           }, t("Telegram 连接正常"))} title={t("检测连接")}>{t("检测连接")}</button>
         )}
-        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test", { event: "error", channel: kind }), t("测试通知已发送到{title}", { title }))}>{t("发送测试通知")}</button>
-        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试财报已发送到{title}", { title }))}>{t("发送测试财报")}</button>
-        <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送日报")}</button>
+        <button className="btn ghost" onClick={() => run(() => testSend("/api/notify/test-daily", { channel: kind }), t("测试已发送到{title}", { title }))}>{t("发送测试")}</button>
+        <button className="btn" onClick={() => run(() => testSend("/api/notify/send-daily", { channel: kind }), t("日报已手动推送到{title}", { title }))}>{t("立即推送")}</button>
       </div>
     </div>
   );
@@ -2756,14 +2760,19 @@ export default function App() {
 
       {tab === "config" && subTab === "notify" && (
         <>
-          <DailyReportCard drEnabled={drEnabled} drTime={drTime}
-            setDrEnabled={setDrEnabled} setDrTime={setDrTime} saveSettings={saveSettings} />
+          <DailyReportCard drTime={drTime}
+            setDrTime={setDrTime} saveSettings={saveSettings} showError={showError} />
           <ChannelCard kind="telegram" settings={settings} saveSettings={saveSettings} run={run} />
           <ChannelCard kind="email" settings={settings} saveSettings={saveSettings} run={run} />
           <div className="card"><h2>{t("通知事件")}</h2>
             <p className="muted">{t("应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。")}</p>
-            {(["traffic_protection", "dns_change", "fallback", "exclusion", "error", "recovery", "instance_start", "instance_stop", "threshold_alarm", "update_available", "eip_replace"] as const).map((k) => {
-              const label = ({ traffic_protection: t("流量保护"), dns_change: t("DNS 指向变化"), fallback: t("备用地址启用及恢复"), exclusion: t("排除操作完成"), error: t("查询及操作异常"), recovery: t("故障恢复"), instance_start: t("实例启动"), instance_stop: t("实例停机"), threshold_alarm: t("阈值报警"), update_available: t("面板更新"), eip_replace: t("更换 EIP") } as Any)[k] as string;
+            <div className="row" style={{ padding: "6px 0 6px 2em" }}>
+              <span>{t("启用每日推送")}</span><span className="spacer" />
+              <Toggle checked={drEnabled} label={t("启用每日推送")}
+                onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} />
+            </div>
+            {(["instance_status", "threshold_alarm", "update_available"] as const).map((k) => {
+              const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), update_available: t("面板更新") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>
                   <span>{label}</span><span className="spacer" />

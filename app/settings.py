@@ -93,19 +93,11 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "google_oauth_client_secret": "",
     "github_oauth_client_id": "",
     "github_oauth_client_secret": "",
-    # 通知事件开关（截图 6 项）
-    "notify_traffic_protection": "1",
-    "notify_dns_change": "1",
-    "notify_fallback": "1",
-    "notify_exclusion": "1",
-    "notify_error": "1",
-    "notify_recovery": "1",
-    # 新增推送事件（默认全部开启）：实例启动 / 实例停机 / 阈值报警（80%）
-    "notify_instance_start": "1",
-    "notify_instance_stop": "1",
+    # 通知事件开关：实例状态（启动/停机/删除/EIP 更换）/ 阈值报警 / 面板更新，
+    # 默认全部开启。流量保护、DNS 指向变化、备用地址、排除操作、查询及操作
+    # 异常、故障恢复只记日志、不推送（见 LOG_ONLY_EVENTS）。
+    "notify_instance_status": "1",
     "notify_threshold_alarm": "1",
-    # 更换 EIP：成功与失败都推（失败走 error 事件，见 api.replace_eip）
-    "notify_eip_replace": "1",
     # 面板更新：发现新版本时推送一次（每个版本只推一次）
     "notify_update_available": "1",
     # 每日推送：每天 daily_report_time（默认 00:00）推送一次，
@@ -138,17 +130,26 @@ DEFAULT_SETTINGS: dict[str, str] = {
     "webdav_password": "",
 }
 
+# 只记日志、不推送的事件：调度器/引擎照常记 db 事件（日志统计里能看到），
+# Notifier.enabled() 对它们返回 False，所以不发 Telegram/邮件。
+# force=True 的手动测试通知不受影响（见 notify.send）。
+LOG_ONLY_EVENTS = {
+    "traffic_protection",
+    "dns_change",
+    "fallback",
+    "exclusion",
+    "error",
+    "recovery",
+}
+
 EVENT_TOGGLE_KEYS = {
-    "traffic_protection": "notify_traffic_protection",
-    "dns_change": "notify_dns_change",
-    "fallback": "notify_fallback",
-    "exclusion": "notify_exclusion",
-    "error": "notify_error",
-    "recovery": "notify_recovery",
-    "instance_start": "notify_instance_start",
-    "instance_stop": "notify_instance_stop",
+    # 实例状态：启动、停机（含节省停机）、删除、EIP 更换（成功与失败）
+    # 共用一个开关 notify_instance_status。
+    "instance_start": "notify_instance_status",
+    "instance_stop": "notify_instance_status",
+    "instance_delete": "notify_instance_status",
+    "eip_replace": "notify_instance_status",
     "threshold_alarm": "notify_threshold_alarm",
-    "eip_replace": "notify_eip_replace",
     "update_available": "notify_update_available",
     "daily_report": "notify_daily_report",
 }

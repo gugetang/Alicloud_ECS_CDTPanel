@@ -19,15 +19,14 @@ class FakeResp:
 
 def _settings(**over):
     s = {"telegram_enabled": "1", "telegram_token": "tok123",
-         "telegram_chat_id": "123456789", "notify_proxy": "",
-         "notify_error": "1"}
+         "telegram_chat_id": "123456789", "notify_proxy": ""}
     s.update(over)
     return s
 
 
 def test_send_test_bypasses_event_toggle(monkeypatch):
-    """“发送测试通知”走 event=error：即使 notify_error 开关关了，
-    force=True 的测试也要照发（以前被开关拦住，点了也收不到）。"""
+    """“发送测试”走 event=error：error 事件只记日志、不推送，
+    但 force=True 的手动测试仍要照发（否则点了也收不到）。"""
     posted: list = []
 
     def fake_post(url, json=None, proxies=None, timeout=None):
@@ -35,8 +34,8 @@ def test_send_test_bypasses_event_toggle(monkeypatch):
         return FakeResp(200, {"ok": True})
 
     monkeypatch.setattr("app.notify.requests.post", fake_post)
-    n = Notifier(_settings(notify_error="0"))
-    # 非 force：事件开关关了，不发
+    n = Notifier(_settings())
+    # 非 force：error 只记日志，不发
     assert n.send("error", "t", "b") == []
     assert posted == []
     # force（测试）：跳过事件开关，照发
@@ -125,7 +124,8 @@ def tmpdb(tmp_path):
 
 
 def test_api_test_notify_bypasses_toggle(tmpdb, monkeypatch):
-    """接口层：notify_error 开关关了，POST /api/notify/test 仍要发 TG。"""
+    """接口层：error 事件只记日志，但 POST /api/notify/test（发送测试）
+    用 force=True，仍要发 TG。"""
     from fastapi.testclient import TestClient
     from app.main import create_app
 
@@ -134,7 +134,7 @@ def test_api_test_notify_bypasses_toggle(tmpdb, monkeypatch):
 
     monkeypatch.setattr("app.notify.requests.post", fake_post)
     tmpdb.set_settings({"telegram_enabled": "1", "telegram_token": "tok123",
-                           "telegram_chat_id": "123", "notify_error": "0"})
+                           "telegram_chat_id": "123"})
     client = TestClient(create_app())
     r = client.post("/api/notify/test", json={"event": "error", "channel": "telegram"})
     assert r.status_code == 200
