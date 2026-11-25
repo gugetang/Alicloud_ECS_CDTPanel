@@ -1024,6 +1024,7 @@ SWITCH_RULE_LABELS = {
     "dynamic_switch": "动态切换",
     "daily_window": "每日开机窗口",
     "threshold_eviction": "阈值踢出",
+    "manual": "手动切换",
 }
 
 

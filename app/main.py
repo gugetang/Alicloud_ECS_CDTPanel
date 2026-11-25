@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db, scheduler, settings
+from . import bot, db, scheduler, settings
 from .api import router
 
 BASE = Path(__file__).resolve().parent
@@ -58,8 +58,11 @@ async def lifespan(app: FastAPI):
     关闭时停掉。CDT_NO_SCHEDULER=1 时不启动调度（测试/单次任务用）。"""
     if os.environ.get("CDT_NO_SCHEDULER") != "1":
         scheduler.start()
+        # 机器人控制线程随调度一起启停；是否轮询由 bot_enabled 开关决定
+        bot.start()
     yield
     # P0-01：停机时等调度线程退出（带超时），避免打断正在执行的 Plan。
+    bot.stop()
     scheduler.stop()
 
 
