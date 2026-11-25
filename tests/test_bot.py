@@ -406,6 +406,59 @@ def test_back_buttons_and_action_callbacks(monkeypatch):
                                            "callback_data": "menu:menu"}]]
 
 
+def test_same_title_different_keyboard_still_edits(monkeypatch):
+    # 回归：各页标题都跟随站点名，文字相同是常态；只比文字会把换页
+    # 误判成没变化，导致点列表/分组/实例都没反应。文字相同但按钮
+    # 不同时仍要就地改消息；文字和按钮都相同才跳过。
+    rows = [
+        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
+         "instance_status": "Running", "public_ip": "203.0.113.1",
+         "group_ids": [2], "instance_id": "i-aaa"},
+    ]
+    monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
+    sent = []
+    edited = []
+    monkeypatch.setattr(botmod, "_send", lambda s, t, m=None: sent.append((t, m)))
+    monkeypatch.setattr(botmod, "_edit",
+                        lambda s, c, mid, t, m=None: edited.append((t, m)) or True)
+    monkeypatch.setattr(botmod, "_answer_callback", lambda *a, **k: None)
+    settings = _settings(site_name="Alicloud-CDT")
+    # 主菜单（标题=站点名）点实例列表：文字不变，但按钮变了，必须改消息
+    menu_kb = botmod._menu_keyboard()
+    botmod._handle_callback(settings,
+                            {"id": "cb1", "data": "menu:list",
+                             "message": {"chat": {"id": 123456789},
+                                         "message_id": 99,
+                                         "text": "Alicloud-CDT",
+                                         "reply_markup": menu_kb}})
+    assert not sent
+    assert edited and edited[0][0] == "Alicloud-CDT"
+    data = [b["callback_data"] for row in edited[0][1]["inline_keyboard"] for b in row]
+    assert "detail:1" in data
+    # 已在列表页再点实例列表：文字和按钮都没变，才跳过（不改也不发）
+    edited.clear()
+    sent.clear()
+    _text, list_kb = botmod._cmd_list(settings, [])
+    botmod._handle_callback(settings,
+                            {"id": "cb2", "data": "menu:list",
+                             "message": {"chat": {"id": 123456789},
+                                         "message_id": 99,
+                                         "text": "Alicloud-CDT",
+                                         "reply_markup": list_kb}})
+    assert not sent and not edited
+    # 列表页点一台实例进详情：文字仍是站点名，但按钮变了，必须改消息
+    botmod._handle_callback(settings,
+                            {"id": "cb3", "data": "detail:1",
+                             "message": {"chat": {"id": 123456789},
+                                         "message_id": 99,
+                                         "text": "Alicloud-CDT",
+                                         "reply_markup": list_kb}})
+    assert not sent
+    assert edited and edited[0][0] == "Alicloud-CDT"
+    data = [b["callback_data"] for row in edited[0][1]["inline_keyboard"] for b in row]
+    assert "power:1" in data
+
+
 def test_group_detail_only_online_or_queued(monkeypatch):
     # 分组子菜单只显示在线/排队中的成员（带圆点）；已停机/离队的不显示。
     # 成员做成按钮但不可选中（noop 回调，点了一点反应都没有）。
