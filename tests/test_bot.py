@@ -300,13 +300,13 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     # 分组信息是双行显示按钮，成员是按钮（不可选中）：键盘里是信息按钮 +
     # 成员按钮 + 返回
     assert [(b["text"], b["callback_data"]) for b in btns2] == [
-        ("【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）\n域名：premium.example.xyz", "noop"),
+        ("【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）", "noop"),
         ("🟢 𝐀𝟏\nIP：203.0.*.*", "noop"), ("🟡 𝐀𝟐\nIP：203.0.*.*", "noop"),
         ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
     # 信息按钮独占一行，成员按钮每行两个，返回在最底部一行（左）+ 返回目录（右）
     assert [[b["text"] for b in row]
             for row in kb2["inline_keyboard"]] == [
-        ["【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）\n域名：premium.example.xyz"],
+        ["【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）"],
         ["🟢 𝐀𝟏\nIP：203.0.*.*", "🟡 𝐀𝟐\nIP：203.0.*.*"],
         ["⬅️ 返回", "🏠 返回目录"]]
     # /groups 带名字参数直接进子菜单（标题跟随站点名，信息在双行显示按钮里）
@@ -314,7 +314,7 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
                                      ["Premium"])
     assert text3 == "☁️ 𝐀𝐥𝐢𝐜𝐥𝐨𝐮𝐝-𝐂𝐃𝐓"
     assert kb3["inline_keyboard"][0][0]["text"] == (
-        "【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）\n域名：premium.example.xyz")
+        "【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）")
     assert botmod._cmd_groups(_settings(), ["没有这组"])[0] == "找不到分组：没有这组"
 
 
@@ -502,7 +502,7 @@ def test_group_detail_only_online_or_queued(monkeypatch):
     assert "A3" not in text
     assert "A4" not in text
     info = kb["inline_keyboard"][0][0]
-    assert info["text"].startswith("【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）\n域名：")
+    assert info["text"] == "【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）"
     assert info["callback_data"] == "noop"
     assert [(b["text"], b["callback_data"])
             for row in kb["inline_keyboard"][1:] for b in row] == [

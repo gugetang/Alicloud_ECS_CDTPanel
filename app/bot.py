@@ -511,18 +511,14 @@ def _cmd_groups(settings: dict, args: list[str]):
 
 
 def _group_detail(group: dict, settings: dict):
-    """分组子菜单：标题跟随站点名；分组信息做成双行显示按钮（只显示，
-    不可点）：第 1 行【分组名】（模式），第 2 行域名。
+    """分组子菜单：标题跟随站点名；分组信息做成单行显示按钮（只显示，
+    不可点）：【组名（加粗）】（模式，不加粗），域名不显示（太长会被截断）。
     成员只列在线/排队中的（带状态圆点），由负载均衡控制当前服务实例，
     手动切换无效，所以成员按钮点了一点反应都没有（noop 回调）。
     “当前服务”“成员”这两行字已删掉。"""
     gid = group["id"]
-    domains = db.list_domains()
-    doms = [d for d in domains if d.get("group_id") == gid]
-    d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0] if doms else None
     members = _group_members(gid)
-    info = (f"【{_bold(group['name'])}】（{_group_mode_label(group, settings)}）"
-            f"\n域名：{d['name'] if d else '无'}")
+    info = f"【{_bold(group['name'])}】（{_group_mode_label(group, settings)}）"
     kb_rows = [[(info, "noop")]]
     if not members:
         kb_rows.append([("该分组没有成员", "noop")])
