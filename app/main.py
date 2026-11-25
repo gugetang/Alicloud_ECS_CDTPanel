@@ -46,7 +46,7 @@ class _ProxyOnlyMiddleware:
             if client_ip not in self.loopback and not any(
                     h in headers for h in _PROXY_HEADERS):
                 resp = JSONResponse(
-                    {"detail": "请通过反代访问本站点"}, status_code=403)
+                    {"detail": "请通过域名访问本站点或联系管理员"}, status_code=403)
                 await resp(scope, receive, send)
                 return
         await self.app(scope, receive, send)

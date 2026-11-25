@@ -45,6 +45,7 @@ def test_direct_ip_access_rejected(client):
     # 浏览器直接打开 IP:端口：没有反代转发标识头 → 403。
     r = client.get("/api/health")
     assert r.status_code == 403
+    assert r.json() == {"detail": "请通过域名访问本站点或联系管理员"}
 
 
 def test_forwarded_for_allowed(client):
