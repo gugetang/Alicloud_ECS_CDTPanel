@@ -1443,7 +1443,7 @@ def send_daily(body: dict | None = None, _: bool = Depends(_admin_required)):
     """手动推送日报：正式手动推送，随时可推，按已启用渠道真发。
 
     与定时推送的区别：不读也不写定时推送的旗标
-    （daily_report_triggered / daily_report_sent）——
+    （daily_report_sent:<日期>:<时间>:<渠道>）——
     手动推送不占用/不消耗当天的定时一次（手动推完，定时时间到了照常再推；
     定时已推过，当天仍可手动再推）。全部账户跟随全局开关，
     记事件“手动推送日报”。"""

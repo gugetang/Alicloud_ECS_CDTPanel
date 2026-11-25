@@ -89,11 +89,11 @@ def test_daily_report_time_judged_by_selected_timezone(tmpdb):
                    dt.datetime(2026, 11, 21, 23, 0, tzinfo=SH).isoformat())
     assert scheduler._maybe_send_daily_report(
         s, dt.datetime(2026, 11, 22, 0, 5, tzinfo=SH)) is True
-    assert tmpdb.get_flag("daily_report_triggered:2026-11-22") != ""
+    assert tmpdb.get_flag("daily_report_handled:2026-11-22:00:00") != ""
     # 同一瞬间换 UTC 视角：now=11-21 16:05Z，上次检查 15:00Z 在当日
     # 00:00 之后（未跨过推送时刻）→ 不推
-    tmpdb.delete_flag("daily_report_triggered:2026-11-22")
-    tmpdb.delete_flag("daily_report_triggered:2026-11-21")
+    tmpdb.delete_flag("daily_report_handled:2026-11-22:00:00")
+    tmpdb.delete_flag("daily_report_handled:2026-11-21:00:00")
     tmpdb.set_flag("daily_report_last_check",
                    dt.datetime(2026, 11, 21, 15, 0,
                                tzinfo=dt.timezone.utc).isoformat())
