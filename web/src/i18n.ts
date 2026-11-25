@@ -104,7 +104,6 @@ export const EN: Record<string, string> = {
   "登录与安全、备份与恢复。": "Sign-in & security and backup & restore.",
   "管理 Cloudflare 域名，保留现有分配并按需切换账户。": "Manage Cloudflare domains, keeping current allocations and switching accounts as needed.",
   "每日推送与事件通知。可同时启用 E-Mail 和 Telegram。": "Daily report and event notifications. E-Mail and Telegram can both be enabled.",
-  "每天固定时间推送一次每日财报。": "Sends the daily report once a day at a fixed time.",
   "加载中…": "Loading…",
   // 区域名
   中国香港: "Hong Kong",
@@ -573,6 +572,7 @@ export const EN: Record<string, string> = {
   "Token 留空保存时保持不变，只有填了新值才更新。": "Leave Token blank when saving to keep it; it only updates when a new value is entered.",
   每日推送: "Daily push",
   推送时间: "Push time",
+  时间设置: "Time settings",
   "时间格式不正确，请用 HH:MM，例如 08:15": "Invalid time format. Use HH:MM, e.g. 08:15",
   "每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。": "Push once a day at this time, only to enabled channels. Changing the time saves automatically; if the new time has already passed today, it will push tomorrow instead of catching up today.",
   "{title}启用": "{title} enabled",

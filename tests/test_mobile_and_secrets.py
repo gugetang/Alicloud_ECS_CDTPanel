@@ -1198,6 +1198,9 @@ def test_daily_report_card_on_top_telegram_first_time_input():
     # 每日推送开关移到通知事件卡片（三个事件开关前面）；推送时间卡片里只剩时间输入
     assert "每日推送" not in daily
     assert "drEnabled" not in daily
+    # 推送时间卡片：说明文字已删；输入框上方的标签是“时间设置”（卡片标题仍是推送时间）
+    assert "每天固定时间推送一次每日财报" not in daily
+    assert '<label>{t("时间设置")}</label>' in daily
     assert notify.index('t("每日推送")') < notify.index('"instance_status"')
 
 
