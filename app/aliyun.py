@@ -307,13 +307,20 @@ class AliyunClient:
     # ReleaseEipAddress：RegionId、AllocationId 必填。
     # DescribeEipAddresses：RegionId 必填，InstanceId 可按实例过滤；
     # 返回 EipAddresses.EipAddress[]，每项有 AllocationId、IpAddress、
-    # Bandwidth（字符串）、InstanceId、Status（InUse/Available）。
+    # Bandwidth（字符串）、InstanceId、Status（InUse/Available），
+    # 在共享带宽包里的 EIP 还有 BandwidthPackageId。
+    # Add/RemoveCommonBandwidthPackageIp：RegionId、BandwidthPackageId、
+    # IpInstanceId（EIP 的 AllocationId，如 eip-xxx）必填；Add 还可带
+    # IpType=EIP。注意不是 IpAddress（IP 字符串）。Add 是异步操作，返回
+    # RequestId 后后台完成关联。
     def describe_eip_for_instance(self) -> dict | None:
         """查当前实例绑定的 EIP（ECS 才有）。返回
-        {"allocation_id", "ip", "bandwidth": int|None, "instance_id", "status"}，
+        {"allocation_id", "ip", "bandwidth": int|None,
+         "bandwidth_package_id": str|None, "instance_id", "status"}，
         未绑定返回 None。DescribeInstances 只给 IP 不给 AllocationId，
         必须另外调 DescribeEipAddresses；按 InstanceId 过滤后仍在本地
-        再按 InstanceId 校验一次，防止过滤参数不被接受时串台。"""
+        再按 InstanceId 校验一次，防止过滤参数不被接受时串台。
+        bandwidth_package_id 为空表示该 EIP 不在任何共享带宽包里。"""
         import json
         try:
             raw = self._common(_vpc_domain(self.region), VPC_VERSION,
@@ -337,6 +344,7 @@ class AliyunClient:
             return {"allocation_id": item.get("AllocationId") or "",
                     "ip": item.get("IpAddress") or "",
                     "bandwidth": bw,
+                    "bandwidth_package_id": item.get("BandwidthPackageId") or None,
                     "instance_id": item.get("InstanceId") or "",
                     "status": item.get("Status") or ""}
         return None
@@ -395,6 +403,35 @@ class AliyunClient:
                           "Bandwidth": str(bandwidth)})
         except Exception as exc:
             raise AliyunError(f"设置 EIP 带宽失败：{brief_error(exc)}") from exc
+
+    def add_eip_to_bandwidth_package(self, bandwidth_package_id: str,
+                                     allocation_id: str) -> None:
+        """把一个 EIP 加进共享带宽包（换 EIP 时新 EIP 跟旧 EIP 进同一个包）。
+        注意：传的是 EIP 的 AllocationId（IpInstanceId），不是 IP 地址。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "AddCommonBandwidthPackageIp", self.region,
+                         {"RegionId": self.region,
+                          "BandwidthPackageId": bandwidth_package_id,
+                          "IpInstanceId": allocation_id,
+                          "IpType": "EIP"})
+        except Exception as exc:
+            raise AliyunError(
+                f"加入共享带宽包失败：{brief_error(exc)}") from exc
+
+    def remove_eip_from_bandwidth_package(self, bandwidth_package_id: str,
+                                          allocation_id: str) -> None:
+        """把一个 EIP 移出共享带宽包（换 EIP 时旧 EIP 释放前先移出包）。
+        注意：传的是 EIP 的 AllocationId（IpInstanceId），不是 IP 地址。"""
+        try:
+            self._common(_vpc_domain(self.region), VPC_VERSION,
+                         "RemoveCommonBandwidthPackageIp", self.region,
+                         {"RegionId": self.region,
+                          "BandwidthPackageId": bandwidth_package_id,
+                          "IpInstanceId": allocation_id})
+        except Exception as exc:
+            raise AliyunError(
+                f"移出共享带宽包失败：{brief_error(exc)}") from exc
 
     def release_eip(self, allocation_id: str) -> None:
         """释放一个 EIP（须先解绑）。"""

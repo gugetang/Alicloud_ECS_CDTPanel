@@ -1052,11 +1052,13 @@ def _rollback_replace_eip(client, iid: str, old_alloc: str, old_ip: str,
 def replace_eip(aid: int, _: bool = Depends(_admin_required)):
     """更换一台 ECS 实例的 EIP，严格按以下顺序（用户定）：
     ① 申请新 EIP → ② 解绑旧 EIP → ③ 绑定新 EIP → ④ 带宽与旧 EIP 一致
-    → ⑤ 刷新实例 IP 并把 DNS 指向新 IP → ⑥ 释放旧 EIP。
+    → ⑤ 刷新实例 IP 并把 DNS 指向新 IP → ⑤b 共享带宽：旧 EIP 若在共享
+    带宽包里，先把旧 EIP 移出包、再把新 EIP 加进同一个包 → ⑥ 释放旧 EIP。
     仅 ECS：轻量服务器没有 EIP、实例当前未绑 EIP 的都直接报明确错误。
     ① 成功后后面任何一步失败都回滚（释放新 EIP、旧 EIP 尽量绑回），
     旧 EIP 只在 DNS 已切走后才释放；释放旧 EIP 失败不推翻已成功的结果，
-    只在返回里给 warning。"""
+    只在返回里给 warning。⑤b 放在 DNS 已切走后：失败也只告警不回滚，
+    新 IP 已生效，提示用户手动把新 EIP 加进共享带宽包。"""
     from .aliyun import is_swas_instance_id
 
     a, client, AliyunError = _account_client(aid)
@@ -1071,7 +1073,9 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
         raise HTTPException(400, "该实例当前未绑定 EIP，不能更换 EIP")
     old_ip, old_alloc = old["ip"], old["allocation_id"]
     old_bw = old.get("bandwidth")
-    log.info("更换 EIP %s：旧 %s（带宽 %s）", a["name"], old_ip, old_bw)
+    old_pkg = old.get("bandwidth_package_id")
+    log.info("更换 EIP %s：旧 %s（带宽 %s，共享带宽包 %s）",
+             a["name"], old_ip, old_bw, old_pkg or "无")
     # ① 申请新 EIP（失败则旧 IP 一点没动）
     try:
         new = client.allocate_eip(bandwidth=old_bw)
@@ -1112,15 +1116,34 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
         Notifier(db.get_settings()).send(
             "eip_replace", "更换 EIP 失败", f"{a['name']} 更换 EIP 失败：{exc}；{note}")
         raise HTTPException(400, f"更换 EIP 失败：{exc}；{note}")
+    # ⑤b 共享带宽：旧 EIP 若在共享带宽包里，先把旧 EIP 移出包（避免包内
+    # EIP 数量超限）、再把新 EIP 加进同一个包。放在 DNS 已切走后：失败只
+    # 告警，不回滚（新 IP 已生效）；不在包里时跳过。
+    warnings: list[str] = []
+    pkg_note = ""
+    if old_pkg:
+        try:
+            client.remove_eip_from_bandwidth_package(old_pkg, old_alloc)
+        except AliyunError as exc:
+            warnings.append(f"旧 EIP 移出共享带宽包失败（{exc}），请手动移出")
+        try:
+            client.add_eip_to_bandwidth_package(old_pkg, new_alloc)
+            pkg_note = f"；新 EIP 已加入共享带宽包 {old_pkg}"
+            log.info("更换 EIP %s：新 EIP %s 已加入共享带宽包 %s",
+                     a["name"], new_ip, old_pkg)
+        except AliyunError as exc:
+            warnings.append(f"新 EIP 加入共享带宽包失败（{exc}），请手动加入")
     # ⑥ 释放旧 EIP（DNS 已切走；释放失败只告警，不推翻已成功的结果）
-    warning = ""
     try:
         client.release_eip(old_alloc)
     except AliyunError as exc:
-        warning = f"旧 EIP {old_ip} 释放失败（{exc}），请手动释放"
+        warnings.append(f"旧 EIP {old_ip} 释放失败（{exc}），请手动释放")
+    warning = "；".join(warnings)
+    if warning:
         log.warning("更换 EIP %s：%s", a["name"], warning)
     db.add_event("info", "更换 EIP",
                  f"{a['name']} EIP 已更换：{old_ip} → {new_ip}"
+                 + pkg_note
                  + (f"；{warning}" if warning else ""),
                  account_id=aid)
     # 推送：EIP 已更换（开关默认开；DNS 域名与旧 EIP 释放告警写进正文）
@@ -1128,6 +1151,7 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
         "eip_replace", "EIP 已更换",
         f"{a['name']} EIP 已更换：{old_ip} → {new_ip}"
         + (f"；DNS 已切：{', '.join(dns_domains)}" if dns_domains else "")
+        + pkg_note
         + (f"；{warning}" if warning else ""))
     out = _public_row(db.get_account(aid))
     out.update({"old_ip": old_ip, "new_ip": new_ip,
