@@ -933,17 +933,17 @@ def test_parent_labels_16px_children_14px_and_no_two_line_label():
 
 def test_subsection_h3_indent_two_chars_under_card_title():
     # 子项 h3（登录与安全下的修改密码/指纹登录/Google 登录/GitHub 登录，
-    # 分组卡片的选择成员实例/域名选择，通知的每日推送）对应父项（卡片 h2
+    # 分组卡片的选择成员实例/域名选择）对应父项（卡片 h2
     # 标题）留 2 字符空位：h3 缩进 2em，与其下已缩进的内容对齐。应用全局。
     # 概览顶卡（实例状态/本月流量/当前费用）与弹窗标题是卡片主标题，不缩进。
+    # 每日推送已是单独卡片（h2 标题），不再是渠道卡片里的 h3 子项。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     for h3 in ['<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("修改密码")}</h3>',
                 '<h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("指纹登录")}</h3>',
                 '<h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("Google 登录")}</h3>',
                 '<h3 style={{ marginTop: 20, paddingLeft: "2em", fontSize: 14 }}>{t("GitHub 登录")}</h3>',
                 '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("选择成员实例")}</h3>',
-                '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("域名选择")}</h3>',
-                '<h3 style={{ margin: 0, paddingLeft: "2em", fontSize: 14 }}>{t("每日推送")}</h3>']:
+                '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("域名选择")}</h3>']:
         assert h3 in tsx, h3
     # 概览顶卡标题不缩进
     assert '<h3>{t("实例状态")}</h3>' in tsx
@@ -1144,9 +1144,9 @@ def test_settings_cards_use_parent_child_layout():
     # 备份与恢复、站点信息、货币结算、通知事件、DDNS 设置都一样（主题设置卡片已删）
     # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
-    # 通知渠道：字段区缩进；每日推送是 h3 子标题（14px）、其控件缩进
+    # 通知渠道：字段区缩进；每日推送是单独卡片（h2 标题），放通知设置最上面
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
-    assert '<h3 style={{ margin: 0, paddingLeft: "2em", fontSize: 14 }}>{t("每日推送")}</h3>' in tsx
+    assert '<div className="card"><h2>{t("每日推送")}</h2>' in tsx
     # 备份与恢复：按钮行缩进
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
@@ -1159,31 +1159,36 @@ def test_settings_cards_use_parent_child_layout():
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
 
 
-def test_daily_push_time_and_buttons_same_row_on_desktop():
-    # 每日推送：电脑端推送时间输入框与测试按钮同行显示（标签 + 时间框在左，
-    # 按钮组在右）；手机端上下分行（标签 + 时间框一行，按钮组下一行右对齐）。
-    # 只适用于电脑端（2026-11-24 用户截图要求）
+def test_daily_report_card_on_top_telegram_first_time_select():
+    # 通知设置：每日推送是单独卡片，放最上面（Telegram 卡片前面）；
+    # Telegram 卡片在 E-Mail 卡片前面；推送时间是下拉框（每半小时一档），
+    # 不再是 time 输入框；渠道卡片里不再有每日推送开关/时间。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 时间框与按钮组在同一个 .daily-push-row 里
-    assert 'className="row daily-push-row"' in tsx
-    row = tsx.split('className="row daily-push-row"')[1].split("</div>\n        </div>")[0]
-    assert '<label>{t("推送时间")}</label>' in row
-    assert '<input type="time"' in row
-    assert '>{t("发送测试通知")}' in row
-    assert '>{t("立即推送日报")}' in row
-    # 不再有单独的卡片底行按钮 div
-    assert 'className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}' not in tsx.split("function ChannelCard")[1].split("function LoginSecurity")[0]
-    # CSS：桌面端横排（.row 默认 flex），手机端纵排
-    assert ".daily-push-row { align-items:center; }" in css
-    assert ".daily-push-row input[type=\"time\"] { width:auto; flex:none; }" in css
-    # 手机端规则在包含 .daily-push-row 的 @media (max-width:800px) 块里
-    # （文件里有多个同名 media 块，取包含 daily-push-row 的那一个）
-    mobile_blocks = css.split("@media (max-width:800px)")[1:]
-    mobile = next(b for b in mobile_blocks if ".daily-push-row" in b.split("@media")[0])
-    assert ".daily-push-row { flex-direction:column; align-items:stretch; }" in mobile
-    assert ".daily-push-row input[type=\"time\"] { width:100%; }" in mobile
-    assert ".daily-push-row > .spacer { display:none; }" in mobile
+    # 每日推送卡片：h2 标题 + 开关 + 时间下拉（每半小时一档，当前值不在档位里时也保留）
+    assert 'function DailyReportCard(' in tsx
+    assert '<div className="card"><h2>{t("每日推送")}</h2>' in tsx
+    daily = tsx.split("function DailyReportCard")[1].split("function ChannelCard")[0]
+    assert '<select value={(drTime || "00:00").slice(0, 5)}' in daily
+    assert 'for (const m of ["00", "30"])' in daily
+    assert 'if (!opts.includes(cur)) opts.unshift(cur)' in daily
+    assert '<input type="time"' not in daily
+    # 通知页顺序：每日推送卡片 → Telegram → E-Mail
+    notify = tsx.split('{tab === "config" && subTab === "notify" && (')[1].split('{tab === "config" && subTab === "logs"')[0]
+    assert notify.index("DailyReportCard") < notify.index('kind="telegram"')
+    assert notify.index('kind="telegram"') < notify.index('kind="email"')
+    # 渠道卡片里不再有每日推送开关/时间，也不再有 daily-push-row
+    channel = tsx.split("function ChannelCard")[1].split("function LoginSecurity")[0]
+    assert "drEnabled" not in channel and "drTime" not in channel
+    assert "每日推送" not in channel
+    assert '<input type="time"' not in channel
+    assert "daily-push-row" not in tsx
+    assert ".daily-push-row" not in css
+    # 渠道卡片的测试按钮还在（右对齐、可换行的一行）
+    assert 'className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}' in channel
+    assert '>{t("发送测试通知")}' in channel
+    assert '>{t("立即推送日报")}' in channel
+    assert '>{t("检测连接")}' in channel
 
 
 def test_nav_and_subtabs_selected_are_accent_border():

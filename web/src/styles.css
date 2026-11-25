@@ -249,19 +249,6 @@ header .btn, header .icon-btn { min-height:30px; }
 /* 实例卡片底部操作按钮：状态文字再长也贴右，换行后仍靠右。 */
 .card-actions { margin-left:auto; flex:none; }
 .spacer { flex:1; }
-/* 每日推送：电脑端推送时间输入框与测试按钮同行显示（标签 + 时间框在左，
-   按钮组在右）；手机端上下分行（标签 + 时间框一行，按钮组下一行右对齐）。
-   只适用于电脑端，手机端不动。 */
-.daily-push-row { align-items:center; }
-.daily-push-row > label { margin:0; flex:none; }
-.daily-push-row input[type="time"] { width:auto; flex:none; }
-@media (max-width:800px) {
-  .daily-push-row { flex-direction:column; align-items:stretch; }
-  .daily-push-row > label { margin:12px 0 4px; }
-  .daily-push-row input[type="time"] { width:100%; }
-  .daily-push-row > .spacer { display:none; }
-  .daily-push-row > .row { justify-content:flex-end; }
-}
 input,select,textarea { background:var(--input); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; width:100%; }
 label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
 /* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（GiB）） */

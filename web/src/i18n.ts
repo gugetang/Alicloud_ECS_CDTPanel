@@ -103,7 +103,8 @@ export const EN: Record<string, string> = {
   "货币结算。": "Currency settlement.",
   "登录与安全、备份与恢复。": "Sign-in & security and backup & restore.",
   "管理 Cloudflare 域名，保留现有分配并按需切换账户。": "Manage Cloudflare domains, keeping current allocations and switching accounts as needed.",
-  "仅事件通知。可同时启用 E-Mail 和 Telegram。": "Event notifications only. E-Mail and Telegram can both be enabled.",
+  "每日推送与事件通知。可同时启用 E-Mail 和 Telegram。": "Daily report and event notifications. E-Mail and Telegram can both be enabled.",
+  "每天固定时间推送一次每日财报。": "Sends the daily report once a day at a fixed time.",
   "加载中…": "Loading…",
   // 区域名
   中国香港: "Hong Kong",
