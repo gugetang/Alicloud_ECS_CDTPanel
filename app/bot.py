@@ -5,8 +5,12 @@
 - 鉴权：只认绑定的 telegram_chat_id，其他人一律忽略、不回复。
 - 开关：bot_enabled=1 才轮询（默认关）；线程随面板启动，开关在通知设置
   Telegram 卡片里，改完 10 秒内生效，不用重启容器。
-- 命令：/start /menu /list /status /groups /power /switch /timers /help
-  （/reboot 已取消；开关机是单个 /power 切换按钮，不再分启动/停止两个命令）。
+- 命令：/start /menu /list /groups /timers /update /help
+  （/status 已取消；/reboot 已取消；开关机并进 /list：列表只显示名称，
+  名称前圆点表示状态，点一台进详情页开关机；切换分组成员并进 /groups：
+  点分组进子菜单，点成员即切换）。
+- 列表圆点：绿=在线（含启动中），黄=排队，红=停机/停止中/离线，
+  白=离队/未参与/未知/已跳出。
 - 开关机按钮：已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机
   同款切换逻辑；关闭用节省停机（StopCharging）。
 - 所有操作复用面板现有逻辑：api.start_account / stop_account、
@@ -34,19 +38,21 @@ IDLE_WAIT_SECONDS = 10
 ERROR_BACKOFF_SECONDS = 10
 OFFSET_FLAG = "bot_update_offset"
 
-# 命令表：/help 与 setMyCommands 共用；/reboot 已取消，不在这里出现。
+# 命令表：/help 与 setMyCommands 共用；/status、/power、/switch 已取消
+# （开关机并进 /list，切换分组成员并进 /groups 的子菜单），不再出现。
 COMMANDS = [
     ("start", "检查机器人"),
     ("menu", "交互菜单"),
     ("list", "实例列表"),
-    ("status", "状态查询"),
     ("groups", "分组列表"),
-    ("power", "开关机"),
-    ("switch", "切换分组成员"),
     ("timers", "定时任务"),
     ("update", "面板更新"),
     ("help", "帮助"),
 ]
+
+# 列表名称前的状态圆点：与面板 status_dot 一致。
+STATUS_DOTS = {"green": "🟢", "green_pulse": "🟢", "yellow": "🟡",
+               "red": "🔴", "red_pulse": "🔴"}
 
 MODE_LABELS = {"time": "定时轮巡", "load_balance": "负载均衡", "dynamic": "负载均衡"}
 
@@ -208,79 +214,51 @@ def _cmd_start() -> str:
 
 def _menu_keyboard() -> dict:
     return _kb([
-        [("实例列表", "menu:list"), ("状态查询", "menu:status")],
-        [("分组列表", "menu:groups"), ("定时任务", "menu:timers")],
-        [("开关机", "menu:power"), ("切换分组成员", "menu:switch")],
-        [("面板更新", "menu:update"), ("帮助", "menu:help")],
+        [("实例列表", "menu:list"), ("分组列表", "menu:groups")],
+        [("定时任务", "menu:timers"), ("面板更新", "menu:update")],
+        [("帮助", "menu:help")],
     ])
 
 
-def _cmd_list() -> str:
+def _status_dot(r: dict) -> str:
+    return STATUS_DOTS.get(r.get("status_dot") or "", "⚪")
+
+
+def _cmd_list(args: list[str]):
+    """实例列表：只显示名称，名称前圆点表示状态；点一台进详情页开关机。"""
+    if args:
+        a = _resolve_account(args[0])
+        if not a:
+            return f"找不到实例：{args[0]}", None
+        return _instance_detail(a)
     rows = _public_accounts()
     if not rows:
-        return "暂无实例"
-    groups = {g["id"]: g["name"] for g in db.list_groups()}
-    lines = ["实例列表"]
-    for i, r in enumerate(rows, 1):
-        gids = r.get("group_ids") or []
-        gname = groups.get(gids[0], "未分组") if gids else "未分组"
-        label = r.get("status_label") or r.get("instance_status") or "未知"
-        lines.append(f"{i}. {r['name']} — {label} — {r.get('public_ip') or '-'} — {gname}")
-    return "\n".join(lines)
+        return "暂无实例", None
+    kb = _kb([[ (f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
+              for r in rows])
+    return "实例列表\n点一台查看详情开关机：", kb
 
 
-def _cmd_status() -> str:
-    # 口径与运行概览卡片一致：在线=绿点，排队=黄点，
-    # 离队=已跳出或未被任何分组选中，停机=红点（含停止中）。
+def _instance_detail(a: dict):
+    """实例详情页：名称/状态/IP/分组 + 开关机切换按钮 + 返回列表。"""
     rows = _public_accounts()
-    total = len(rows)
-    online = sum(1 for r in rows if r.get("status_dot") == "green")
-    queued = sum(1 for r in rows if r.get("status_dot") == "yellow")
-    left = sum(1 for r in rows if r.get("evicted") or r.get("status_label") == "离队")
-    stopped = sum(1 for r in rows if r.get("status_dot") in ("red", "red_pulse"))
-    lines = ["实例状态", f"服务器总数 {total}", f"在线状态 {online}",
-             f"排队 {queued}", f"离队 {left}", f"停机 {stopped}"]
-    not_in = sum(1 for r in rows if r.get("status_label") == "未参与")
-    if not_in:
-        lines.append(f"未参与 {not_in}")
-    return "\n".join(lines)
-
-
-def _cmd_groups(settings: dict) -> str:
-    groups = db.list_groups()
-    if not groups:
-        return "暂无分组"
-    domains = db.list_domains()
-    accounts = {a["id"]: a for a in db.list_accounts()}
-    lines = ["分组列表"]
-    for g in groups:
-        gid = g["id"]
-        doms = [d for d in domains if d.get("group_id") == gid]
-        d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0] if doms else None
-        members = _group_members(gid)
-        current = accounts.get(d.get("current_account_id")) if d else None
-        lines.append(f"{g['name']}（{_group_mode_label(g, settings)}）")
-        lines.append(f"  域名：{d['name'] if d else '无'}")
-        if current:
-            lines.append(f"  当前服务：{current['name']}")
-        elif d and d.get("fallback_active"):
-            lines.append("  当前服务：备用地址")
-        else:
-            lines.append("  当前服务：无")
-        names = "、".join(m["name"] for m in members)
-        lines.append(f"  成员：{len(members)}" + (f"（{names}）" if names else ""))
-    return "\n".join(lines)
+    r = next((x for x in rows if x["id"] == a["id"]), a)
+    groups = {g["id"]: g["name"] for g in db.list_groups()}
+    gids = r.get("group_ids") or []
+    gname = groups.get(gids[0], "未分组") if gids else "未分组"
+    label = r.get("status_label") or r.get("instance_status") or "未知"
+    text = (f"{_status_dot(r)} {r['name']}\n状态：{label}"
+            f"\nIP：{r.get('public_ip') or '-'}\n分组：{gname}")
+    kb = _kb([
+        [(_power_label(r), f"power:{r['id']}")],
+        [("返回实例列表", "menu:list")],
+    ])
+    return text, kb
 
 
 def _power_label(a: dict) -> str:
     # 已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机同款切换。
     return "开机" if (a.get("instance_status") or "").strip() == "Stopped" else "关闭"
-
-
-def _power_keyboard() -> dict:
-    rows = _public_accounts()
-    return _kb([[(f"{i}. {r['name']}：{_power_label(r)}", f"power:{r['id']}")]
-                for i, r in enumerate(rows, 1)])
 
 
 def _do_power(aid: int) -> str:
@@ -300,44 +278,47 @@ def _do_power(aid: int) -> str:
     return f"{a['name']} 已发送{'开机' if stopped else '节省停机'}指令"
 
 
-def _cmd_power(args: list[str]):
-    if args:
-        a = _resolve_account(args[0])
-        if not a:
-            return f"找不到实例：{args[0]}", None
-        return _do_power(a["id"]), None
-    rows = _public_accounts()
-    if not rows:
-        return "暂无实例", None
-    return "选一台开关机：", _power_keyboard()
-
-
-def _switch_member_picker(group: dict):
-    members = _group_members(group["id"])
-    if not members:
-        return f"【{group['name']}】没有成员", None
-    doms = [d for d in db.list_domains() if d.get("group_id") == group["id"]]
-    current_id = None
-    if doms:
-        d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0]
-        current_id = d.get("current_account_id")
-    rows = []
-    for m in members:
-        mark = "（当前服务）" if m["id"] == current_id else ""
-        rows.append([(f"{m['name']}{mark}", f"switchto:{group['id']}:{m['id']}")])
-    return f"【{group['name']}】切换到哪台：", _kb(rows)
-
-
-def _cmd_switch(args: list[str]):
+def _cmd_groups(settings: dict, args: list[str]):
+    """分组列表：只显示分组名；点一个分组进子菜单，点成员即切换当前服务实例。"""
     groups = db.list_groups()
     if not groups:
         return "暂无分组", None
-    if not args:
-        return "选一个分组：", _kb([[(g["name"], f"switch:{g['id']}")] for g in groups])
-    g = _resolve_group(args[0])
-    if not g:
-        return f"找不到分组：{args[0]}", None
-    return _switch_member_picker(g)
+    if args:
+        g = _resolve_group(args[0])
+        if not g:
+            return f"找不到分组：{args[0]}", None
+        return _group_detail(g, settings)
+    return "分组列表\n点一个分组切换成员：", _kb([[(g["name"], f"group:{g['id']}")]
+                                                for g in groups])
+
+
+def _group_detail(group: dict, settings: dict):
+    """分组子菜单：分组信息 + 成员按钮（点成员即切换）+ 返回分组列表。"""
+    gid = group["id"]
+    domains = db.list_domains()
+    accounts = {a["id"]: a for a in db.list_accounts()}
+    doms = [d for d in domains if d.get("group_id") == gid]
+    d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0] if doms else None
+    members = _group_members(gid)
+    current = accounts.get(d.get("current_account_id")) if d else None
+    lines = [f"【{group['name']}】（{_group_mode_label(group, settings)}）",
+             f"域名：{d['name'] if d else '无'}"]
+    if current:
+        lines.append(f"当前服务：{current['name']}")
+    elif d and d.get("fallback_active"):
+        lines.append("当前服务：备用地址")
+    else:
+        lines.append("当前服务：无")
+    lines.append(f"成员：{len(members)}")
+    if not members:
+        return "\n".join(lines) + "\n该分组没有成员", _kb([[("返回分组列表", "menu:groups")]])
+    current_id = d.get("current_account_id") if d else None
+    rows = []
+    for m in members:
+        mark = "（当前服务）" if m["id"] == current_id else ""
+        rows.append([(f"{m['name']}{mark}", f"switchto:{gid}:{m['id']}")])
+    rows.append([("返回分组列表", "menu:groups")])
+    return "\n".join(lines) + "\n点一台切换当前服务实例：", _kb(rows)
 
 
 def _do_switch(gid: int, aid: int) -> str:
@@ -440,15 +421,9 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
     if cmd == "menu":
         return "请选择：", _menu_keyboard()
     if cmd == "list":
-        return _cmd_list(), None
-    if cmd == "status":
-        return _cmd_status(), None
+        return _cmd_list(args)
     if cmd == "groups":
-        return _cmd_groups(settings), None
-    if cmd == "power":
-        return _cmd_power(args)
-    if cmd == "switch":
-        return _cmd_switch(args)
+        return _cmd_groups(settings, args)
     if cmd == "timers":
         return _cmd_timers(settings), None
     if cmd == "update":
@@ -481,16 +456,23 @@ def _handle_callback(settings: dict, callback: dict) -> None:
     data = callback.get("data") or ""
     if data.startswith("menu:"):
         key = data[5:]
-        mapping = {"list": "list", "status": "status", "groups": "groups",
+        mapping = {"list": "list", "groups": "groups",
                    "timers": "timers", "update": "update", "help": "help"}
-        if key == "power":
-            reply, markup = _cmd_power([])
-        elif key == "switch":
-            reply, markup = _cmd_switch([])
-        elif key in mapping:
+        if key in mapping:
             reply, markup = _dispatch(settings, mapping[key], [])
         else:
             return
+        _send(settings, reply, markup)
+    elif data.startswith("detail:"):
+        try:
+            aid = int(data[7:])
+        except ValueError:
+            return
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if not a:
+            _send(settings, "实例不存在")
+            return
+        reply, markup = _instance_detail(a)
         _send(settings, reply, markup)
     elif data.startswith("power:"):
         try:
@@ -498,16 +480,16 @@ def _handle_callback(settings: dict, callback: dict) -> None:
         except ValueError:
             return
         _send(settings, _do_power(aid))
-    elif data.startswith("switch:"):
+    elif data.startswith("group:"):
         try:
-            gid = int(data[7:])
+            gid = int(data[6:])
         except ValueError:
             return
         g = next((x for x in db.list_groups() if x["id"] == gid), None)
         if not g:
             _send(settings, "分组不存在")
             return
-        reply, markup = _switch_member_picker(g)
+        reply, markup = _group_detail(g, settings)
         _send(settings, reply, markup)
     elif data.startswith("switchto:"):
         try:
