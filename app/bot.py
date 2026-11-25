@@ -22,7 +22,7 @@
   C、D 两段用 * 替换（47.243.214.192 → 47.243.*.*），整个机器人系统都这样。
 - 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/面板更新/
   帮助回目录；详情页、分组子菜单、定时子菜单回上级 + 回目录。
-  返回按钮用图标显示：⬅️ 返回，🏠 返回目录。
+  返回按钮只保留图标，不带文字：↩️ 回上级（带弯的返回箭头），⬅️ 回目录（直的返回箭头）。
 - 所有操作复用面板现有逻辑：api.start_account / stop_account /
   replace_eip；定时任务用 db.update_account 改每日定时字段。
 """
@@ -209,8 +209,8 @@ def _back_row(back_cb: str | None = None) -> list:
     """返回按钮固定在最底部一行：返回在左、返回目录在右；只有返回目录时就一个按钮。"""
     row = []
     if back_cb:
-        row.append(("⬅️ 返回", back_cb))
-    row.append(("🏠 返回目录", "menu:menu"))
+        row.append(("↩️", back_cb))
+    row.append(("⬅️", "menu:menu"))
     return row
 
 
@@ -333,7 +333,7 @@ def _cmd_list(settings: dict, args: list[str]):
 
 
 def _back_to_menu() -> dict:
-    return _kb([[("🏠 返回目录", "menu:menu")]])
+    return _kb([[("⬅️", "menu:menu")]])
 
 
 def _instance_detail(a: dict, settings: dict):
