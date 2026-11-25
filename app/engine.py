@@ -963,7 +963,11 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
             merged.interval_anchor_by_group[gid] = sub.interval_anchor_at
             merged.interval_anchor_at = sub.interval_anchor_at
     n_dom = len([d for d in domains if d.enabled])
-    merged.summary = (f"分组 {len(ordered_gids)} 个，域名 {n_dom} 个，"
+    # 汇总里的分组数只算真实分组：上面为缺 id=1 补的“默认分组”是调度用的
+    # 占位（无成员、无域名，循环里直接跳过），不计入——否则只剩 id=2 的
+    # Premium 时日志会写“分组 2 个”，与界面显示的 1 个不一致。
+    n_groups = len(groups)
+    merged.summary = (f"分组 {n_groups} 个，域名 {n_dom} 个，"
                       f"可分配账户 {len([a for a in accounts if is_allocatable(a, cfg, now)])} 个，"
                       f"踢出 {len(merged.evicted_account_ids)} 个，"
                       f"备用 {len(merged.fallback_domain_ids)} 个，"

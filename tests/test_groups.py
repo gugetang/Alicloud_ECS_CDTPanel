@@ -536,3 +536,22 @@ def test_group_pause_flag_persists(tmpdb):
     # 新建时可直接指定停止
     g2 = tmpdb.create_group({"name": "分组B", "switch_mode": "time", "paused": 1})
     assert g2["paused"] == 1
+
+
+def test_summary_counts_only_real_groups():
+    # 回归：只剩 id=2 的 Premium（默认分组 id=1 已删）时，调度会补一个
+    # 占位默认分组；汇总里的“分组 N 个”只算真实分组，不算占位。
+    cfg = Config()
+    g2 = GroupView(id=2, name="Premium", switch_mode="load_balance")
+    plan = plan_reconcile([acc(1, 20, gid=2), acc(2, 40, gid=2)],
+                          [dom(1, gid=2)], cfg, noon(), groups=[g2])
+    assert plan.summary.startswith("分组 1 个，域名 1 个，")
+    # 两个真实分组 → 2 个
+    g1 = GroupView(id=1, name="默认分组", switch_mode="load_balance")
+    plan2 = plan_reconcile([acc(1, 20, gid=1), acc(2, 40, gid=2)],
+                           [dom(1, gid=1), dom(2, gid=2)], cfg, noon(),
+                           groups=[g1, g2])
+    assert plan2.summary.startswith("分组 2 个，域名 2 个，")
+    # 没有真实分组 → 0 个（只有占位）
+    plan3 = plan_reconcile([], [], cfg, noon(), groups=[])
+    assert plan3.summary.startswith("分组 0 个，域名 0 个，")
