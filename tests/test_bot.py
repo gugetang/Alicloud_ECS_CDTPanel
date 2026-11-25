@@ -28,16 +28,20 @@ def test_bot_default_off():
     assert DEFAULT_SETTINGS["bot_enabled"] == "0"
 
 
-def test_command_list_has_power_and_switch_no_reboot():
+def test_command_list_has_power_switch_and_update_no_reboot():
     cmds = [c for c, _ in botmod.COMMANDS]
-    assert "power" in cmds and "switch" in cmds
+    assert "power" in cmds and "switch" in cmds and "update" in cmds
     assert "reboot" not in cmds
     assert "start_instance" not in cmds
     assert "stop" not in cmds
     help_text = botmod._cmd_help()
     assert "/power 开关机" in help_text
     assert "/switch 切换分组成员" in help_text
+    assert "/update 面板更新" in help_text
     assert "/reboot" not in help_text
+    kb = botmod._menu_keyboard()
+    data = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
+    assert "menu:update" in data
 
 
 def test_wrong_chat_ignored(monkeypatch):
@@ -185,6 +189,36 @@ def test_poll_once_advances_offset(tmpdb, monkeypatch):
     assert botmod._poll_once(_settings()) is True
     assert tmpdb.get_flag(botmod.OFFSET_FLAG) == "42"
     assert sent and sent[0].startswith("实例状态")
+
+
+def test_cmd_update_no_update(monkeypatch):
+    monkeypatch.setattr(botmod.update_mod, "status", lambda: {
+        "current_version": "v1.1.0", "latest_version": "abc1234",
+        "update_available": False})
+    assert botmod._cmd_update() == "已是最新版本\n当前版本：v1.1.0"
+
+
+def test_cmd_update_starts(monkeypatch):
+    monkeypatch.setattr(botmod.update_mod, "status", lambda: {
+        "current_version": "v1.1.0-2-gabc1234", "latest_version": "def5678abc",
+        "update_available": True})
+    monkeypatch.setattr(botmod.update_mod, "start_update",
+                        lambda: {"started": True, "message": "更新已开始，容器将重启"})
+    reply = botmod._cmd_update()
+    assert reply.startswith("更新已开始，容器将重启\n当前版本：v1.1.0-2-gabc1234\n最新版本：def5678")
+    assert "机器人随容器重启" in reply
+
+
+def test_cmd_update_no_socket(monkeypatch):
+    monkeypatch.setattr(botmod.update_mod, "status", lambda: {
+        "current_version": "v1.1.0", "latest_version": "def5678",
+        "update_available": True})
+    monkeypatch.setattr(botmod.update_mod, "start_update", lambda: {
+        "started": False, "message": "未检测到 Docker socket，无法在线更新",
+        "manual": "docker compose pull && docker compose up -d"})
+    reply = botmod._cmd_update()
+    assert "未检测到 Docker socket" in reply
+    assert "docker compose pull && docker compose up -d" in reply
 
 
 def test_bot_toggle_in_telegram_card():
