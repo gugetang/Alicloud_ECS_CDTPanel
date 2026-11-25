@@ -22,7 +22,7 @@
   C、D 两段用 * 替换（47.243.214.192 → 47.243.*.*），整个机器人系统都这样。
 - 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/面板更新/
   帮助回目录；详情页、分组子菜单、定时子菜单回上级 + 回目录。
-  返回按钮用图标显示：⬅️ 返回，🏠 返回目录。
+  返回按钮只保留图标，不带文字：↩️ 回上级（带弯的返回箭头），⬅️ 回目录（直的返回箭头）。
 - 所有操作复用面板现有逻辑：api.start_account / stop_account /
   replace_eip；定时任务用 db.update_account 改每日定时字段。
 """
@@ -209,8 +209,8 @@ def _back_row(back_cb: str | None = None) -> list:
     """返回按钮固定在最底部一行：返回在左、返回目录在右；只有返回目录时就一个按钮。"""
     row = []
     if back_cb:
-        row.append(("⬅️ 返回", back_cb))
-    row.append(("🏠 返回目录", "menu:menu"))
+        row.append(("↩️", back_cb))
+    row.append(("⬅️", "menu:menu"))
     return row
 
 
@@ -314,9 +314,9 @@ def _site_title(settings: dict) -> str:
 
 
 def _cmd_list(settings: dict, args: list[str]):
-    """实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮双行显示：
-    第 1 行圆点 + 加粗名称，第 2 行 IP（只显示 A、B 两段，C、D 用 *
-    替换）；点一台进详情页开关机。标题跟随站点名。"""
+    """实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮只显示圆点 +
+    加粗名称（IP 不显示：Telegram 按钮文字不支持换行，名称加 IP 挤在
+    一行会被截断）；点一台进详情页开关机。标题跟随站点名。"""
     if args:
         a = _resolve_account(args[0])
         if not a:
@@ -326,28 +326,26 @@ def _cmd_list(settings: dict, args: list[str]):
     if not rows:
         return "暂无实例", None
     kb_rows = _pair_rows([
-        (f"{_status_dot(r)} {_bold(r['name'])}\nIP：{_mask_ip(r.get('public_ip'))}",
-         f"detail:{r['id']}")
+        (f"{_status_dot(r)} {_bold(r['name'])}", f"detail:{r['id']}")
         for r in rows])
     kb_rows.append(_back_row())
     return _site_title(settings), _kb(kb_rows)
 
 
 def _back_to_menu() -> dict:
-    return _kb([[("🏠 返回目录", "menu:menu")]])
+    return _kb([[("⬅️", "menu:menu")]])
 
 
 def _instance_detail(a: dict, settings: dict):
-    """实例详情页：标题跟随站点名；实例信息做成双行显示按钮（只显示，
-    不可点）：第 1 行圆点 + 名称，第 2 行 IP（只显示 A、B 两段，C、D
-    用 * 替换）；状态、分组两行已删。
+    """实例详情页：标题跟随站点名；实例信息做成显示按钮（只显示，
+    不可点）：圆点 + 加粗名称（IP 不显示：Telegram 按钮文字不支持
+    换行，名称加 IP 挤在一行会被截断）；状态、分组两行已删。
     下面是开关机、节省停机、更换 EIP、定时任务 + 返回实例列表/返回目录。
     更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）；定时任务在更换
     EIP 后面，点开是可编辑子菜单（开关、开机时间、关机时间）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
-    info = (f"{_status_dot(r)} {_bold(r['name'])}"
-            f"\nIP：{_mask_ip(r.get('public_ip'))}")
+    info = f"{_status_dot(r)} {_bold(r['name'])}"
     actions = [(_power_label(r), f"power:{r['id']}")]
     if (r.get("instance_status") or "").strip() == "Running":
         actions.append(("节省停机", f"powersave:{r['id']}"))
@@ -533,11 +531,10 @@ def _group_detail(group: dict, settings: dict):
         kb_rows.append(_back_row("menu:groups"))
         return _site_title(settings), _kb(kb_rows)
     # 成员做成按钮但不可选中：一行两个按钮（拉伸铺满手机屏幕），每个按钮
-    # 双行显示：名称在上、IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换）；
+    # 只显示圆点 + 加粗名称（IP 不显示：Telegram 按钮文字不支持换行）；
     # 点一下只消掉加载圈，不做任何事（noop 回调）。
     kb_rows.extend(_pair_rows([
-        (f"{_status_dot(m)} {_bold(m['name'])}\nIP：{_mask_ip(m.get('public_ip'))}",
-         "noop")
+        (f"{_status_dot(m)} {_bold(m['name'])}", "noop")
         for m in shown]))
     kb_rows.append(_back_row("menu:groups"))
     return _site_title(settings), _kb(kb_rows)

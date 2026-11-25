@@ -90,11 +90,10 @@ def test_list_keyboard_dots_names_masked_ip(monkeypatch):
     # 列表标题是站点 logo + 加粗站点名
     assert text == "☁️ 𝐀𝐥𝐢𝐜𝐥𝐨𝐮𝐝-𝐂𝐃𝐓"
     btns = [b for row in kb["inline_keyboard"] for b in row]
-    # 名称加粗在上、IP 在下；IP 只显示 A、B 两段，C、D 用 * 替换
+    # 只显示圆点 + 加粗名称，不显示 IP（按钮文字不支持换行）
     assert [b["text"] for b in btns] == [
-        "🟢 𝐀𝟏\nIP：47.243.*.*", "🟡 𝐀𝟐\nIP：8.210.*.*",
-        "🔴 𝐀𝟑\nIP：203.0.*.*", "⚪ 𝐀𝟒\nIP：-",
-        "🟢 𝐀𝟓\nIP：47.243.*.*", "🔴 𝐀𝟔\nIP：47.243.*.*", "🏠 返回目录"]
+        "🟢 𝐀𝟏", "🟡 𝐀𝟐", "🔴 𝐀𝟑", "⚪ 𝐀𝟒", "🟢 𝐀𝟓", "🔴 𝐀𝟔",
+        "⬅️"]
     assert [b["callback_data"] for b in btns] == [
         "detail:1", "detail:2", "detail:3", "detail:4", "detail:5", "detail:6",
         "menu:menu"]
@@ -120,11 +119,11 @@ def test_instance_detail_page(monkeypatch):
                         lambda: [{"id": 2, "name": "Premium"}])
     text, kb = botmod._instance_detail(rows[0],
                                        _settings(site_name="Alicloud-CDT"))
-    # 详情页标题是站点 logo + 加粗站点名；实例信息做成双行显示按钮
-    # （第 1 行圆点 + 加粗名称，第 2 行 IP，只显示 A、B 两段，C、D 用 *
-    # 替换；状态、分组两行已删），点了一点反应都没有
+    # 详情页标题是站点 logo + 加粗站点名；实例信息做成显示按钮
+    # （只显示圆点 + 加粗名称，不显示 IP；状态、分组两行已删），
+    # 点了一点反应都没有
     assert text == "☁️ 𝐀𝐥𝐢𝐜𝐥𝐨𝐮𝐝-𝐂𝐃𝐓"
-    assert kb["inline_keyboard"][0] == [{"text": "🟢 𝐀𝟏\nIP：203.0.*.*",
+    assert kb["inline_keyboard"][0] == [{"text": "🟢 𝐀𝟏",
                                          "callback_data": "noop"}]
     btns = [(b["text"], b["callback_data"])
             for row in kb["inline_keyboard"] for b in row]
@@ -134,13 +133,13 @@ def test_instance_detail_page(monkeypatch):
     assert ("更换 EIP", "eip:1") in btns
     assert ("定时任务", "timers:1") in btns
     assert ("返回目录", "menu:menu") not in btns
-    assert ("⬅️ 返回", "menu:list") in btns
-    assert ("🏠 返回目录", "menu:menu") in btns
+    assert ("↩️", "menu:list") in btns
+    assert ("⬅️", "menu:menu") in btns
     # 已停机：开机，没有节省停机；ECS 仍有更换 EIP 和定时任务
     _, kb2 = botmod._instance_detail(rows[1], _settings())
     btns2 = [(b["text"], b["callback_data"])
              for row in kb2["inline_keyboard"] for b in row]
-    assert kb2["inline_keyboard"][0][0]["text"] == "🔴 𝐀𝟐\nIP：203.0.*.*"
+    assert kb2["inline_keyboard"][0][0]["text"] == "🔴 𝐀𝟐"
     assert ("开机", "power:2") in btns2
     assert not any(t == "节省停机" for t, _ in btns2)
     assert ("更换 EIP", "eip:2") in btns2
@@ -149,14 +148,14 @@ def test_instance_detail_page(monkeypatch):
     _, kb3 = botmod._instance_detail(rows[2], _settings())
     btns3 = [(b["text"], b["callback_data"])
              for row in kb3["inline_keyboard"] for b in row]
-    assert kb3["inline_keyboard"][0][0]["text"] == "🟢 𝐒𝐖𝐀𝐒\nIP：203.0.*.*"
+    assert kb3["inline_keyboard"][0][0]["text"] == "🟢 𝐒𝐖𝐀𝐒"
     assert ("节省停机", "powersave:3") in btns3
     assert not any(t == "更换 EIP" for t, _ in btns3)
     assert ("定时任务", "timers:3") in btns3
-    # /list 带名字参数直接进详情页（标题是 logo + 加粗站点名，信息在双行显示按钮里）
+    # /list 带名字参数直接进详情页（标题是 logo + 加粗站点名，信息在显示按钮里）
     text3, kb4 = botmod._cmd_list(_settings(site_name="Alicloud-CDT"), ["A2"])
     assert text3 == "☁️ 𝐀𝐥𝐢𝐜𝐥𝐨𝐮𝐝-𝐂𝐃𝐓"
-    assert kb4["inline_keyboard"][0][0]["text"] == "🔴 𝐀𝟐\nIP：203.0.*.*"
+    assert kb4["inline_keyboard"][0][0]["text"] == "🔴 𝐀𝟐"
     assert botmod._cmd_list(_settings(), ["没有这台"])[0] == "找不到实例：没有这台"
 
 
@@ -181,21 +180,20 @@ def test_keyboard_two_per_row_back_row_at_bottom(monkeypatch):
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
     monkeypatch.setattr(botmod.db, "list_groups",
                         lambda: [{"id": 2, "name": "Premium"}])
-    # 实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮双行显示：
-    # 名称加粗在上、IP（已打码）在下；最底部只有返回目录
+    # 实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮只显示圆点 +
+    # 加粗名称；最底部只有返回目录
     _, kb_list = botmod._cmd_list(_settings(), [])
     assert [[b["text"] for b in row]
             for row in kb_list["inline_keyboard"]] == [
-        ["🟢 𝐀𝟏\nIP：203.0.*.*", "🟡 𝐀𝟐\nIP：203.0.*.*"],
-        ["🔴 𝐀𝟑\nIP：203.0.*.*"], ["🏠 返回目录"]]
-    # 实例详情：最上面是双行显示按钮（圆点 + 加粗名称 / 已打码 IP），
+        ["🟢 𝐀𝟏", "🟡 𝐀𝟐"], ["🔴 𝐀𝟑"], ["⬅️"]]
+    # 实例详情：最上面是显示按钮（圆点 + 加粗名称），
     # 操作按钮每行两个（关闭、节省停机 / 更换 EIP、定时任务），
     # 最底部一行是返回（左）+ 返回目录（右）
     _, kb_det = botmod._instance_detail(rows[0], _settings())
     assert [[b["text"] for b in row]
             for row in kb_det["inline_keyboard"]] == [
-        ["🟢 𝐀𝟏\nIP：203.0.*.*"], ["关闭", "节省停机"], ["更换 EIP", "定时任务"],
-        ["⬅️ 返回", "🏠 返回目录"]]
+        ["🟢 𝐀𝟏"], ["关闭", "节省停机"], ["更换 EIP", "定时任务"],
+        ["↩️", "⬅️"]]
 
 
 def test_power_label():
@@ -288,7 +286,7 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     # 库里除了 Premium 还有默认分组（id=1，init_db 自带）
     assert [(b["text"], b["callback_data"]) for b in btns] == [
         ("默认分组", "group:1"), ("𝐏𝐫𝐞𝐦𝐢𝐮𝐦", f"group:{g['id']}"),
-        ("🏠 返回目录", "menu:menu")]
+        ("⬅️", "menu:menu")]
     # 子菜单：标题跟随站点名；分组信息做成双行显示按钮（第 1 行【分组名】
     # （模式），第 2 行域名；“当前服务”“成员”两行已删）+ 成员做成按钮但
     # 不可点（在线/排队中，带圆点；noop 回调，点了一点反应都没有）
@@ -302,15 +300,15 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     # 成员按钮 + 返回
     assert [(b["text"], b["callback_data"]) for b in btns2] == [
         ("【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）", "noop"),
-        ("🟢 𝐀𝟏\nIP：203.0.*.*", "noop"), ("🟡 𝐀𝟐\nIP：203.0.*.*", "noop"),
-        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
+        ("🟢 𝐀𝟏", "noop"), ("🟡 𝐀𝟐", "noop"),
+        ("↩️", "menu:groups"), ("⬅️", "menu:menu")]
     # 成员一行两个按钮（拉伸铺满手机屏幕），信息按钮独占一行，
     # 返回在最底部一行（左）+ 返回目录（右）
     assert [[b["text"] for b in row]
             for row in kb2["inline_keyboard"]] == [
         ["【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）"],
-        ["🟢 𝐀𝟏\nIP：203.0.*.*", "🟡 𝐀𝟐\nIP：203.0.*.*"],
-        ["⬅️ 返回", "🏠 返回目录"]]
+        ["🟢 𝐀𝟏", "🟡 𝐀𝟐"],
+        ["↩️", "⬅️"]]
     # /groups 带名字参数直接进子菜单（标题跟随站点名，信息在双行显示按钮里）
     text3, kb3 = botmod._cmd_groups(_settings(site_name="Alicloud-CDT"),
                                      ["Premium"])
@@ -421,7 +419,7 @@ def test_back_buttons_and_action_callbacks(monkeypatch):
     # 定时任务/帮助也带返回目录（图标）
     reply, markup = botmod._dispatch(_settings(), "help", [])
     assert reply.startswith("可用命令：")
-    assert markup["inline_keyboard"] == [[{"text": "🏠 返回目录",
+    assert markup["inline_keyboard"] == [[{"text": "⬅️",
                                            "callback_data": "menu:menu"}]]
 
 
@@ -508,9 +506,8 @@ def test_group_detail_only_online_or_queued(monkeypatch):
     assert info["callback_data"] == "noop"
     assert [(b["text"], b["callback_data"])
             for row in kb["inline_keyboard"][1:] for b in row] == [
-        ("🟢 𝐀𝟏\nIP：203.0.*.*", "noop"), ("🟡 𝐀𝟐\nIP：203.0.*.*", "noop"),
-        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
-    # 成员每台独占一行（拉伸满宽）
+        ("🟢 𝐀𝟏", "noop"), ("🟡 𝐀𝟐", "noop"),
+        ("↩️", "menu:groups"), ("⬅️", "menu:menu")]
     # 全是在线/排队中之外的成员：提示做成显示按钮 + 只有返回按钮
     for r in rows:
         r["status_label"] = "已停机"
@@ -521,7 +518,7 @@ def test_group_detail_only_online_or_queued(monkeypatch):
             for row in kb2["inline_keyboard"] for b in row] == [
         (kb2["inline_keyboard"][0][0]["text"], "noop"),
         ("暂无在线或排队中的成员", "noop"),
-        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
+        ("↩️", "menu:groups"), ("⬅️", "menu:menu")]
 
 
 def test_mask_ip_and_bold_and_site_title():
@@ -584,7 +581,7 @@ def test_timers_detail_submenu(tmpdb, monkeypatch):
             for row in kb["inline_keyboard"]] == [
         ["🟢 𝐀𝟏\n定时：未启用　08:00 开 / 20:00 关"],
         ["定时开关：关闭", "开机时间：08:00"], ["关机时间：20:00"],
-        ["⬅️ 返回", "🏠 返回目录"]]
+        ["↩️", "⬅️"]]
     assert [[b["callback_data"] for b in row]
             for row in kb["inline_keyboard"]] == [
         ["noop"],
