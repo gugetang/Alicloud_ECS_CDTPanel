@@ -1012,9 +1012,8 @@ function DailyReportCard({ drTime, setDrTime, saveSettings, showError }: {
   return (
     <div className="card"><h2>{t("推送时间")}</h2>
       <div style={{ paddingLeft: "2em" }}>
-        <span>{t("每天固定时间推送一次每日财报。")}</span>
         <div style={{ marginTop: 12 }}>
-          <label>{t("推送时间")}</label>
+          <label>{t("时间设置")}</label>
           <input key={saved} defaultValue={saved} inputMode="numeric" placeholder="HH:MM" style={{ maxWidth: 160 }}
             onBlur={(e) => commitTime(e.currentTarget)}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }} />
