@@ -187,6 +187,16 @@ def _kb(rows: list) -> dict:
                                 for row in rows]}
 
 
+def _kb_sig(markup: dict | None):
+    """把键盘转成可比较的签名：只取每行每个按钮的文字与回调，忽略
+    Telegram 回包里可能多出的字段。没键盘返回空元组。"""
+    if not markup:
+        return ()
+    return tuple(
+        tuple((b.get("text"), b.get("callback_data")) for b in row)
+        for row in (markup.get("inline_keyboard") or []))
+
+
 # ---------------------------------------------------------------------------
 # 数据：复用面板的账户公开行（状态点/排队位次与面板一致）
 # ---------------------------------------------------------------------------
@@ -500,9 +510,11 @@ def _handle_callback(settings: dict, callback: dict) -> None:
     current_text = msg.get("text") or ""
 
     def show(text: str, markup: dict | None):
-        # 导航就地改同一条消息，不新发气泡；内容没变就什么都不做，
+        # 导航就地改同一条消息，不新发气泡；文字和按钮都没变才跳过
+        # （各页标题都跟随站点名，文字相同是常态，只比文字会把换页
+        # 误判成没变化，导致点列表/分组/实例都没反应）。
         # 没消息可改或改不动（消息太旧）再发新消息。
-        if text == current_text:
+        if text == current_text and _kb_sig(markup) == _kb_sig(msg.get("reply_markup")):
             return
         if message_id and _edit(settings, chat_id, message_id, text, markup):
             return
