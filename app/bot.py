@@ -15,17 +15,21 @@
 - 开关机按钮：已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机
   同款切换逻辑。
 - 实例详情页：开机/关闭切换（跟面板普通开关机一致：关闭是普通停机）、
-  节省停机（仅运行中）、更换 EIP（仅 ECS，轻量服务器不显示），
+  节省停机（仅运行中）、更换 EIP（仅 ECS，轻量服务器不显示）、
+  定时任务（可编辑子菜单：开关、开机时间、关机时间），
   底部有返回实例列表和返回目录。
-- 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/定时任务/
-  面板更新/帮助回目录；详情页和分组子菜单回上级 + 回目录。
+- 服务器名称换行显示 IP：名称在上、IP 在下，IP 只显示 A、B 两段，
+  C、D 两段用 * 替换（47.243.214.192 → 47.243.*.*），整个机器人系统都这样。
+- 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/面板更新/
+  帮助回目录；详情页、分组子菜单、定时子菜单回上级 + 回目录。
   返回按钮用图标显示：⬅️ 返回，🏠 返回目录。
 - 所有操作复用面板现有逻辑：api.start_account / stop_account /
-  replace_eip。
+  replace_eip；定时任务用 db.update_account 改每日定时字段。
 """
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 
@@ -43,6 +47,34 @@ POLL_TIMEOUT = 30
 IDLE_WAIT_SECONDS = 10
 ERROR_BACKOFF_SECONDS = 10
 OFFSET_FLAG = "bot_update_offset"
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+# 站点 logo：显示在站点名称前面，整个机器人系统都这样。
+_SITE_LOGO = "☁️"
+
+# Unicode 粗体映射：Telegram 按钮文字不支持 HTML/Markdown，只能用字符级
+# 粗体（拉丁字母/数字）；中文等没有粗体变体，原样返回。
+_BOLD_MAP = {**{c: chr(0x1D400 + ord(c) - 65)
+               for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
+             **{c: chr(0x1D41A + ord(c) - 97)
+               for c in "abcdefghijklmnopqrstuvwxyz"},
+             **{c: chr(0x1D7CE + ord(c) - 48) for c in "0123456789"}}
+
+
+def _bold(text) -> str:
+    """名称加粗：拉丁字母/数字转 Unicode 粗体，中文等原样返回。"""
+    return "".join(_BOLD_MAP.get(ch, ch) for ch in str(text))
+
+
+def _mask_ip(ip) -> str:
+    """公网 IP 只显示 A、B 两段，C、D 两段用 * 替换（隐私）：
+    47.243.214.192 → 47.243.*.*；没有 IP 或不是 IPv4 原样返回。"""
+    if not ip:
+        return "-"
+    parts = str(ip).strip().split(".")
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return f"{parts[0]}.{parts[1]}.*.*"
+    return str(ip)
 
 # 命令表：/help 与 setMyCommands 共用；/status、/power、/switch 已取消
 # （开关机并进 /list，切换分组成员并进 /groups 的子菜单），不再出现。
@@ -250,16 +282,18 @@ def _group_mode_label(group: dict, settings: dict) -> str:
 # 命令
 # ---------------------------------------------------------------------------
 
-def _cmd_start() -> str:
-    return f"机器人在线\n面板版本：{current_version()}\n输入 /help 查看命令"
+def _cmd_start(settings: dict) -> str:
+    # 开头是站点 logo + 加粗站点名，再是机器人在线、版本、命令提示。
+    return (f"{_site_title(settings)}\n机器人在线\n"
+            f"面板版本：{current_version()}\n输入 /help 查看命令")
 
 
 def _menu_keyboard() -> dict:
-    # 主菜单：内容按钮每行两个。
+    # 主菜单：内容按钮每行两个。定时任务已移到实例详情页（更换 EIP 后面），
+    # 这里不再放，主菜单剩 4 个按钮，正好两行两列。
     return _kb(_pair_rows([
         ("实例列表", "menu:list"),
         ("分组列表", "menu:groups"),
-        ("定时任务", "menu:timers"),
         ("面板更新", "menu:update"),
         ("帮助", "menu:help"),
     ]))
@@ -274,9 +308,14 @@ def _site_name(settings: dict) -> str:
     return (settings.get("site_name") or "CDT 面板").strip()
 
 
+def _site_title(settings: dict) -> str:
+    """页面标题：站点 logo + 加粗站点名，整个机器人系统都这样。"""
+    return f"{_SITE_LOGO} {_bold(_site_name(settings))}"
+
+
 def _cmd_list(settings: dict, args: list[str]):
-    """实例列表：只显示名称，名称前圆点表示状态；点一台进详情页开关机。
-    标题跟随站点名。"""
+    """实例列表：名称在上、IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换），
+    名称前圆点表示状态；点一台进详情页开关机。标题跟随站点名。"""
     if args:
         a = _resolve_account(args[0])
         if not a:
@@ -285,10 +324,12 @@ def _cmd_list(settings: dict, args: list[str]):
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
-    kb_rows = _pair_rows([(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")
-                         for r in rows])
+    kb_rows = _pair_rows([
+        (f"{_status_dot(r)} {_bold(r['name'])}\nIP：{_mask_ip(r.get('public_ip'))}",
+         f"detail:{r['id']}")
+        for r in rows])
     kb_rows.append(_back_row())
-    return _site_name(settings), _kb(kb_rows)
+    return _site_title(settings), _kb(kb_rows)
 
 
 def _back_to_menu() -> dict:
@@ -297,22 +338,25 @@ def _back_to_menu() -> dict:
 
 def _instance_detail(a: dict, settings: dict):
     """实例详情页：标题跟随站点名；实例信息做成双行显示按钮（只显示，
-    不可点）：第 1 行圆点 + 名称，第 2 行 IP；状态、分组两行已删。
-    下面是开关机、节省停机、更换 EIP + 返回实例列表/返回目录。
-    更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）。"""
+    不可点）：第 1 行圆点 + 名称，第 2 行 IP（只显示 A、B 两段，C、D
+    用 * 替换）；状态、分组两行已删。
+    下面是开关机、节省停机、更换 EIP、定时任务 + 返回实例列表/返回目录。
+    更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）；定时任务在更换
+    EIP 后面，点开是可编辑子菜单（开关、开机时间、关机时间）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
-    info = (f"{_status_dot(r)} {r['name']}"
-            f"\nIP：{r.get('public_ip') or '-'}")
+    info = (f"{_status_dot(r)} {_bold(r['name'])}"
+            f"\nIP：{_mask_ip(r.get('public_ip'))}")
     actions = [(_power_label(r), f"power:{r['id']}")]
     if (r.get("instance_status") or "").strip() == "Running":
         actions.append(("节省停机", f"powersave:{r['id']}"))
     if not is_swas_instance_id(r.get("instance_id")):
         actions.append(("更换 EIP", f"eip:{r['id']}"))
+    actions.append(("定时任务", f"timers:{r['id']}"))
     kb_rows = [[(info, "noop")]]
     kb_rows.extend(_pair_rows(actions))
     kb_rows.append(_back_row("menu:list"))
-    return _site_name(settings), _kb(kb_rows)
+    return _site_title(settings), _kb(kb_rows)
 
 
 def _power_label(a: dict) -> str:
@@ -334,8 +378,8 @@ def _do_power(aid: int) -> str:
             api_mod.stop_account(aid, {"stop_charging": False}, True)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", None) or str(exc)
-        return f"{a['name']} {'开机' if stopped else '停机'}失败：{detail}"
-    return f"{a['name']} 已发送{'开机' if stopped else '停机'}指令"
+        return f"{_bold(a['name'])} {'开机' if stopped else '停机'}失败：{detail}"
+    return f"{_bold(a['name'])} 已发送{'开机' if stopped else '停机'}指令"
 
 
 def _do_power_save(aid: int) -> str:
@@ -344,13 +388,13 @@ def _do_power_save(aid: int) -> str:
     if not a:
         return "账户不存在"
     if (a.get("instance_status") or "").strip() != "Running":
-        return f"{a['name']} 未运行，无需节省停机"
+        return f"{_bold(a['name'])} 未运行，无需节省停机"
     try:
         api_mod.stop_account(aid, {"stop_charging": True}, True)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", None) or str(exc)
-        return f"{a['name']} 节省停机失败：{detail}"
-    return f"{a['name']} 已发送节省停机指令"
+        return f"{_bold(a['name'])} 节省停机失败：{detail}"
+    return f"{_bold(a['name'])} 已发送节省停机指令"
 
 
 def _do_replace_eip(aid: int) -> str:
@@ -364,13 +408,90 @@ def _do_replace_eip(aid: int) -> str:
         out = api_mod.replace_eip(aid)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", None) or str(exc)
-        return f"{a['name']} 更换 EIP 失败：{detail}"
-    msg = f"{a['name']} EIP 已更换：{out.get('old_ip')} → {out.get('new_ip')}"
+        return f"{_bold(a['name'])} 更换 EIP 失败：{detail}"
+    msg = (f"{_bold(a['name'])} EIP 已更换：{_mask_ip(out.get('old_ip'))}"
+           f" → {_mask_ip(out.get('new_ip'))}")
     if out.get("dns_domains"):
         msg += f"；DNS 已切：{', '.join(out['dns_domains'])}"
     if out.get("warning"):
         msg += f"；{out['warning']}"
     return msg
+
+
+def _pending_timer_key(chat_id) -> str:
+    """等用户回复 HH:MM 的暂存键：值是“实例 id:on/off”。"""
+    return f"bot_pending_timer:{chat_id}"
+
+
+def _timers_detail(a: dict, settings: dict):
+    """实例定时任务子菜单（可编辑）：定时开关、开机时间、关机时间。
+    点“开机时间/关机时间”后直接回复 HH:MM 即可修改；
+    点“定时开关”切换启用/停用。返回回实例详情页。"""
+    rows = _public_accounts()
+    r = next((x for x in rows if x["id"] == a["id"]), a)
+    cur = db.get_account(a["id"]) or {}
+    enabled = bool(cur.get("daily_schedule_enabled"))
+    on = cur.get("daily_on_time") or "08:00"
+    off = cur.get("daily_off_time") or "20:00"
+    info = (f"{_status_dot(r)} {_bold(r['name'])}"
+            f"\n定时：{'已开启' if enabled else '未启用'}　{on} 开 / {off} 关")
+    actions = [
+        (f"定时开关：{'开启' if enabled else '关闭'}",
+         f"timer_toggle:{r['id']}"),
+        (f"开机时间：{on}", f"timer_set_on:{r['id']}"),
+        (f"关机时间：{off}", f"timer_set_off:{r['id']}"),
+    ]
+    kb_rows = [[(info, "noop")]]
+    kb_rows.extend(_pair_rows(actions))
+    kb_rows.append(_back_row(f"detail:{r['id']}"))
+    return _site_title(settings), _kb(kb_rows)
+
+
+def _do_timer_toggle(aid: int) -> str:
+    """切换实例的每日定时开关机。"""
+    cur = db.get_account(aid)
+    if not cur:
+        return "账户不存在"
+    enabled = 0 if cur.get("daily_schedule_enabled") else 1
+    try:
+        db.update_account(aid, {"daily_schedule_enabled": enabled})
+    except ValueError as exc:
+        return f"{_bold(cur['name'])} 定时开关切换失败：{exc}"
+    return f"{_bold(cur['name'])} 定时任务已{'开启' if enabled else '关闭'}"
+
+
+def _handle_timer_input(settings: dict, chat_id, pending: str, text: str) -> None:
+    """处理定时时间的回复：校验 HH:MM，保存后回到定时子菜单。
+    pending 的值是“实例 id:on/off”。"""
+    key = _pending_timer_key(chat_id)
+    try:
+        aid_s, field = pending.split(":", 1)
+        aid = int(aid_s)
+    except ValueError:
+        db.delete_flag(key)
+        return
+    if not _HHMM_RE.match((text or "").strip()):
+        _send(settings, "时间格式不对，请用 HH:MM 回复（例如 08:00）")
+        return
+    text = text.strip()
+    cur = db.get_account(aid)
+    if not cur:
+        db.delete_flag(key)
+        _send(settings, "账户不存在")
+        return
+    other_key = "daily_off_time" if field == "on" else "daily_on_time"
+    if cur.get("daily_schedule_enabled") and (cur.get(other_key) or "") == text:
+        _send(settings, "开机时间与关机时间不能相同，请重新回复")
+        return
+    try:
+        db.update_account(aid, {
+            "daily_on_time" if field == "on" else "daily_off_time": text})
+    except ValueError as exc:
+        _send(settings, f"保存失败：{exc}")
+        return
+    db.delete_flag(key)
+    reply, markup = _timers_detail(cur, settings)
+    _send(settings, reply, markup)
 
 
 def _cmd_groups(settings: dict, args: list[str]):
@@ -384,41 +505,40 @@ def _cmd_groups(settings: dict, args: list[str]):
         if not g:
             return f"找不到分组：{args[0]}", None
         return _group_detail(g, settings)
-    kb_rows = _pair_rows([(g["name"], f"group:{g['id']}") for g in groups])
+    kb_rows = _pair_rows([(_bold(g["name"]), f"group:{g['id']}") for g in groups])
     kb_rows.append(_back_row())
-    return _site_name(settings), _kb(kb_rows)
+    return _site_title(settings), _kb(kb_rows)
 
 
 def _group_detail(group: dict, settings: dict):
-    """分组子菜单：标题跟随站点名；分组信息做成双行显示按钮（只显示，
-    不可点）：第 1 行【分组名】（模式），第 2 行域名。
+    """分组子菜单：标题跟随站点名；分组信息做成单行显示按钮（只显示，
+    不可点）：【组名（加粗）】（模式，不加粗），域名不显示（太长会被截断）。
     成员只列在线/排队中的（带状态圆点），由负载均衡控制当前服务实例，
     手动切换无效，所以成员按钮点了一点反应都没有（noop 回调）。
     “当前服务”“成员”这两行字已删掉。"""
     gid = group["id"]
-    domains = db.list_domains()
-    doms = [d for d in domains if d.get("group_id") == gid]
-    d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0] if doms else None
     members = _group_members(gid)
-    info = (f"【{group['name']}】（{_group_mode_label(group, settings)}）"
-            f"\n域名：{d['name'] if d else '无'}")
+    info = f"【{_bold(group['name'])}】（{_group_mode_label(group, settings)}）"
     kb_rows = [[(info, "noop")]]
     if not members:
         kb_rows.append([("该分组没有成员", "noop")])
         kb_rows.append(_back_row("menu:groups"))
-        return _site_name(settings), _kb(kb_rows)
+        return _site_title(settings), _kb(kb_rows)
     # 只显示在线/排队中的成员（带状态圆点）；已停机/离队/离线的不显示。
     shown = [m for m in members
              if m.get("status_label") in ("在线", "排队中")]
     if not shown:
         kb_rows.append([("暂无在线或排队中的成员", "noop")])
         kb_rows.append(_back_row("menu:groups"))
-        return _site_name(settings), _kb(kb_rows)
-    # 成员做成按钮但不可选中：点一下只消掉加载圈，不做任何事（noop 回调）。
-    kb_rows.extend(_pair_rows([(f"{_status_dot(m)} {m['name']}", "noop")
-                              for m in shown]))
+        return _site_title(settings), _kb(kb_rows)
+    # 成员做成按钮但不可选中：名称在上、IP 在下（IP 只显示 A、B 两段，
+    # C、D 用 * 替换），点一下只消掉加载圈，不做任何事（noop 回调）。
+    kb_rows.extend(_pair_rows([
+        (f"{_status_dot(m)} {_bold(m['name'])}\nIP：{_mask_ip(m.get('public_ip'))}",
+         "noop")
+        for m in shown]))
     kb_rows.append(_back_row("menu:groups"))
-    return _site_name(settings), _kb(kb_rows)
+    return _site_title(settings), _kb(kb_rows)
 
 
 def _cmd_timers(settings: dict) -> str:
@@ -428,9 +548,9 @@ def _cmd_timers(settings: dict) -> str:
         if a.get("daily_schedule_enabled"):
             on = a.get("daily_on_time") or "08:00"
             off = a.get("daily_off_time") or "20:00"
-            lines.append(f"{a['name']}：{on} 开 / {off} 关")
+            lines.append(f"{_bold(a['name'])}：{on} 开 / {off} 关")
         else:
-            lines.append(f"{a['name']}：未启用")
+            lines.append(f"{_bold(a['name'])}：未启用")
     lines.append(f"每日推送：{settings.get('daily_report_time') or '00:00'}")
     return "\n".join(lines)
 
@@ -465,10 +585,10 @@ def _cmd_help() -> str:
 
 def _dispatch(settings: dict, cmd: str, args: list[str]):
     if cmd == "start":
-        return _cmd_start(), None
+        return _cmd_start(settings), None
     if cmd == "menu":
         # 主菜单标题就是站点名（跟随全局设置里的站点名称）。
-        return _site_name(settings), _menu_keyboard()
+        return _site_title(settings), _menu_keyboard()
     if cmd == "list":
         return _cmd_list(settings, args)
     if cmd == "groups":
@@ -487,14 +607,23 @@ def _handle_message(settings: dict, message: dict) -> None:
     if not _authorized(settings, chat.get("id")):
         return
     text = (message.get("text") or "").strip()
-    if not text.startswith("/"):
-        _send(settings, "请用命令操作，输入 /help 查看命令")
+    chat_id = chat.get("id")
+    pending = db.get_flag(_pending_timer_key(chat_id))
+    if text.startswith("/"):
+        # 命令优先：取消未完成的定时时间输入，再处理命令。
+        if pending:
+            db.delete_flag(_pending_timer_key(chat_id))
+        tokens = text.split()
+        cmd = tokens[0][1:].split("@")[0].lower()
+        args = tokens[1:]
+        reply, markup = _dispatch(settings, cmd, args)
+        _send(settings, reply, markup)
         return
-    tokens = text.split()
-    cmd = tokens[0][1:].split("@")[0].lower()
-    args = tokens[1:]
-    reply, markup = _dispatch(settings, cmd, args)
-    _send(settings, reply, markup)
+    if pending:
+        # 正在等用户回复一个 HH:MM 定时时间。
+        _handle_timer_input(settings, chat_id, pending, text)
+        return
+    _send(settings, "请用命令操作，输入 /help 查看命令")
 
 
 def _handle_callback(settings: dict, callback: dict) -> None:
@@ -525,6 +654,17 @@ def _handle_callback(settings: dict, callback: dict) -> None:
         if a:
             reply, markup = _instance_detail(a, settings)
             show(reply, markup)
+
+    def refresh_timers(aid: int):
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if a:
+            reply, markup = _timers_detail(a, settings)
+            show(reply, markup)
+
+    # 点任何按钮都取消未完成的定时时间输入（timer_set 两个分支会重新设）。
+    if not (data.startswith("timer_set_on:")
+            or data.startswith("timer_set_off:")):
+        db.delete_flag(_pending_timer_key(chat_id))
 
     if data == "noop":
         # 展示用按钮（分组子菜单的成员）：点了一点反应都没有。
@@ -570,6 +710,46 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         _answer_callback(settings, cb_id, _do_replace_eip(aid))
         refresh_detail(aid)
+    elif data.startswith("timers:"):
+        try:
+            aid = int(data[7:])
+        except ValueError:
+            return
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if not a:
+            show("实例不存在", None)
+            return
+        reply, markup = _timers_detail(a, settings)
+        show(reply, markup)
+    elif data.startswith("timer_toggle:"):
+        try:
+            aid = int(data[13:])
+        except ValueError:
+            return
+        _answer_callback(settings, cb_id, _do_timer_toggle(aid))
+        refresh_timers(aid)
+    elif data.startswith("timer_set_on:"):
+        try:
+            aid = int(data[13:])
+        except ValueError:
+            return
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if not a:
+            return
+        db.set_flag(_pending_timer_key(chat_id), f"{aid}:on")
+        _send(settings, f"请直接回复 {_bold(a['name'])} 的开机时间，格式 HH:MM"
+                        "（例如 08:00）；发送其他命令可取消。")
+    elif data.startswith("timer_set_off:"):
+        try:
+            aid = int(data[14:])
+        except ValueError:
+            return
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if not a:
+            return
+        db.set_flag(_pending_timer_key(chat_id), f"{aid}:off")
+        _send(settings, f"请直接回复 {_bold(a['name'])} 的关机时间，格式 HH:MM"
+                        "（例如 20:00）；发送其他命令可取消。")
     elif data.startswith("group:"):
         try:
             gid = int(data[6:])
