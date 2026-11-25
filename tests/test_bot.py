@@ -84,9 +84,10 @@ def test_list_keyboard_dots_only_names(monkeypatch):
     assert text.startswith("实例列表")
     btns = [b for row in kb["inline_keyboard"] for b in row]
     assert [b["text"] for b in btns] == [
-        "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6"]
+        "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6", "返回目录"]
     assert [b["callback_data"] for b in btns] == [
-        "detail:1", "detail:2", "detail:3", "detail:4", "detail:5", "detail:6"]
+        "detail:1", "detail:2", "detail:3", "detail:4", "detail:5", "detail:6",
+        "menu:menu"]
     # 列表只显示名称，不带状态文字/IP/分组
     assert "在线" not in text and "203.0" not in text
 
@@ -95,25 +96,41 @@ def test_instance_detail_page(monkeypatch):
     rows = [
         {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
          "instance_status": "Running", "public_ip": "203.0.113.1",
-         "group_ids": [2]},
+         "group_ids": [2], "instance_id": "i-aaa"},
         {"id": 2, "name": "A2", "status_dot": "red", "status_label": "已停机",
          "instance_status": "Stopped", "public_ip": "203.0.113.2",
-         "group_ids": [2]},
+         "group_ids": [2], "instance_id": "i-bbb"},
+        {"id": 3, "name": "SWAS", "status_dot": "green", "status_label": "在线",
+         "instance_status": "Running", "public_ip": "203.0.113.3",
+         "group_ids": [2],
+         "instance_id": "123e4567-e89b-12d3-a456-426614174000"},
     ]
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
     monkeypatch.setattr(botmod.db, "list_groups",
                         lambda: [{"id": 2, "name": "Premium"}])
     text, kb = botmod._instance_detail(rows[0])
     assert text == "🟢 A1\n状态：在线\nIP：203.0.113.1\n分组：Premium"
-    btns = [b for row in kb["inline_keyboard"] for b in row]
-    assert ("关闭", "power:1") in [(b["text"], b["callback_data"]) for b in btns]
-    assert ("返回实例列表", "menu:list") in [(b["text"], b["callback_data"])
-                                             for b in btns]
-    # 已停机显示开机
-    text2, kb2 = botmod._instance_detail(rows[1])
-    assert "🔴 A2\n状态：已停机" in text2
-    assert any(b["text"] == "开机" and b["callback_data"] == "power:2"
-               for row in kb2["inline_keyboard"] for b in row)
+    btns = [(b["text"], b["callback_data"])
+            for row in kb["inline_keyboard"] for b in row]
+    # 运行中的 ECS：开关机 + 节省停机 + 更换 EIP + 返回上级/返回目录
+    assert ("关闭", "power:1") in btns
+    assert ("节省停机", "powersave:1") in btns
+    assert ("更换 EIP", "eip:1") in btns
+    assert ("返回实例列表", "menu:list") in btns
+    assert ("返回目录", "menu:menu") in btns
+    # 已停机：开机，没有节省停机；ECS 仍有更换 EIP
+    _, kb2 = botmod._instance_detail(rows[1])
+    btns2 = [(b["text"], b["callback_data"])
+             for row in kb2["inline_keyboard"] for b in row]
+    assert ("开机", "power:2") in btns2
+    assert not any(t == "节省停机" for t, _ in btns2)
+    assert ("更换 EIP", "eip:2") in btns2
+    # 轻量服务器：没有更换 EIP
+    _, kb3 = botmod._instance_detail(rows[2])
+    btns3 = [(b["text"], b["callback_data"])
+             for row in kb3["inline_keyboard"] for b in row]
+    assert ("节省停机", "powersave:3") in btns3
+    assert not any(t == "更换 EIP" for t, _ in btns3)
     # /list 带名字参数直接进详情页
     text3, _ = botmod._cmd_list(["A2"])
     assert text3.startswith("🔴 A2")
@@ -136,12 +153,47 @@ def test_do_power_toggle(monkeypatch):
                                      "instance_status": "Stopped"})
     assert botmod._do_power(1) == "A1 已发送开机指令"
     assert calls == [("start", 1)]
-    # 运行中按“关闭”：走节省停机（StopCharging）
+    # 运行中按“关闭”：普通停机（KeepCharging），不是节省停机；
+    # 节省停机是详情页单独的按钮
     monkeypatch.setattr(botmod.db, "get_account",
                         lambda aid: {"id": aid, "name": "A1",
                                      "instance_status": "Running"})
-    assert botmod._do_power(1) == "A1 已发送节省停机指令"
-    assert calls[-1] == ("stop", 1, {"stop_charging": True})
+    assert botmod._do_power(1) == "A1 已发送停机指令"
+    assert calls[-1] == ("stop", 1, {"stop_charging": False})
+
+
+def test_do_power_save(monkeypatch):
+    calls = []
+    monkeypatch.setattr(botmod.api_mod, "stop_account",
+                        lambda aid, body, _: calls.append(("stop", aid, body)))
+    monkeypatch.setattr(botmod.db, "get_account",
+                        lambda aid: {"id": aid, "name": "A1",
+                                     "instance_status": "Running"})
+    assert botmod._do_power_save(1) == "A1 已发送节省停机指令"
+    assert calls == [("stop", 1, {"stop_charging": True})]
+    # 已停机不用节省停机
+    monkeypatch.setattr(botmod.db, "get_account",
+                        lambda aid: {"id": aid, "name": "A1",
+                                     "instance_status": "Stopped"})
+    assert "无需节省停机" in botmod._do_power_save(1)
+
+
+def test_do_replace_eip(monkeypatch):
+    monkeypatch.setattr(botmod.db, "get_account",
+                        lambda aid: {"id": aid, "name": "A1"})
+    monkeypatch.setattr(botmod.api_mod, "replace_eip",
+                        lambda aid: {"old_ip": "203.0.113.1",
+                                     "new_ip": "203.0.113.9",
+                                     "dns_domains": ["premium.example.xyz"],
+                                     "warning": ""})
+    assert botmod._do_replace_eip(1) == (
+        "A1 EIP 已更换：203.0.113.1 → 203.0.113.9；DNS 已切：premium.example.xyz")
+    # 失败时把后端原因原样回过去
+    from fastapi import HTTPException
+    monkeypatch.setattr(botmod.api_mod, "replace_eip",
+                        lambda aid: (_ for _ in ()).throw(
+                            HTTPException(400, "轻量应用服务器没有 EIP，不能更换 EIP")))
+    assert "轻量应用服务器没有 EIP" in botmod._do_replace_eip(1)
 
 
 def _make_group(tmpdb):
@@ -219,8 +271,9 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     btns = [b for row in kb["inline_keyboard"] for b in row]
     # 库里除了 Premium 还有默认分组（id=1，init_db 自带）
     assert [(b["text"], b["callback_data"]) for b in btns] == [
-        ("默认分组", "group:1"), ("Premium", f"group:{g['id']}")]
-    # 子菜单：分组信息 + 成员按钮（当前服务有标记）+ 返回
+        ("默认分组", "group:1"), ("Premium", f"group:{g['id']}"),
+        ("返回目录", "menu:menu")]
+    # 子菜单：分组信息 + 成员按钮（当前服务有标记）+ 返回上级/返回目录
     text2, kb2 = botmod._group_detail(g, _settings())
     assert "【Premium】（负载均衡）" in text2
     assert "域名：premium.example.xyz" in text2
@@ -232,6 +285,8 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
         (b["text"], b["callback_data"]) for b in btns2]
     assert ("返回分组列表", "menu:groups") in [(b["text"], b["callback_data"])
                                                for b in btns2]
+    assert ("返回目录", "menu:menu") in [(b["text"], b["callback_data"])
+                                         for b in btns2]
     # /groups 带名字参数直接进子菜单
     text3, _ = botmod._cmd_groups(_settings(), ["Premium"])
     assert "【Premium】" in text3
@@ -297,3 +352,31 @@ def test_bot_toggle_in_telegram_card():
     i18n = (Path(__file__).resolve().parent.parent / "web" / "src" / "i18n.ts").read_text(
         encoding="utf-8")
     assert "机器人控制" in i18n
+
+
+def test_back_buttons_and_action_callbacks(monkeypatch):
+    # 返回目录（menu:menu）回到主菜单
+    sent = []
+    monkeypatch.setattr(botmod, "_send", lambda s, t, m=None: sent.append((t, m)))
+    monkeypatch.setattr(botmod, "_answer_callback", lambda *a, **k: None)
+    botmod._handle_callback(_settings(), {"id": "cb1", "data": "menu:menu",
+                                          "message": {"chat": {"id": 123456789}}})
+    assert sent and sent[0][0] == "请选择："
+    data = [b["callback_data"] for row in sent[0][1]["inline_keyboard"] for b in row]
+    assert "menu:list" in data and "menu:groups" in data
+    # 节省停机与更换 EIP 的回调走到对应的处理函数
+    calls = []
+    monkeypatch.setattr(botmod, "_do_power_save",
+                        lambda aid: calls.append(("save", aid)) or "ok-save")
+    monkeypatch.setattr(botmod, "_do_replace_eip",
+                        lambda aid: calls.append(("eip", aid)) or "ok-eip")
+    botmod._handle_callback(_settings(), {"id": "cb2", "data": "powersave:7",
+                                          "message": {"chat": {"id": 123456789}}})
+    botmod._handle_callback(_settings(), {"id": "cb3", "data": "eip:8",
+                                          "message": {"chat": {"id": 123456789}}})
+    assert calls == [("save", 7), ("eip", 8)]
+    # 定时任务/帮助也带返回目录
+    reply, markup = botmod._dispatch(_settings(), "help", [])
+    assert reply.startswith("可用命令：")
+    assert markup["inline_keyboard"] == [[{"text": "返回目录",
+                                           "callback_data": "menu:menu"}]]

@@ -13,8 +13,13 @@
   白=离队/未参与/未知/已跳出。
 - 开关机按钮：已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机
   同款切换逻辑；关闭用节省停机（StopCharging）。
-- 所有操作复用面板现有逻辑：api.start_account / stop_account、
-  scheduler._DnsOps.set_record、db.update_domain、Notifier 推送。
+- 实例详情页：开机/关闭切换（跟面板普通开关机一致：关闭是普通停机）、
+  节省停机（仅运行中）、更换 EIP（仅 ECS，轻量服务器不显示），
+  底部有返回实例列表和返回目录。
+- 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/定时任务/
+  面板更新/帮助回目录；详情页和分组子菜单回上级 + 回目录。
+- 所有操作复用面板现有逻辑：api.start_account / stop_account /
+  replace_eip、scheduler._DnsOps.set_record、db.update_domain、Notifier 推送。
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ import requests
 from . import api as api_mod
 from . import db, scheduler
 from . import update as update_mod
+from .aliyun import is_swas_instance_id
 from .engine import _switch_rule_text
 from .notify import Notifier
 from .update import current_version
@@ -234,13 +240,19 @@ def _cmd_list(args: list[str]):
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
-    kb = _kb([[ (f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
-              for r in rows])
-    return "实例列表\n点一台查看详情开关机：", kb
+    kb_rows = [[(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
+               for r in rows]
+    kb_rows.append([("返回目录", "menu:menu")])
+    return "实例列表\n点一台查看详情开关机：", _kb(kb_rows)
+
+
+def _back_to_menu() -> dict:
+    return _kb([[("返回目录", "menu:menu")]])
 
 
 def _instance_detail(a: dict):
-    """实例详情页：名称/状态/IP/分组 + 开关机切换按钮 + 返回列表。"""
+    """实例详情页：名称/状态/IP/分组 + 开关机、节省停机、更换 EIP
+    + 返回实例列表/返回目录。更换 EIP 只对 ECS 实例显示（轻量服务器没有 EIP）。"""
     rows = _public_accounts()
     r = next((x for x in rows if x["id"] == a["id"]), a)
     groups = {g["id"]: g["name"] for g in db.list_groups()}
@@ -249,11 +261,13 @@ def _instance_detail(a: dict):
     label = r.get("status_label") or r.get("instance_status") or "未知"
     text = (f"{_status_dot(r)} {r['name']}\n状态：{label}"
             f"\nIP：{r.get('public_ip') or '-'}\n分组：{gname}")
-    kb = _kb([
-        [(_power_label(r), f"power:{r['id']}")],
-        [("返回实例列表", "menu:list")],
-    ])
-    return text, kb
+    kb_rows = [[(_power_label(r), f"power:{r['id']}")]]
+    if (r.get("instance_status") or "").strip() == "Running":
+        kb_rows.append([("节省停机", f"powersave:{r['id']}")])
+    if not is_swas_instance_id(r.get("instance_id")):
+        kb_rows.append([("更换 EIP", f"eip:{r['id']}")])
+    kb_rows.append([("返回实例列表", "menu:list"), ("返回目录", "menu:menu")])
+    return text, _kb(kb_rows)
 
 
 def _power_label(a: dict) -> str:
@@ -262,6 +276,8 @@ def _power_label(a: dict) -> str:
 
 
 def _do_power(aid: int) -> str:
+    """普通开关机（跟面板普通开关机一致）：已停机→开机；运行中→普通停机
+    （KeepCharging，停机后继续计费）。节省停机是单独的按钮（_do_power_save）。"""
     a = db.get_account(aid)
     if not a:
         return "账户不存在"
@@ -270,12 +286,46 @@ def _do_power(aid: int) -> str:
         if stopped:
             api_mod.start_account(aid, True)
         else:
-            # 关闭用节省停机（StopCharging），与面板节省停机按钮一致。
-            api_mod.stop_account(aid, {"stop_charging": True}, True)
+            api_mod.stop_account(aid, {"stop_charging": False}, True)
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", None) or str(exc)
-        return f"{a['name']} {'开机' if stopped else '关闭'}失败：{detail}"
-    return f"{a['name']} 已发送{'开机' if stopped else '节省停机'}指令"
+        return f"{a['name']} {'开机' if stopped else '停机'}失败：{detail}"
+    return f"{a['name']} 已发送{'开机' if stopped else '停机'}指令"
+
+
+def _do_power_save(aid: int) -> str:
+    """节省停机（StopCharging，停机后停止计费）：仅运行中可用。"""
+    a = db.get_account(aid)
+    if not a:
+        return "账户不存在"
+    if (a.get("instance_status") or "").strip() != "Running":
+        return f"{a['name']} 未运行，无需节省停机"
+    try:
+        api_mod.stop_account(aid, {"stop_charging": True}, True)
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "detail", None) or str(exc)
+        return f"{a['name']} 节省停机失败：{detail}"
+    return f"{a['name']} 已发送节省停机指令"
+
+
+def _do_replace_eip(aid: int) -> str:
+    """更换 EIP：复用面板的 replace_eip（申请新 EIP → 解绑旧 → 绑新
+    → 带宽一致 → 刷新 IP/DNS → 释放旧；失败自动回滚）。成功/失败的
+    日志和推送由 replace_eip 自己记，这里只回一条结果。"""
+    a = db.get_account(aid)
+    if not a:
+        return "账户不存在"
+    try:
+        out = api_mod.replace_eip(aid)
+    except Exception as exc:  # noqa: BLE001
+        detail = getattr(exc, "detail", None) or str(exc)
+        return f"{a['name']} 更换 EIP 失败：{detail}"
+    msg = f"{a['name']} EIP 已更换：{out.get('old_ip')} → {out.get('new_ip')}"
+    if out.get("dns_domains"):
+        msg += f"；DNS 已切：{', '.join(out['dns_domains'])}"
+    if out.get("warning"):
+        msg += f"；{out['warning']}"
+    return msg
 
 
 def _cmd_groups(settings: dict, args: list[str]):
@@ -288,8 +338,9 @@ def _cmd_groups(settings: dict, args: list[str]):
         if not g:
             return f"找不到分组：{args[0]}", None
         return _group_detail(g, settings)
-    return "分组列表\n点一个分组切换成员：", _kb([[(g["name"], f"group:{g['id']}")]
-                                                for g in groups])
+    kb_rows = [[(g["name"], f"group:{g['id']}")] for g in groups]
+    kb_rows.append([("返回目录", "menu:menu")])
+    return "分组列表\n点一个分组切换成员：", _kb(kb_rows)
 
 
 def _group_detail(group: dict, settings: dict):
@@ -311,13 +362,14 @@ def _group_detail(group: dict, settings: dict):
         lines.append("当前服务：无")
     lines.append(f"成员：{len(members)}")
     if not members:
-        return "\n".join(lines) + "\n该分组没有成员", _kb([[("返回分组列表", "menu:groups")]])
+        return ("\n".join(lines) + "\n该分组没有成员",
+                _kb([[("返回分组列表", "menu:groups"), ("返回目录", "menu:menu")]]))
     current_id = d.get("current_account_id") if d else None
     rows = []
     for m in members:
         mark = "（当前服务）" if m["id"] == current_id else ""
         rows.append([(f"{m['name']}{mark}", f"switchto:{gid}:{m['id']}")])
-    rows.append([("返回分组列表", "menu:groups")])
+    rows.append([("返回分组列表", "menu:groups"), ("返回目录", "menu:menu")])
     return "\n".join(lines) + "\n点一台切换当前服务实例：", _kb(rows)
 
 
@@ -425,11 +477,11 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
     if cmd == "groups":
         return _cmd_groups(settings, args)
     if cmd == "timers":
-        return _cmd_timers(settings), None
+        return _cmd_timers(settings), _back_to_menu()
     if cmd == "update":
-        return _cmd_update(), None
+        return _cmd_update(), _back_to_menu()
     if cmd == "help":
-        return _cmd_help(), None
+        return _cmd_help(), _back_to_menu()
     return f"未知命令：/{cmd}\n输入 /help 查看命令", None
 
 
@@ -456,7 +508,7 @@ def _handle_callback(settings: dict, callback: dict) -> None:
     data = callback.get("data") or ""
     if data.startswith("menu:"):
         key = data[5:]
-        mapping = {"list": "list", "groups": "groups",
+        mapping = {"menu": "menu", "list": "list", "groups": "groups",
                    "timers": "timers", "update": "update", "help": "help"}
         if key in mapping:
             reply, markup = _dispatch(settings, mapping[key], [])
@@ -480,6 +532,18 @@ def _handle_callback(settings: dict, callback: dict) -> None:
         except ValueError:
             return
         _send(settings, _do_power(aid))
+    elif data.startswith("powersave:"):
+        try:
+            aid = int(data[10:])
+        except ValueError:
+            return
+        _send(settings, _do_power_save(aid))
+    elif data.startswith("eip:"):
+        try:
+            aid = int(data[4:])
+        except ValueError:
+            return
+        _send(settings, _do_replace_eip(aid))
     elif data.startswith("group:"):
         try:
             gid = int(data[6:])
