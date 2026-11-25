@@ -84,7 +84,7 @@ def test_list_keyboard_dots_only_names(monkeypatch):
     assert text.startswith("实例列表")
     btns = [b for row in kb["inline_keyboard"] for b in row]
     assert [b["text"] for b in btns] == [
-        "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6", "返回目录"]
+        "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6", "🏠 返回目录"]
     assert [b["callback_data"] for b in btns] == [
         "detail:1", "detail:2", "detail:3", "detail:4", "detail:5", "detail:6",
         "menu:menu"]
@@ -116,8 +116,9 @@ def test_instance_detail_page(monkeypatch):
     assert ("关闭", "power:1") in btns
     assert ("节省停机", "powersave:1") in btns
     assert ("更换 EIP", "eip:1") in btns
-    assert ("返回实例列表", "menu:list") in btns
-    assert ("返回目录", "menu:menu") in btns
+    assert ("返回目录", "menu:menu") not in btns
+    assert ("⬅️ 返回", "menu:list") in btns
+    assert ("🏠 返回目录", "menu:menu") in btns
     # 已停机：开机，没有节省停机；ECS 仍有更换 EIP
     _, kb2 = botmod._instance_detail(rows[1])
     btns2 = [(b["text"], b["callback_data"])
@@ -206,62 +207,16 @@ def _make_group(tmpdb):
                                "access_key_secret_enc": "enc"})
     d = tmpdb.create_domain({"name": "premium.example.xyz", "group_id": g["id"]})
     tmpdb.update_account(a1["id"], {"instance_status": "Running",
-                                    "public_ip": "203.0.113.1"})
+                                    "public_ip": "203.0.113.1",
+                                    "traffic_used_gb": 10, "quota_gb": 200,
+                                    "ddns_enabled": 1})
     tmpdb.update_account(a2["id"], {"instance_status": "Running",
-                                    "public_ip": "203.0.113.2"})
+                                    "public_ip": "203.0.113.2",
+                                    "traffic_used_gb": 20, "quota_gb": 200,
+                                    "ddns_enabled": 1})
     tmpdb.update_domain(d["id"], {"current_account_id": a1["id"],
                                   "current_ip": "203.0.113.1"})
     return g, a1, a2, d
-
-
-def test_switch_happy_path(tmpdb, monkeypatch):
-    g, a1, a2, d = _make_group(tmpdb)
-    dns_calls = []
-
-    class FakeDns:
-        def __init__(self, settings):
-            pass
-
-        def set_record(self, domain, ip):
-            dns_calls.append((domain.name, ip))
-            return True
-
-    monkeypatch.setattr(botmod.scheduler, "_DnsOps", FakeDns)
-    sent = []
-
-    class FakeNotifier:
-        def __init__(self, settings):
-            pass
-
-        def send(self, event, title, body):
-            sent.append((event, title, body))
-            return ["telegram"]
-
-    monkeypatch.setattr(botmod, "Notifier", FakeNotifier)
-    reply = botmod._do_switch(g["id"], a2["id"])
-    assert reply == "【Premium】A1 已替换为 A2（负载均衡：手动切换）"
-    assert dns_calls == [("premium.example.xyz", "203.0.113.2")]
-    assert tmpdb.get_domain(d["id"])["current_account_id"] == a2["id"]
-    assert sent == [("group_change", "分组动态", reply)]
-    events = tmpdb.list_events(limit=10)
-    assert any(e["title"] == "分组动态" and "A1 已替换为 A2" in e["detail"]
-               for e in events)
-
-
-def test_switch_validation(tmpdb):
-    g, a1, a2, d = _make_group(tmpdb)
-    # 目标不在分组里
-    other = tmpdb.create_account({"name": "B1", "instance_id": "i-9",
-                                  "access_key_id": "LTAI-x",
-                                  "access_key_secret_enc": "enc"})
-    tmpdb.update_account(other["id"], {"instance_status": "Running",
-                                       "public_ip": "203.0.113.9"})
-    assert "不在分组" in botmod._do_switch(g["id"], other["id"])
-    # 目标已是当前服务实例
-    assert "已是" in botmod._do_switch(g["id"], a1["id"])
-    # 目标未运行
-    tmpdb.update_account(a2["id"], {"instance_status": "Stopped"})
-    assert "未运行" in botmod._do_switch(g["id"], a2["id"])
 
 
 def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
@@ -272,21 +227,19 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
     # 库里除了 Premium 还有默认分组（id=1，init_db 自带）
     assert [(b["text"], b["callback_data"]) for b in btns] == [
         ("默认分组", "group:1"), ("Premium", f"group:{g['id']}"),
-        ("返回目录", "menu:menu")]
-    # 子菜单：分组信息 + 成员按钮（当前服务有标记）+ 返回上级/返回目录
+        ("🏠 返回目录", "menu:menu")]
+    # 子菜单：分组信息 + 成员只显示（在线/排队中，带圆点，当前服务有标记，
+    # 不可点——负载均衡控制，手动切换无效）+ 返回上级/返回目录（图标）
     text2, kb2 = botmod._group_detail(g, _settings())
     assert "【Premium】（负载均衡）" in text2
     assert "域名：premium.example.xyz" in text2
     assert "当前服务：A1" in text2
+    assert "🟢 A1（当前服务）" in text2
+    assert "🟡 A2" in text2
     btns2 = [b for row in kb2["inline_keyboard"] for b in row]
-    assert ("A1（当前服务）", f"switchto:{g['id']}:{a1['id']}") in [
-        (b["text"], b["callback_data"]) for b in btns2]
-    assert ("A2", f"switchto:{g['id']}:{a2['id']}") in [
-        (b["text"], b["callback_data"]) for b in btns2]
-    assert ("返回分组列表", "menu:groups") in [(b["text"], b["callback_data"])
-                                               for b in btns2]
-    assert ("返回目录", "menu:menu") in [(b["text"], b["callback_data"])
-                                         for b in btns2]
+    # 成员不是按钮：键盘里只有返回
+    assert [(b["text"], b["callback_data"]) for b in btns2] == [
+        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
     # /groups 带名字参数直接进子菜单
     text3, _ = botmod._cmd_groups(_settings(), ["Premium"])
     assert "【Premium】" in text3
@@ -375,8 +328,46 @@ def test_back_buttons_and_action_callbacks(monkeypatch):
     botmod._handle_callback(_settings(), {"id": "cb3", "data": "eip:8",
                                           "message": {"chat": {"id": 123456789}}})
     assert calls == [("save", 7), ("eip", 8)]
-    # 定时任务/帮助也带返回目录
+    # 定时任务/帮助也带返回目录（图标）
     reply, markup = botmod._dispatch(_settings(), "help", [])
     assert reply.startswith("可用命令：")
-    assert markup["inline_keyboard"] == [[{"text": "返回目录",
+    assert markup["inline_keyboard"] == [[{"text": "🏠 返回目录",
                                            "callback_data": "menu:menu"}]]
+
+
+def test_group_detail_only_online_or_queued(monkeypatch):
+    # 分组子菜单只显示在线/排队中的成员（带圆点）；已停机/离队的不显示。
+    # 成员是纯文本行，不是按钮（负载均衡控制，不可操作）。
+    rows = [
+        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
+         "instance_status": "Running", "public_ip": "203.0.113.1",
+         "group_ids": [2], "instance_id": "i-aaa"},
+        {"id": 2, "name": "A2", "status_dot": "yellow", "status_label": "排队中",
+         "instance_status": "Running", "public_ip": "203.0.113.2",
+         "group_ids": [2], "instance_id": "i-bbb"},
+        {"id": 3, "name": "A3", "status_dot": "red", "status_label": "已停机",
+         "instance_status": "Stopped", "public_ip": "203.0.113.3",
+         "group_ids": [2], "instance_id": "i-ccc"},
+        {"id": 4, "name": "A4", "status_dot": "gray", "status_label": "离队",
+         "instance_status": "Running", "public_ip": "203.0.113.4",
+         "group_ids": [2], "instance_id": "i-ddd"},
+    ]
+    monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
+    g = {"id": 2, "name": "Premium", "switch_mode": "load_balance"}
+    text, kb = botmod._group_detail(g, _settings())
+    assert "🟢 A1" in text
+    assert "🟡 A2" in text
+    assert "A3" not in text
+    assert "A4" not in text
+    assert [(b["text"], b["callback_data"])
+            for row in kb["inline_keyboard"] for b in row] == [
+        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
+    # 全是在线/排队中之外的成员：提示 + 只有返回按钮
+    for r in rows:
+        r["status_label"] = "已停机"
+        r["status_dot"] = "red"
+    text2, kb2 = botmod._group_detail(g, _settings())
+    assert "暂无在线或排队中的成员" in text2
+    assert [(b["text"], b["callback_data"])
+            for row in kb2["inline_keyboard"] for b in row] == [
+        ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]

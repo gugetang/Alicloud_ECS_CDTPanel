@@ -7,19 +7,21 @@
   Telegram 卡片里，改完 10 秒内生效，不用重启容器。
 - 命令：/start /menu /list /groups /timers /update /help
   （/status 已取消；/reboot 已取消；开关机并进 /list：列表只显示名称，
-  名称前圆点表示状态，点一台进详情页开关机；切换分组成员并进 /groups：
-  点分组进子菜单，点成员即切换）。
+  名称前圆点表示状态，点一台进详情页开关机；分组列表并进 /groups：
+  点分组进子菜单，只看成员，不可操作——当前服务实例由负载均衡控制，
+  手动切换无效）。
 - 列表圆点：绿=在线（含启动中），黄=排队，红=停机/停止中/离线，
   白=离队/未参与/未知/已跳出。
 - 开关机按钮：已停机显示“开机”，运行中显示“关闭”，跟面板普通开关机
-  同款切换逻辑；关闭用节省停机（StopCharging）。
+  同款切换逻辑。
 - 实例详情页：开机/关闭切换（跟面板普通开关机一致：关闭是普通停机）、
   节省停机（仅运行中）、更换 EIP（仅 ECS，轻量服务器不显示），
   底部有返回实例列表和返回目录。
 - 每个菜单底部都有返回上级和返回目录：实例列表/分组列表/定时任务/
   面板更新/帮助回目录；详情页和分组子菜单回上级 + 回目录。
+  返回按钮用图标显示：⬅️ 返回，🏠 返回目录。
 - 所有操作复用面板现有逻辑：api.start_account / stop_account /
-  replace_eip、scheduler._DnsOps.set_record、db.update_domain、Notifier 推送。
+  replace_eip。
 """
 from __future__ import annotations
 
@@ -33,8 +35,6 @@ from . import api as api_mod
 from . import db, scheduler
 from . import update as update_mod
 from .aliyun import is_swas_instance_id
-from .engine import _switch_rule_text
-from .notify import Notifier
 from .update import current_version
 
 log = logging.getLogger(__name__)
@@ -242,12 +242,12 @@ def _cmd_list(args: list[str]):
         return "暂无实例", None
     kb_rows = [[(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
                for r in rows]
-    kb_rows.append([("返回目录", "menu:menu")])
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
     return "实例列表\n点一台查看详情开关机：", _kb(kb_rows)
 
 
 def _back_to_menu() -> dict:
-    return _kb([[("返回目录", "menu:menu")]])
+    return _kb([[("🏠 返回目录", "menu:menu")]])
 
 
 def _instance_detail(a: dict):
@@ -266,7 +266,7 @@ def _instance_detail(a: dict):
         kb_rows.append([("节省停机", f"powersave:{r['id']}")])
     if not is_swas_instance_id(r.get("instance_id")):
         kb_rows.append([("更换 EIP", f"eip:{r['id']}")])
-    kb_rows.append([("返回实例列表", "menu:list"), ("返回目录", "menu:menu")])
+    kb_rows.append([("⬅️ 返回", "menu:list"), ("🏠 返回目录", "menu:menu")])
     return text, _kb(kb_rows)
 
 
@@ -329,7 +329,7 @@ def _do_replace_eip(aid: int) -> str:
 
 
 def _cmd_groups(settings: dict, args: list[str]):
-    """分组列表：只显示分组名；点一个分组进子菜单，点成员即切换当前服务实例。"""
+    """分组列表：只显示分组名；点一个分组进子菜单看成员（只显示，不可操作）。"""
     groups = db.list_groups()
     if not groups:
         return "暂无分组", None
@@ -339,12 +339,14 @@ def _cmd_groups(settings: dict, args: list[str]):
             return f"找不到分组：{args[0]}", None
         return _group_detail(g, settings)
     kb_rows = [[(g["name"], f"group:{g['id']}")] for g in groups]
-    kb_rows.append([("返回目录", "menu:menu")])
-    return "分组列表\n点一个分组切换成员：", _kb(kb_rows)
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    return "分组列表\n点一个分组查看成员：", _kb(kb_rows)
 
 
 def _group_detail(group: dict, settings: dict):
-    """分组子菜单：分组信息 + 成员按钮（点成员即切换）+ 返回分组列表。"""
+    """分组子菜单：分组信息 + 成员列表（只显示，不可点）+ 返回。
+    成员只列在线/排队中的（带状态圆点），由负载均衡控制当前服务实例，
+    手动切换无效，所以成员不做按钮。"""
     gid = group["id"]
     domains = db.list_domains()
     accounts = {a["id"]: a for a in db.list_accounts()}
@@ -361,68 +363,19 @@ def _group_detail(group: dict, settings: dict):
     else:
         lines.append("当前服务：无")
     lines.append(f"成员：{len(members)}")
+    back = _kb([[("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]])
     if not members:
-        return ("\n".join(lines) + "\n该分组没有成员",
-                _kb([[("返回分组列表", "menu:groups"), ("返回目录", "menu:menu")]]))
+        return "\n".join(lines) + "\n该分组没有成员", back
     current_id = d.get("current_account_id") if d else None
-    rows = []
-    for m in members:
+    # 只显示在线/排队中的成员（带状态圆点）；已停机/离队/离线的不显示。
+    shown = [m for m in members
+             if m.get("status_label") in ("在线", "排队中")]
+    if not shown:
+        return "\n".join(lines) + "\n暂无在线或排队中的成员", back
+    for m in shown:
         mark = "（当前服务）" if m["id"] == current_id else ""
-        rows.append([(f"{m['name']}{mark}", f"switchto:{gid}:{m['id']}")])
-    rows.append([("返回分组列表", "menu:groups"), ("返回目录", "menu:menu")])
-    return "\n".join(lines) + "\n点一台切换当前服务实例：", _kb(rows)
-
-
-def _do_switch(gid: int, aid: int) -> str:
-    settings = db.get_settings()
-    groups = {g["id"]: g for g in db.list_groups()}
-    group = groups.get(gid)
-    if not group:
-        return "分组不存在"
-    doms = [d for d in db.list_domains() if d.get("group_id") == gid and d.get("enabled")]
-    if not doms:
-        return f"【{group['name']}】没有启用的域名"
-    d = sorted(doms, key=lambda x: (x.get("priority", 0), x["id"]))[0]
-    target = db.get_account(aid)
-    if not target:
-        return "实例不存在"
-    if aid not in [m["id"] for m in _group_members(gid)]:
-        return f"{target['name']} 不在分组【{group['name']}】里"
-    current_id = d.get("current_account_id")
-    if current_id == aid:
-        return f"{target['name']} 已是【{group['name']}】的当前服务实例"
-    if (target.get("instance_status") or "").strip() != "Running":
-        return (f"{target['name']} 未运行"
-                f"（当前状态：{target.get('instance_status') or '未知'}），请先开机")
-    ip = (target.get("public_ip") or "").strip()
-    if not ip:
-        return f"{target['name']} 没有公网 IP，无法切换"
-    # DNS 同步复用调度器的 _DnsOps（Cloudflare 同步、缓存的 zone/record ID）。
-    domain_view = scheduler._to_domain_views([d])[0]
-    try:
-        scheduler._DnsOps(settings).set_record(domain_view, ip)
-    except Exception as exc:  # noqa: BLE001
-        return f"DNS 同步失败：{exc}"
-    # set_record 只返回“是否实际改了记录”：本来就等于新 IP 时也算成功，
-    # 用库里 dns_records 的 ip 再校验一次（与换 EIP 同款做法）。
-    rec = db.get_dns_record(d["id"])
-    if rec and rec.get("ip") and rec.get("ip") != ip:
-        return f"DNS 同步失败：记录仍指向 {rec.get('ip')}"
-    current = db.get_account(current_id) if current_id else None
-    db.update_domain(d["id"], {"fallback_active": 0, "current_account_id": aid,
-                               "current_ip": ip})
-    mode = (group.get("switch_mode") or settings.get("switch_mode") or "load_balance")
-    rule = _switch_rule_text("manual", mode)
-    if current:
-        body = f"【{group['name']}】{current['name']} 已替换为 {target['name']}（{rule}）"
-    elif d.get("fallback_active"):
-        body = f"【{group['name']}】备用地址已替换为 {target['name']}（{rule}）"
-    else:
-        body = f"【{group['name']}】{target['name']} 已接管服务（{rule}）"
-    # 手动切换也是一次 A→B：推一条分组动态，并记日志（与调度器 _notify 同款）。
-    Notifier(settings).send("group_change", "分组动态", body)
-    db.add_event("group_change", "分组动态", body, domain_id=d["id"])
-    return body
+        lines.append(f"{_status_dot(m)} {m['name']}{mark}")
+    return "\n".join(lines), back
 
 
 def _cmd_timers(settings: dict) -> str:
@@ -555,13 +508,6 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         reply, markup = _group_detail(g, settings)
         _send(settings, reply, markup)
-    elif data.startswith("switchto:"):
-        try:
-            _, gid, aid = data.split(":")
-            gid, aid = int(gid), int(aid)
-        except ValueError:
-            return
-        _send(settings, _do_switch(gid, aid))
 
 
 # ---------------------------------------------------------------------------
