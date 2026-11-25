@@ -28,56 +28,96 @@ def test_bot_default_off():
     assert DEFAULT_SETTINGS["bot_enabled"] == "0"
 
 
-def test_command_list_has_power_switch_and_update_no_reboot():
+def test_command_list_no_status_power_switch_reboot():
     cmds = [c for c, _ in botmod.COMMANDS]
-    assert "power" in cmds and "switch" in cmds and "update" in cmds
+    assert cmds == ["start", "menu", "list", "groups", "timers", "update", "help"]
+    assert "status" not in cmds
+    assert "power" not in cmds
+    assert "switch" not in cmds
     assert "reboot" not in cmds
     assert "start_instance" not in cmds
     assert "stop" not in cmds
     help_text = botmod._cmd_help()
-    assert "/power 开关机" in help_text
-    assert "/switch 切换分组成员" in help_text
+    assert "/list 实例列表" in help_text
+    assert "/groups 分组列表" in help_text
     assert "/update 面板更新" in help_text
+    assert "/status" not in help_text
+    assert "/power" not in help_text
+    assert "/switch" not in help_text
     assert "/reboot" not in help_text
     kb = botmod._menu_keyboard()
     data = [b["callback_data"] for row in kb["inline_keyboard"] for b in row]
-    assert "menu:update" in data
+    assert "menu:list" in data and "menu:groups" in data and "menu:update" in data
+    assert "menu:status" not in data
+    assert "menu:power" not in data
+    assert "menu:switch" not in data
 
 
 def test_wrong_chat_ignored(monkeypatch):
     sent = []
     monkeypatch.setattr(botmod, "_send", lambda *a, **k: sent.append(a))
-    botmod._handle_message(_settings(), {"chat": {"id": 999}, "text": "/status"})
-    botmod._handle_callback(_settings(), {"id": "cb1", "data": "menu:status",
+    botmod._handle_message(_settings(), {"chat": {"id": 999}, "text": "/list"})
+    botmod._handle_callback(_settings(), {"id": "cb1", "data": "menu:list",
                                           "message": {"chat": {"id": 999}}})
     assert sent == []
 
 
-def test_right_chat_dispatches_status(monkeypatch):
+def test_right_chat_dispatches_list(monkeypatch):
     sent = []
-    monkeypatch.setattr(botmod, "_send", lambda s, t, m=None: sent.append(t))
+    monkeypatch.setattr(botmod, "_send", lambda s, t, m=None: sent.append((t, m)))
     monkeypatch.setattr(botmod, "_public_accounts", lambda: [])
-    botmod._handle_message(_settings(), {"chat": {"id": 123456789}, "text": "/status"})
-    assert sent and sent[0].startswith("实例状态\n服务器总数 0")
+    botmod._handle_message(_settings(), {"chat": {"id": 123456789}, "text": "/list"})
+    assert sent and sent[0][0] == "暂无实例"
 
 
-def test_status_counts(monkeypatch):
+def test_list_keyboard_dots_only_names(monkeypatch):
     rows = [
-        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
-         "evicted": False},
-        {"id": 2, "name": "A2", "status_dot": "yellow", "status_label": "排队中",
-         "evicted": False},
-        {"id": 3, "name": "A3", "status_dot": "gray", "status_label": "离队",
-         "evicted": False},
-        {"id": 4, "name": "A4", "status_dot": "red", "status_label": "已停机",
-         "evicted": False},
+        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线"},
+        {"id": 2, "name": "A2", "status_dot": "yellow", "status_label": "排队中"},
+        {"id": 3, "name": "A3", "status_dot": "red", "status_label": "已停机"},
+        {"id": 4, "name": "A4", "status_dot": "gray", "status_label": "离队"},
+        {"id": 5, "name": "A5", "status_dot": "green_pulse", "status_label": "启动中"},
+        {"id": 6, "name": "A6", "status_dot": "red_pulse", "status_label": "停止中"},
     ]
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
-    assert botmod._cmd_status() == (
-        "实例状态\n服务器总数 4\n在线状态 1\n排队 1\n离队 1\n停机 1")
-    # 已跳出也算离队（与运行概览一致）
-    rows[1] = dict(rows[1], evicted=True, status_label="已跳出", status_dot="gray")
-    assert "离队 2" in botmod._cmd_status()
+    text, kb = botmod._cmd_list([])
+    assert text.startswith("实例列表")
+    btns = [b for row in kb["inline_keyboard"] for b in row]
+    assert [b["text"] for b in btns] == [
+        "🟢 A1", "🟡 A2", "🔴 A3", "⚪ A4", "🟢 A5", "🔴 A6"]
+    assert [b["callback_data"] for b in btns] == [
+        "detail:1", "detail:2", "detail:3", "detail:4", "detail:5", "detail:6"]
+    # 列表只显示名称，不带状态文字/IP/分组
+    assert "在线" not in text and "203.0" not in text
+
+
+def test_instance_detail_page(monkeypatch):
+    rows = [
+        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
+         "instance_status": "Running", "public_ip": "203.0.113.1",
+         "group_ids": [2]},
+        {"id": 2, "name": "A2", "status_dot": "red", "status_label": "已停机",
+         "instance_status": "Stopped", "public_ip": "203.0.113.2",
+         "group_ids": [2]},
+    ]
+    monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
+    monkeypatch.setattr(botmod.db, "list_groups",
+                        lambda: [{"id": 2, "name": "Premium"}])
+    text, kb = botmod._instance_detail(rows[0])
+    assert text == "🟢 A1\n状态：在线\nIP：203.0.113.1\n分组：Premium"
+    btns = [b for row in kb["inline_keyboard"] for b in row]
+    assert ("关闭", "power:1") in [(b["text"], b["callback_data"]) for b in btns]
+    assert ("返回实例列表", "menu:list") in [(b["text"], b["callback_data"])
+                                             for b in btns]
+    # 已停机显示开机
+    text2, kb2 = botmod._instance_detail(rows[1])
+    assert "🔴 A2\n状态：已停机" in text2
+    assert any(b["text"] == "开机" and b["callback_data"] == "power:2"
+               for row in kb2["inline_keyboard"] for b in row)
+    # /list 带名字参数直接进详情页
+    text3, _ = botmod._cmd_list(["A2"])
+    assert text3.startswith("🔴 A2")
+    assert botmod._cmd_list(["没有这台"])[0] == "找不到实例：没有这台"
 
 
 def test_power_label():
@@ -172,6 +212,32 @@ def test_switch_validation(tmpdb):
     assert "未运行" in botmod._do_switch(g["id"], a2["id"])
 
 
+def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
+    g, a1, a2, d = _make_group(tmpdb)
+    text, kb = botmod._cmd_groups(_settings(), [])
+    assert text.startswith("分组列表")
+    btns = [b for row in kb["inline_keyboard"] for b in row]
+    # 库里除了 Premium 还有默认分组（id=1，init_db 自带）
+    assert [(b["text"], b["callback_data"]) for b in btns] == [
+        ("默认分组", "group:1"), ("Premium", f"group:{g['id']}")]
+    # 子菜单：分组信息 + 成员按钮（当前服务有标记）+ 返回
+    text2, kb2 = botmod._group_detail(g, _settings())
+    assert "【Premium】（负载均衡）" in text2
+    assert "域名：premium.example.xyz" in text2
+    assert "当前服务：A1" in text2
+    btns2 = [b for row in kb2["inline_keyboard"] for b in row]
+    assert ("A1（当前服务）", f"switchto:{g['id']}:{a1['id']}") in [
+        (b["text"], b["callback_data"]) for b in btns2]
+    assert ("A2", f"switchto:{g['id']}:{a2['id']}") in [
+        (b["text"], b["callback_data"]) for b in btns2]
+    assert ("返回分组列表", "menu:groups") in [(b["text"], b["callback_data"])
+                                               for b in btns2]
+    # /groups 带名字参数直接进子菜单
+    text3, _ = botmod._cmd_groups(_settings(), ["Premium"])
+    assert "【Premium】" in text3
+    assert botmod._cmd_groups(_settings(), ["没有这组"])[0] == "找不到分组：没有这组"
+
+
 def test_poll_once_advances_offset(tmpdb, monkeypatch):
     tmpdb.set_settings({"telegram_token": "tok123", "telegram_chat_id": "123456789",
                         "bot_enabled": "1"})
@@ -182,13 +248,13 @@ def test_poll_once_advances_offset(tmpdb, monkeypatch):
     def fake_api(method, payload, settings, timeout=15):
         if method == "getUpdates":
             return [{"update_id": 41,
-                     "message": {"chat": {"id": 123456789}, "text": "/status"}}]
+                     "message": {"chat": {"id": 123456789}, "text": "/list"}}]
         return True
 
     monkeypatch.setattr(botmod, "_api", fake_api)
     assert botmod._poll_once(_settings()) is True
     assert tmpdb.get_flag(botmod.OFFSET_FLAG) == "42"
-    assert sent and sent[0].startswith("实例状态")
+    assert sent and sent[0] == "暂无实例"
 
 
 def test_cmd_update_no_update(monkeypatch):
