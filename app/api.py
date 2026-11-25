@@ -888,7 +888,13 @@ def update_account(aid: int, body: dict, _: bool = Depends(_admin_required)):
 
 @router.delete("/accounts/{aid}")
 def delete_account(aid: int, _: bool = Depends(_admin_required)):
+    a = db.get_account(aid)
     db.delete_account(aid)
+    if a:
+        db.add_event("info", "删除实例", f"{a['name']} 已删除", account_id=aid)
+        # 推送：实例删除（走实例状态开关，默认开）
+        Notifier(db.get_settings()).send(
+            "instance_delete", "实例删除", f"{a['name']} 已删除")
     return {"ok": True}
 
 
@@ -1099,9 +1105,12 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
         except Exception:  # noqa: BLE001
             pass
         log.warning("更换 EIP %s 失败：%s；%s", a["name"], exc, note)
-        # 推送：更换失败（走 error 事件，开关默认开；回滚结果写进正文）
+        # 记日志 + 推送：更换失败（走 eip_replace 事件，即实例状态开关；
+        # 回滚结果写进正文）
+        db.add_event("error", "更换 EIP 失败",
+                     f"{a['name']} 更换 EIP 失败：{exc}；{note}", account_id=aid)
         Notifier(db.get_settings()).send(
-            "error", "更换 EIP 失败", f"{a['name']} 更换 EIP 失败：{exc}；{note}")
+            "eip_replace", "更换 EIP 失败", f"{a['name']} 更换 EIP 失败：{exc}；{note}")
         raise HTTPException(400, f"更换 EIP 失败：{exc}；{note}")
     # ⑥ 释放旧 EIP（DNS 已切走；释放失败只告警，不推翻已成功的结果）
     warning = ""
@@ -1341,16 +1350,9 @@ def get_notify(_: bool = Depends(_admin_required)):
             "telegram_chat_id": s.get("telegram_chat_id"),
             "email_enabled": s.get("email_enabled"),
             "events": {k: s.get(v) == "1" for k, v in
-                       {"traffic_protection": "notify_traffic_protection",
-                        "dns_change": "notify_dns_change",
-                        "fallback": "notify_fallback",
-                        "exclusion": "notify_exclusion",
-                        "error": "notify_error",
-                        "recovery": "notify_recovery",
-                        "instance_start": "notify_instance_start",
-                        "instance_stop": "notify_instance_stop",
+                       {"instance_status": "notify_instance_status",
                         "threshold_alarm": "notify_threshold_alarm",
-                        "eip_replace": "notify_eip_replace"}.items()}}
+                        "update_available": "notify_update_available"}.items()}}
 
 
 @router.post("/notify/test")

@@ -221,7 +221,7 @@ def test_daily_off_push_has_reason(tmpdb, monkeypatch):
 
     monkeypatch.setattr("app.notify.requests.post", fake_post)
     tmpdb.set_settings({"telegram_enabled": "1", "telegram_token": "tok",
-                        "telegram_chat_id": "1", "notify_instance_stop": "1"})
+                        "telegram_chat_id": "1", "notify_instance_status": "1"})
     a = tmpdb.create_account({"name": "A1", "group_id": 1,
                               "access_key_id": "LTAI-x",
                               "access_key_secret_enc": "enc",
@@ -268,7 +268,7 @@ def test_instance_stop_toggle_off_no_push(monkeypatch):
 
     monkeypatch.setattr("app.notify.requests.post", fake_post)
     settings = {"telegram_enabled": "1", "telegram_token": "tok",
-                "telegram_chat_id": "1", "notify_instance_stop": "0"}
+                "telegram_chat_id": "1", "notify_instance_status": "0"}
     assert Notifier(settings).send("instance_stop", "实例停机",
                                    "A1 已停机，原因：手动操作") == []
     assert posted == []
@@ -289,7 +289,7 @@ def test_instance_start_toggle_off_no_push(monkeypatch):
 
     monkeypatch.setattr("app.notify.requests.post", fake_post)
     settings = {"telegram_enabled": "1", "telegram_token": "tok",
-                "telegram_chat_id": "1", "notify_instance_start": "0"}
+                "telegram_chat_id": "1", "notify_instance_status": "0"}
     assert Notifier(settings).send("instance_start", "实例启动",
                                    "A1 已启动，原因：保活拉起") == []
     assert posted == []

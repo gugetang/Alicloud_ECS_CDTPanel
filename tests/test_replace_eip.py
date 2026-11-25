@@ -256,7 +256,9 @@ class FakeNotifier:
         self.s = settings
 
     def enabled(self, event):
-        from app.settings import EVENT_TOGGLE_KEYS
+        from app.settings import EVENT_TOGGLE_KEYS, LOG_ONLY_EVENTS
+        if event in LOG_ONLY_EVENTS:
+            return False
         key = EVENT_TOGGLE_KEYS.get(event)
         return self.s.get(key, "1") == "1" if key else True
 
@@ -280,7 +282,7 @@ def test_replace_eip_success_sends_push(client, accounts, headers):
 
 def test_replace_eip_push_toggle_off(client, accounts, headers):
     FakeNotifier.sent = []
-    r = client.put("/api/settings", json={"notify_eip_replace": "0"}, headers=headers)
+    r = client.put("/api/settings", json={"notify_instance_status": "0"}, headers=headers)
     assert r.status_code == 200
     try:
         p1, p2, p3 = _patches()
@@ -289,21 +291,26 @@ def test_replace_eip_push_toggle_off(client, accounts, headers):
         assert r.status_code == 200, r.text
         assert FakeNotifier.sent == []
     finally:
-        client.put("/api/settings", json={"notify_eip_replace": "1"}, headers=headers)
+        client.put("/api/settings", json={"notify_instance_status": "1"}, headers=headers)
 
 
-def test_replace_eip_failure_sends_error_push(client, accounts, headers):
+def test_replace_eip_failure_sends_push(client, accounts, headers):
     FakeAliyun.fail_on = "associate"
     FakeNotifier.sent = []
     p1, p2, p3 = _patches()
     with p1, p2, p3, patch("app.api.Notifier", FakeNotifier):
         r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
     assert r.status_code == 400
-    assert any(e == "error" and t == "更换 EIP 失败"
+    # 失败也走 eip_replace 事件（即实例状态开关），不再走只记日志的 error 事件
+    assert any(e == "eip_replace" and t == "更换 EIP 失败"
                for e, t, _b in FakeNotifier.sent)
+    # 失败记一条 error 日志
+    assert any(ev["kind"] == "error" and ev["title"] == "更换 EIP 失败"
+               for ev in db.list_events())
 
 
 def test_notify_events_include_eip_replace(client, headers):
     r = client.get("/api/notify", headers=headers)
     assert r.status_code == 200
-    assert r.json()["events"]["eip_replace"] is True
+    assert r.json()["events"]["instance_status"] is True
+    assert "eip_replace" not in r.json()["events"]

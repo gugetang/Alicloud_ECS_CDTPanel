@@ -42,7 +42,7 @@ class FakeResp:
 def _settings(**over):
     s = {"telegram_enabled": "1", "telegram_token": "tok123",
          "telegram_chat_id": "123456789", "notify_proxy": "",
-         "notify_instance_start": "1", "notify_instance_stop": "1",
+         "notify_instance_status": "1",
          "notify_threshold_alarm": "1"}
     s.update(over)
     return s
@@ -58,22 +58,32 @@ def _fake_post(monkeypatch, posted):
 # ---------- 默认值与开关 ----------
 
 def test_new_notify_defaults_on():
-    from app.settings import DEFAULT_SETTINGS, EVENT_TOGGLE_KEYS
-    assert DEFAULT_SETTINGS["notify_instance_start"] == "1"
-    assert DEFAULT_SETTINGS["notify_instance_stop"] == "1"
+    from app.settings import DEFAULT_SETTINGS, EVENT_TOGGLE_KEYS, LOG_ONLY_EVENTS
+    # 实例状态一个开关管四种事件；旧的分开关已删
+    assert DEFAULT_SETTINGS["notify_instance_status"] == "1"
     assert DEFAULT_SETTINGS["notify_threshold_alarm"] == "1"
-    assert EVENT_TOGGLE_KEYS["instance_start"] == "notify_instance_start"
-    assert EVENT_TOGGLE_KEYS["instance_stop"] == "notify_instance_stop"
+    assert "notify_instance_start" not in DEFAULT_SETTINGS
+    assert "notify_instance_stop" not in DEFAULT_SETTINGS
+    assert "notify_eip_replace" not in DEFAULT_SETTINGS
+    for event in ("instance_start", "instance_stop", "instance_delete",
+                  "eip_replace"):
+        assert EVENT_TOGGLE_KEYS[event] == "notify_instance_status"
     assert EVENT_TOGGLE_KEYS["threshold_alarm"] == "notify_threshold_alarm"
+    # 六个只记日志的事件不在开关表里，也没有默认开关
+    assert LOG_ONLY_EVENTS == {"traffic_protection", "dns_change", "fallback",
+                               "exclusion", "error", "recovery"}
+    for event in LOG_ONLY_EVENTS:
+        assert event not in EVENT_TOGGLE_KEYS
+        assert f"notify_{event}" not in DEFAULT_SETTINGS
 
 
 def test_new_events_toggle_off_blocks_push(monkeypatch):
     posted = []
     _fake_post(monkeypatch, posted)
-    for event, key in (("instance_start", "notify_instance_start"),
-                       ("instance_stop", "notify_instance_stop"),
-                       ("threshold_alarm", "notify_threshold_alarm")):
-        n = Notifier(_settings(**{key: "0"}))
+    for event in ("instance_start", "instance_stop", "instance_delete",
+                  "eip_replace", "threshold_alarm"):
+        n = Notifier(_settings(notify_instance_status="0",
+                               notify_threshold_alarm="0"))
         assert n.send(event, "t", "b") == []
         assert posted == []
 
@@ -81,10 +91,23 @@ def test_new_events_toggle_off_blocks_push(monkeypatch):
 def test_new_events_toggle_on_pushes(monkeypatch):
     posted = []
     _fake_post(monkeypatch, posted)
-    for event in ("instance_start", "instance_stop", "threshold_alarm"):
+    for event in ("instance_start", "instance_stop", "instance_delete",
+                  "eip_replace", "threshold_alarm"):
         n = Notifier(_settings())
         assert n.send(event, "t", "b") == ["telegram"]
-    assert len(posted) == 3
+    assert len(posted) == 5
+
+
+def test_log_only_events_never_push(monkeypatch):
+    # 只记日志的六个事件：开关全开也不推送；但手动测试（force=True）仍可发
+    posted = []
+    _fake_post(monkeypatch, posted)
+    for event in ("traffic_protection", "dns_change", "fallback",
+                  "exclusion", "error", "recovery"):
+        n = Notifier(_settings())
+        assert n.send(event, "t", "b") == []
+        assert n.send(event, "t", "b", force=True) == ["telegram"]
+    assert len(posted) == 6
 
 
 def test_get_notify_lists_new_events(tmpdb):
@@ -94,9 +117,45 @@ def test_get_notify_lists_new_events(tmpdb):
     r = client.get("/api/notify")
     assert r.status_code == 200
     events = r.json()["events"]
-    assert events["instance_start"] is True
-    assert events["instance_stop"] is True
+    assert events["instance_status"] is True
     assert events["threshold_alarm"] is True
+    assert events["update_available"] is True
+    assert "instance_start" not in events
+    assert "instance_stop" not in events
+    assert "eip_replace" not in events
+
+
+def test_delete_account_notifies_instance_delete(tmpdb, monkeypatch):
+    # 删除实例：记一条“删除实例”日志，并走实例状态开关推送一次
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    posted = []
+    _fake_post(monkeypatch, posted)
+    tmpdb.set_settings({"telegram_enabled": "1", "telegram_token": "tok",
+                        "telegram_chat_id": "1"})
+    client = TestClient(create_app())
+    a = tmpdb.create_account({"name": "DEL-1", "group_id": 1,
+                              "access_key_id": "LTAI-x",
+                              "access_key_secret_enc": "enc",
+                              "instance_id": "i-del1", "quota_gb": 200})
+    r = client.delete(f"/api/accounts/{a['id']}")
+    assert r.status_code == 200, r.text
+    assert tmpdb.get_account(a["id"]) is None
+    assert any(e["kind"] == "info" and e["title"] == "删除实例"
+               for e in tmpdb.list_events())
+    assert len(posted) == 1, "实例状态开关开着，删除应推送一次"
+    # 实例状态开关关了：只记日志，不推送
+    b = tmpdb.create_account({"name": "DEL-2", "group_id": 1,
+                              "access_key_id": "LTAI-x",
+                              "access_key_secret_enc": "enc",
+                              "instance_id": "i-del2", "quota_gb": 200})
+    tmpdb.set_settings({"notify_instance_status": "0"})
+    posted.clear()
+    r = client.delete(f"/api/accounts/{b['id']}")
+    assert r.status_code == 200, r.text
+    assert any(e["kind"] == "info" and e["title"] == "删除实例"
+               for e in tmpdb.list_events())
+    assert posted == []
 
 
 # ---------- 执行 start/stop 后推送 ----------

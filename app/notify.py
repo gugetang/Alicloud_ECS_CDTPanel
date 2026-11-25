@@ -278,6 +278,9 @@ class Notifier:
         self.last_errors: dict[str, str] = {}
 
     def enabled(self, event: str) -> bool:
+        # 只记日志的事件永不推送（手动测试 force=True 时仍可发送，见 send）。
+        if event in cfg.LOG_ONLY_EVENTS:
+            return False
         key = cfg.EVENT_TOGGLE_KEYS.get(event)
         return self.s.get(key, "1") == "1" if key else True
 

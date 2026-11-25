@@ -1144,9 +1144,9 @@ def test_settings_cards_use_parent_child_layout():
     # 备份与恢复、站点信息、货币结算、通知事件、DDNS 设置都一样（主题设置卡片已删）
     # 登录与安全：修改密码/Google/GitHub 表单包在缩进 div 里
     assert tsx.count('<div style={{ paddingLeft: "2em" }}><div className="form2">') >= 3
-    # 通知渠道：字段区缩进；每日推送是单独卡片（h2 标题），放通知设置最上面
+    # 通知渠道：字段区缩进；推送时间是单独卡片（h2 标题），放通知设置最上面
     assert '<div style={{ marginTop: 12, paddingLeft: "2em" }}>' in tsx
-    assert '<div className="card"><h2>{t("每日推送")}</h2>' in tsx
+    assert '<div className="card"><h2>{t("推送时间")}</h2>' in tsx
     # 备份与恢复：按钮行缩进
     assert '<div className="row" style={{ paddingLeft: "2em" }}>' in tsx
     # 站点信息：内容包在缩进 div 里
@@ -1159,21 +1159,21 @@ def test_settings_cards_use_parent_child_layout():
     assert '<div className="form2" style={{ paddingLeft: "2em" }}>' in tsx
 
 
-def test_daily_report_card_on_top_telegram_first_time_select():
-    # 通知设置：每日推送是单独卡片，放最上面（Telegram 卡片前面）；
-    # Telegram 卡片在 E-Mail 卡片前面；推送时间是下拉框（每半小时一档），
-    # 不再是 time 输入框；渠道卡片里不再有每日推送开关/时间。
+def test_daily_report_card_on_top_telegram_first_time_input():
+    # 通知设置：推送时间是单独卡片，放最上面（Telegram 卡片前面）；
+    # Telegram 卡片在 E-Mail 卡片前面；推送时间是手动输入框（HH:MM，
+    # 失焦/回车校验后保存），不再是下拉框；渠道卡片里不再有每日推送开关/时间。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    # 每日推送卡片：h2 标题 + 开关 + 时间下拉（每半小时一档，当前值不在档位里时也保留）
+    # 推送时间卡片：h2 标题 + 开关 + 手动输入框（HH:MM 校验）
     assert 'function DailyReportCard(' in tsx
-    assert '<div className="card"><h2>{t("每日推送")}</h2>' in tsx
+    assert '<div className="card"><h2>{t("推送时间")}</h2>' in tsx
     daily = tsx.split("function DailyReportCard")[1].split("function ChannelCard")[0]
-    assert '<select value={(drTime || "00:00").slice(0, 5)}' in daily
-    assert 'for (const m of ["00", "30"])' in daily
-    assert 'if (!opts.includes(cur)) opts.unshift(cur)' in daily
+    assert '<select' not in daily
+    assert 'placeholder="HH:MM"' in daily
+    assert '/^([01]\\d|2[0-3]):[0-5]\\d$/' in daily
     assert '<input type="time"' not in daily
-    # 通知页顺序：每日推送卡片 → Telegram → E-Mail
+    # 通知页顺序：推送时间卡片 → Telegram → E-Mail
     notify = tsx.split('{tab === "config" && subTab === "notify" && (')[1].split('{tab === "config" && subTab === "logs"')[0]
     assert notify.index("DailyReportCard") < notify.index('kind="telegram"')
     assert notify.index('kind="telegram"') < notify.index('kind="email"')
@@ -1184,11 +1184,16 @@ def test_daily_report_card_on_top_telegram_first_time_select():
     assert '<input type="time"' not in channel
     assert "daily-push-row" not in tsx
     assert ".daily-push-row" not in css
-    # 渠道卡片的测试按钮还在（右对齐、可换行的一行）
+    # 渠道卡片的测试按钮还在（右对齐、可换行的一行）；测试财报已取消，
+    # 立即推送日报已移到通知事件卡片并改名立即推送
     assert 'className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 6 }}' in channel
-    assert '>{t("发送测试通知")}' in channel
-    assert '>{t("立即推送日报")}' in channel
+    assert '>{t("发送测试")}' in channel
+    assert '>{t("发送测试财报")}' not in channel
+    assert '>{t("立即推送日报")}' not in channel
     assert '>{t("检测连接")}' in channel
+    # 通知事件卡片底部有共用的立即推送按钮（不分渠道）
+    assert '>{t("立即推送")}' in notify
+    assert 'post("/api/notify/send-daily", {})' in notify
 
 
 def test_nav_and_subtabs_selected_are_accent_border():
@@ -1420,17 +1425,18 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
     # 主题风格卡片与 OAuth 登录按钮：悬停框体同样变主题色
     assert ".theme-card:hover { border-color:var(--accent); }" in css
     assert ".oauth-btn:hover { font-weight:600; border-color:var(--accent); }" in css
-    # ghost 按钮（检测连接 / 发送测试通知 / 发送测试财报等）也要有悬停主题色边框：
+    # ghost 按钮（检测连接 / 发送测试）也要有悬停主题色边框：
     # .btn.ghost 与 .btn:hover 同优先级且写在后面，border 简写会盖掉悬停边框，
     # 须有自己的 .btn.ghost:hover 规则且写在 .btn.ghost 之后
     # （2026-11-24 用户截图：这几个 ghost 按钮悬停时边框不变主题色）
     assert ".btn.ghost:hover { font-weight:600; border-color:var(--accent); }" in css
     assert css.index(".btn.ghost:hover") > css.index(".btn.ghost {")
-    # 通知卡片里的三个 ghost 按钮确实存在
+    # 通知卡片里的 ghost 按钮确实存在（检测连接 / 发送测试；测试财报已取消）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert 'title={t("检测连接")}>{t("检测连接")}' in tsx
-    assert '>{t("发送测试通知")}' in tsx
-    assert '>{t("发送测试财报")}' in tsx
+    assert '>{t("发送测试")}' in tsx
+    assert '>{t("发送测试通知")}' not in tsx
+    assert '>{t("发送测试财报")}' not in tsx
 
 
 def test_server_cards_one_per_row_no_wrap():
@@ -2109,7 +2115,7 @@ def test_notify_event_toggle_update_available():
     # 通知事件里有“面板更新”开关（有更新时推 TG/Email，每个版本只推一次）；
     # 后端事件键与默认开关都已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '"update_available", "eip_replace"] as const' in tsx
+    assert '"threshold_alarm", "update_available"] as const' in tsx
     assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
@@ -2121,20 +2127,29 @@ def test_notify_event_toggle_update_available():
     assert 'notifier.send("update_available", title, body)' in sched
 
 
-def test_notify_event_toggle_eip_replace():
-    # 通知事件里有“更换 EIP”开关（换 EIP 成功时推 TG/Email，失败走 error 事件）；
-    # 后端事件键与默认开关都已接好
+def test_notify_event_toggle_instance_status():
+    # 通知事件只有三个开关：实例状态（启动/停机/删除/EIP 更换共用）、
+    # 阈值报警、面板更新；旧的分开关（实例启动/实例停机/更换 EIP）与
+    # 六个只记日志的事件已从列表里删掉；后端事件键与默认开关已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '"eip_replace"] as const' in tsx
-    assert 'eip_replace: t("更换 EIP")' in tsx
+    assert '["instance_status", "threshold_alarm", "update_available"] as const' in tsx
+    assert 'instance_status: t("实例状态")' in tsx
+    assert 'threshold_alarm: t("阈值报警")' in tsx
+    assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
-    assert '"notify_eip_replace": "1"' in settings
-    assert '"eip_replace": "notify_eip_replace"' in settings
+    assert '"notify_instance_status": "1"' in settings
+    assert '"instance_start": "notify_instance_status"' in settings
+    assert '"instance_stop": "notify_instance_status"' in settings
+    assert '"instance_delete": "notify_instance_status"' in settings
+    assert '"eip_replace": "notify_instance_status"' in settings
+    assert '"notify_instance_start"' not in settings
+    assert '"notify_eip_replace"' not in settings
     api = (ROOT / "app" / "api.py").read_text(encoding="utf-8")
     assert '"eip_replace", "EIP 已更换"' in api
-    assert '"error", "更换 EIP 失败"' in api
-    assert '"eip_replace": "notify_eip_replace"' in api
+    assert '"eip_replace", "更换 EIP 失败"' in api
+    assert '"instance_delete", "实例删除"' in api
+    assert '"instance_status": "notify_instance_status"' in api
 
 
 def test_header_bell_and_palette_icons():
