@@ -1,8 +1,10 @@
 """更换 EIP：POST /api/accounts/{id}/replace-eip。
 
 顺序（用户定）：申请新 EIP → 解绑旧 EIP → 绑定新 EIP → 带宽与旧 EIP 一致
-→ DNS 切到新 IP → 释放旧 EIP。仅 ECS；轻量服务器、无 EIP 的都拒绝；
-申请成功后后面任何一步失败都回滚（释放新 EIP、旧 EIP 尽量绑回）。"""
+→ DNS 切到新 IP → 共享带宽：旧 EIP 在包里时先移出包、再把新 EIP 加进
+同一个包 → 释放旧 EIP。仅 ECS；轻量服务器、无 EIP 的都拒绝；
+申请成功后后面任何一步失败都回滚（释放新 EIP、旧 EIP 尽量绑回）。
+共享带宽步骤放在 DNS 已切走后：失败只告警，不回滚。"""
 import json
 import os
 import tempfile
@@ -23,6 +25,7 @@ OLD_IP = "203.0.113.10"
 NEW_IP = "203.0.113.99"
 OLD_ALLOC = "eip-old1"
 NEW_ALLOC = "eip-new1"
+OLD_PKG = "cbwp-test1"
 
 
 class FakeAliyun:
@@ -30,6 +33,7 @@ class FakeAliyun:
     calls: list = []
     fail_on: str | None = None
     current_ip = OLD_IP
+    pkg_id: str | None = None
 
     def __init__(self, account, secret):
         self.account = account
@@ -48,6 +52,7 @@ class FakeAliyun:
         if self.account["instance_id"] == "i-noeip123":
             return None
         return {"allocation_id": OLD_ALLOC, "ip": OLD_IP, "bandwidth": 5,
+                "bandwidth_package_id": FakeAliyun.pkg_id,
                 "instance_id": self.account["instance_id"], "status": "InUse"}
 
     def allocate_eip(self, bandwidth=None):
@@ -65,6 +70,16 @@ class FakeAliyun:
 
     def set_eip_bandwidth(self, allocation_id, bandwidth):
         FakeAliyun.calls.append(("set_bandwidth", allocation_id, bandwidth))
+
+    def add_eip_to_bandwidth_package(self, bandwidth_package_id, ip):
+        FakeAliyun.calls.append(("add_to_package", bandwidth_package_id, ip))
+        if FakeAliyun.fail_on == "add-package":
+            raise AliyunError("加入共享带宽包失败：模拟失败")
+
+    def remove_eip_from_bandwidth_package(self, bandwidth_package_id, ip):
+        FakeAliyun.calls.append(("remove_from_package", bandwidth_package_id, ip))
+        if FakeAliyun.fail_on == "remove-package":
+            raise AliyunError("移出共享带宽包失败：模拟失败")
 
     def release_eip(self, allocation_id):
         FakeAliyun.calls.append(("release", allocation_id))
@@ -121,9 +136,11 @@ def _reset_fake():
     FakeAliyun.calls = []
     FakeAliyun.fail_on = None
     FakeAliyun.current_ip = OLD_IP
+    FakeAliyun.pkg_id = None
     yield
     FakeAliyun.calls = []
     FakeAliyun.fail_on = None
+    FakeAliyun.pkg_id = None
 
 
 def _patches():
@@ -207,6 +224,83 @@ def test_replace_eip_release_old_fails_warns(client, accounts, headers):
     assert "释放失败" in r.json()["warning"]
 
 
+def test_replace_eip_shared_bandwidth_package(client, accounts, headers):
+    # 旧 EIP 在共享带宽包里：DNS 切走后先把旧 EIP 移出包、再把新 EIP 加进
+    # 同一个包，最后才释放旧 EIP；全程成功则无告警。
+    FakeAliyun.pkg_id = OLD_PKG
+    p1, p2, p3 = _patches()
+    with p1, p2, p3:
+        r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["new_ip"] == NEW_IP
+    assert r.json()["warning"] == ""
+    assert FakeAliyun.calls == [
+        ("allocate", 5), ("unassociate", OLD_ALLOC),
+        ("associate", NEW_ALLOC), ("set_bandwidth", NEW_ALLOC, 5),
+        ("remove_from_package", OLD_PKG, OLD_IP),
+        ("add_to_package", OLD_PKG, NEW_IP),
+        ("release", OLD_ALLOC)]
+
+
+def test_replace_eip_shared_bandwidth_add_fails_warns(client, accounts, headers):
+    # 新 EIP 加进共享带宽包失败：DNS 已切走，不回滚，只告警；旧 EIP 照常释放。
+    FakeAliyun.pkg_id = OLD_PKG
+    FakeAliyun.fail_on = "add-package"
+    p1, p2, p3 = _patches()
+    with p1, p2, p3:
+        r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["new_ip"] == NEW_IP
+    assert "加入共享带宽包失败" in r.json()["warning"]
+    assert ("release", OLD_ALLOC) in FakeAliyun.calls
+    assert ("release", NEW_ALLOC) not in FakeAliyun.calls
+    row = db.get_account(accounts["EIP-HK-1"])
+    assert row["public_ip"] == NEW_IP
+
+
+def test_replace_eip_shared_bandwidth_remove_fails_warns(client, accounts, headers):
+    # 旧 EIP 移出共享带宽包失败：只告警，继续加新 EIP 进包并释放旧 EIP。
+    FakeAliyun.pkg_id = OLD_PKG
+    FakeAliyun.fail_on = "remove-package"
+    p1, p2, p3 = _patches()
+    with p1, p2, p3:
+        r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
+    assert r.status_code == 200, r.text
+    assert "移出共享带宽包失败" in r.json()["warning"]
+    assert ("add_to_package", OLD_PKG, NEW_IP) in FakeAliyun.calls
+    assert ("release", OLD_ALLOC) in FakeAliyun.calls
+
+
+def test_client_describe_eip_parses_bandwidth_package():
+    c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
+                      "instance_id": "i-eip123"}, "y")
+    payload = {"EipAddresses": {"EipAddress": [
+        {"AllocationId": OLD_ALLOC, "IpAddress": OLD_IP, "Bandwidth": "5",
+         "BandwidthPackageId": OLD_PKG,
+         "InstanceId": "i-eip123", "Status": "InUse"}]}}
+    with patch.object(c, "_common", return_value=json.dumps(payload)):
+        out = c.describe_eip_for_instance()
+    assert out["bandwidth_package_id"] == OLD_PKG
+
+
+def test_client_add_remove_bandwidth_package_params():
+    c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
+                      "instance_id": "i-eip123"}, "y")
+    with patch.object(c, "_common", return_value="{}") as m:
+        c.add_eip_to_bandwidth_package(OLD_PKG, NEW_IP)
+    domain, version, action, region, params = m.call_args.args
+    assert domain == "vpc.cn-hongkong.aliyuncs.com"
+    assert version == "2016-04-28" and action == "AddCommonBandwidthPackageIp"
+    assert params == {"RegionId": "cn-hongkong",
+                      "BandwidthPackageId": OLD_PKG, "IpAddress": NEW_IP}
+    with patch.object(c, "_common", return_value="{}") as m:
+        c.remove_eip_from_bandwidth_package(OLD_PKG, OLD_IP)
+    _, _, action, _, params = m.call_args.args
+    assert action == "RemoveCommonBandwidthPackageIp"
+    assert params == {"RegionId": "cn-hongkong",
+                      "BandwidthPackageId": OLD_PKG, "IpAddress": OLD_IP}
+
+
 def test_client_allocate_eip_params():
     c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
                       "instance_id": "i-eip123"}, "y")
@@ -231,6 +325,7 @@ def test_client_describe_eip_parses():
     with patch.object(c, "_common", return_value=json.dumps(payload)) as m:
         out = c.describe_eip_for_instance()
     assert out == {"allocation_id": OLD_ALLOC, "ip": OLD_IP, "bandwidth": 5,
+                   "bandwidth_package_id": None,
                    "instance_id": "i-eip123", "status": "InUse"}
     _, _, action, _, params = m.call_args.args
     assert action == "DescribeEipAddresses"
