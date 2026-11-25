@@ -147,17 +147,21 @@ def test_frontend_site_and_refresh_and_footer():
     # 版本号跟随当前版本（标签版完整显示，如 v1.1.0；SHA 才截 7 位；未加载时回退 v1.0.0）；
     # 页脚三项文字都是黑色字体（var(--text)），TG 是超链指向 @AliLang_AgentBot，
     # 但只显示“Telegram”四个字，不显示 @AliLang_AgentBot（那是后台配置）
-    assert "AlicloudECS_CDT © 2026 | {upd?.current_version ? shortVersion(upd.current_version) : \"v1.0.0\"}" in tsx
+    # 页脚已抽成 SiteFooter 共用组件（PR #64）：主页面传版本号，登录/设置页不传
+    assert "function SiteFooter({ version }: { version?: string })" in tsx
+    assert 'AlicloudECS_CDT © 2026{version ? ` | ${version}` : ""}' in tsx
+    assert '<SiteFooter version={upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0"} />' in tsx
+    assert tsx.count("<SiteFooter />") == 2  # 登录页 + 首次设置页，不显示版本号
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
     assert "https://t.me/AliLang_AgentBot" in tsx
     assert "Telegram @AliLang_AgentBot" not in tsx
-    assert "\n            Telegram\n" in tsx
+    assert "\n          Telegram\n" in tsx
     # 三项文字都是黑色字体（var(--text)，亮色下近黑、夜间可读）
     assert tsx.count('style={{ color: "var(--text)", fontSize: 13') == 3
     # TG 超链是黑色字体（var(--text)，亮色下近黑、夜间可读），与项目地址同款
     # 图标在前文字在后；它本来就是 <a> 超链
-    assert 'href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)"' in tsx
+    assert 'href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)", fontSize: 13' in tsx
     assert 't("联系邮箱")' not in tsx
     assert "alicloudadmin@gmail.com" not in tsx
     assert "mailto:" not in tsx
