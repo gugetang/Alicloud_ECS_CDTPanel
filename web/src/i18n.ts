@@ -572,7 +572,6 @@ export const EN: Record<string, string> = {
   "如 123456789": "e.g. 123456789",
   "Token 留空保存时保持不变，只有填了新值才更新。": "Leave Token blank when saving to keep it; it only updates when a new value is entered.",
   每日推送: "Daily push",
-  启用每日推送: "Enable daily push",
   推送时间: "Push time",
   "时间格式不正确，请用 HH:MM，例如 08:15": "Invalid time format. Use HH:MM, e.g. 08:15",
   "每天这个时间推送一次，只推已启用的渠道。改时间后自动保存；若改到的时间当天已过，等明天再推，不会当天补推。": "Push once a day at this time, only to enabled channels. Changing the time saves automatically; if the new time has already passed today, it will push tomorrow instead of catching up today.",
