@@ -3,6 +3,7 @@ import { get, post, put, del, getToken, setToken, getRememberedUsername, setReme
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
 import { menuShouldFlipLeft } from "./menuFlip";
+import { shouldReloadUpdate, UPDATE_COUNTDOWN_SECONDS } from "./updateCountdown";
 
 type Tab = "dash" | "accounts" | "groups" | "domains" | "config";
 type SubTab = "settings" | "account" | "notify" | "other" | "logs";
@@ -1646,6 +1647,11 @@ export default function App() {
   const [upd, setUpd] = useState<any>(null);
   const [updMenuOpen, setUpdMenuOpen] = useState(false);
   const [updBusy, setUpdBusy] = useState(false);
+  // 更新倒计时：点“立即更新”后在弹窗里倒数，倒数结束或新版本上线就刷新。
+  // 旧版本号记在 ref 里，供轮询比对（新版本一到就提前刷新）。
+  const [updCountdown, setUpdCountdown] = useState<number | null>(null);
+  const updOldVersionRef = useRef("");
+  const updTickRef = useRef(0);
   // 页眉下拉菜单默认右对齐；点开前先量按钮位置，右对齐会超出屏幕左边缘时改左对齐
   // （手机上顶栏按钮换行到左边缘，语言/主题/风格菜单按右对齐会伸出屏幕外）。
   const [menuLeft, setMenuLeft] = useState<Record<string, boolean>>({});
@@ -1778,6 +1784,26 @@ export default function App() {
     if (authState !== "authed") return;
     get("/api/update/status").then((r: any) => setUpd(r)).catch(() => setUpd(null));
   }, [authState]);
+
+  // 更新倒计时：每秒减 1；每 2 秒查一次版本，新版本一上线就提前刷新；
+  // 倒数到 0 也刷新（容器若还没起来，浏览器会提示连接失败，手动再刷一次）。
+  // 轮询失败（容器重启中）就继续等，不刷新。
+  useEffect(() => {
+    if (updCountdown === null) return;
+    if (updCountdown <= 0) { location.reload(); return; }
+    const id = setInterval(() => {
+      updTickRef.current += 1;
+      if (updTickRef.current % 2 === 0) {
+        get("/api/update/status").then((r: any) => {
+          if (shouldReloadUpdate(updCountdown, updOldVersionRef.current, r?.current_version)) {
+            location.reload();
+          }
+        }).catch(() => {});
+      }
+      setUpdCountdown((c) => (c === null ? null : c - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [updCountdown]);
 
   const [logs, setLogs] = useState<Any[]>([]);
   const loadLogs = async () => {
@@ -2180,12 +2206,32 @@ export default function App() {
                       {upd?.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
                       {upd?.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
                     </div>
+                    {updCountdown !== null ? (
+                      <div style={{ padding: "10px", textAlign: "center" }}>
+                        <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.1 }}>{updCountdown}</div>
+                        <div className="muted" style={{ marginTop: 4 }}>{t("正在更新，倒计时结束后自动刷新")}</div>
+                        <div className="muted">{t("新版本上线后会提前刷新")}</div>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 10 }}>
+                          <button onClick={() => location.reload()}>{t("立即刷新")}</button>
+                          <button onClick={() => setUpdCountdown(null)}>{t("取消倒计时")}</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
                     <button disabled={updBusy || !upd?.update_available} onClick={async () => {
                         setUpdBusy(true);
                         try {
                           const r: any = await post("/api/update/run", {});
-                          setMsg(r.started ? t("更新已开始，容器将重启") : (r.manual ? `${r.message}：${r.manual}` : (r.message || t("无法在线更新"))));
-                          if (r.started) setUpdMenuOpen(false);
+                          if (r.started) {
+                            // 更新已开始：弹窗里显示倒计时（60 秒后自动刷新），
+                            // 每 2 秒查一次版本，新版本一上线就提前刷新；菜单保持打开。
+                            updOldVersionRef.current = String(upd?.current_version || "");
+                            updTickRef.current = 0;
+                            setUpdCountdown(UPDATE_COUNTDOWN_SECONDS);
+                            setMsg(t("更新已开始，容器将重启"));
+                          } else {
+                            setMsg(r.manual ? `${r.message}：${r.manual}` : (r.message || t("无法在线更新")));
+                          }
                         } catch (e: any) { setMsg(e?.message || t("更新失败")); } finally { setUpdBusy(false); }
                       }}>{t("立即更新")}</button>
                       <button disabled={updBusy} onClick={async () => {
@@ -2196,6 +2242,8 @@ export default function App() {
                           setMsg(r.update_available ? t("发现新版本") : t("已是最新版本"));
                         } catch (e: any) { setMsg(e?.message || t("检查更新失败")); } finally { setUpdBusy(false); }
                       }}>{t("检查更新")}</button>
+                      </>
+                    )}
                     </div>
                   </>
                 )}
