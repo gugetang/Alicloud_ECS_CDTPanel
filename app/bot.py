@@ -314,9 +314,9 @@ def _site_title(settings: dict) -> str:
 
 
 def _cmd_list(settings: dict, args: list[str]):
-    """实例列表：每台实例独占一行（拉伸满宽，匹配手机端），名称在上、
-    IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换），名称前圆点表示状态；
-    实例名太长，两列并排会被截断。点一台进详情页开关机。标题跟随站点名。"""
+    """实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮双行显示：
+    第 1 行圆点 + 加粗名称，第 2 行 IP（只显示 A、B 两段，C、D 用 *
+    替换）；点一台进详情页开关机。标题跟随站点名。"""
     if args:
         a = _resolve_account(args[0])
         if not a:
@@ -325,10 +325,10 @@ def _cmd_list(settings: dict, args: list[str]):
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
-    kb_rows = [[(f"{_status_dot(r)} {_bold(r['name'])}"
-                 f"\nIP：{_mask_ip(r.get('public_ip'))}",
-                 f"detail:{r['id']}")]
-               for r in rows]
+    kb_rows = _pair_rows([
+        (f"{_status_dot(r)} {_bold(r['name'])}\nIP：{_mask_ip(r.get('public_ip'))}",
+         f"detail:{r['id']}")
+        for r in rows])
     kb_rows.append(_back_row())
     return _site_title(settings), _kb(kb_rows)
 
@@ -532,12 +532,13 @@ def _group_detail(group: dict, settings: dict):
         kb_rows.append([("暂无在线或排队中的成员", "noop")])
         kb_rows.append(_back_row("menu:groups"))
         return _site_title(settings), _kb(kb_rows)
-    # 成员做成按钮但不可选中：每台独占一行（拉伸满宽，匹配手机端），
-    # 名称在上、IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换），
-    # 实例名太长，两列并排会被截断；点一下只消掉加载圈，不做任何事（noop 回调）。
-    kb_rows.extend([[(f"{_status_dot(m)} {_bold(m['name'])}"
-                      f"\nIP：{_mask_ip(m.get('public_ip'))}", "noop")]
-                    for m in shown])
+    # 成员做成按钮但不可选中：一行两个按钮（拉伸铺满手机屏幕），每个按钮
+    # 双行显示：名称在上、IP 在下（IP 只显示 A、B 两段，C、D 用 * 替换）；
+    # 点一下只消掉加载圈，不做任何事（noop 回调）。
+    kb_rows.extend(_pair_rows([
+        (f"{_status_dot(m)} {_bold(m['name'])}\nIP：{_mask_ip(m.get('public_ip'))}",
+         "noop")
+        for m in shown]))
     kb_rows.append(_back_row("menu:groups"))
     return _site_title(settings), _kb(kb_rows)
 
