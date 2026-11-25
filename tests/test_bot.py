@@ -138,6 +138,38 @@ def test_instance_detail_page(monkeypatch):
     assert botmod._cmd_list(["没有这台"])[0] == "找不到实例：没有这台"
 
 
+def test_keyboard_two_per_row_back_row_at_bottom(monkeypatch):
+    # 整个机器人系统：内容按钮每行两个；返回按钮固定在最底部一行，
+    # 返回在左、返回目录在右；只有返回目录时最底部就一个按钮。
+    kb = botmod._menu_keyboard()["inline_keyboard"]
+    assert [[b["text"] for b in row] for row in kb] == [
+        ["实例列表", "分组列表"], ["定时任务", "面板更新"], ["帮助"]]
+    rows = [
+        {"id": 1, "name": "A1", "status_dot": "green", "status_label": "在线",
+         "instance_status": "Running", "public_ip": "203.0.113.1",
+         "group_ids": [2], "instance_id": "i-aaa"},
+        {"id": 2, "name": "A2", "status_dot": "yellow", "status_label": "排队中",
+         "instance_status": "Running", "public_ip": "203.0.113.2",
+         "group_ids": [2], "instance_id": "i-bbb"},
+        {"id": 3, "name": "A3", "status_dot": "red", "status_label": "已停机",
+         "instance_status": "Stopped", "public_ip": "203.0.113.3",
+         "group_ids": [2], "instance_id": "i-ccc"},
+    ]
+    monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
+    monkeypatch.setattr(botmod.db, "list_groups",
+                        lambda: [{"id": 2, "name": "Premium"}])
+    # 实例列表：实例每行两个，最底部只有返回目录
+    _, kb_list = botmod._cmd_list([])
+    assert [[b["text"] for b in row]
+            for row in kb_list["inline_keyboard"]] == [
+        ["🟢 A1", "🟡 A2"], ["🔴 A3"], ["🏠 返回目录"]]
+    # 实例详情：操作按钮每行两个，最底部一行是返回（左）+ 返回目录（右）
+    _, kb_det = botmod._instance_detail(rows[0])
+    assert [[b["text"] for b in row]
+            for row in kb_det["inline_keyboard"]] == [
+        ["关闭", "节省停机"], ["更换 EIP"], ["⬅️ 返回", "🏠 返回目录"]]
+
+
 def test_power_label():
     assert botmod._power_label({"instance_status": "Stopped"}) == "开机"
     assert botmod._power_label({"instance_status": "Running"}) == "关闭"

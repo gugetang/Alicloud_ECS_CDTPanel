@@ -168,6 +168,20 @@ def _authorized(settings: dict, chat_id) -> bool:
     return bool(bound) and str(chat_id) == bound
 
 
+def _pair_rows(buttons: list) -> list:
+    """内容按钮每行两个（最后一行不足两个就剩一个）。"""
+    return [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+
+
+def _back_row(back_cb: str | None = None) -> list:
+    """返回按钮固定在最底部一行：返回在左、返回目录在右；只有返回目录时就一个按钮。"""
+    row = []
+    if back_cb:
+        row.append(("⬅️ 返回", back_cb))
+    row.append(("🏠 返回目录", "menu:menu"))
+    return row
+
+
 def _kb(rows: list) -> dict:
     return {"inline_keyboard": [[{"text": t, "callback_data": d} for t, d in row]
                                 for row in rows]}
@@ -231,14 +245,14 @@ def _cmd_start() -> str:
 
 
 def _menu_keyboard() -> dict:
-    # 每行一个按钮，左右拉满（两列并排太窄）。
-    return _kb([
-        [("实例列表", "menu:list")],
-        [("分组列表", "menu:groups")],
-        [("定时任务", "menu:timers")],
-        [("面板更新", "menu:update")],
-        [("帮助", "menu:help")],
-    ])
+    # 主菜单：内容按钮每行两个。
+    return _kb(_pair_rows([
+        ("实例列表", "menu:list"),
+        ("分组列表", "menu:groups"),
+        ("定时任务", "menu:timers"),
+        ("面板更新", "menu:update"),
+        ("帮助", "menu:help"),
+    ]))
 
 
 def _status_dot(r: dict) -> str:
@@ -255,9 +269,9 @@ def _cmd_list(args: list[str]):
     rows = _public_accounts()
     if not rows:
         return "暂无实例", None
-    kb_rows = [[(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")]
-               for r in rows]
-    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    kb_rows = _pair_rows([(f"{_status_dot(r)} {r['name']}", f"detail:{r['id']}")
+                         for r in rows])
+    kb_rows.append(_back_row())
     return "实例列表\n点一台查看详情开关机：", _kb(kb_rows)
 
 
@@ -276,13 +290,13 @@ def _instance_detail(a: dict):
     label = r.get("status_label") or r.get("instance_status") or "未知"
     text = (f"{_status_dot(r)} {r['name']}\n状态：{label}"
             f"\nIP：{r.get('public_ip') or '-'}\n分组：{gname}")
-    kb_rows = [[(_power_label(r), f"power:{r['id']}")]]
+    actions = [(_power_label(r), f"power:{r['id']}")]
     if (r.get("instance_status") or "").strip() == "Running":
-        kb_rows.append([("节省停机", f"powersave:{r['id']}")])
+        actions.append(("节省停机", f"powersave:{r['id']}"))
     if not is_swas_instance_id(r.get("instance_id")):
-        kb_rows.append([("更换 EIP", f"eip:{r['id']}")])
-    kb_rows.append([("⬅️ 返回", "menu:list")])
-    kb_rows.append([("🏠 返回目录", "menu:menu")])
+        actions.append(("更换 EIP", f"eip:{r['id']}"))
+    kb_rows = _pair_rows(actions)
+    kb_rows.append(_back_row("menu:list"))
     return text, _kb(kb_rows)
 
 
@@ -354,8 +368,8 @@ def _cmd_groups(settings: dict, args: list[str]):
         if not g:
             return f"找不到分组：{args[0]}", None
         return _group_detail(g, settings)
-    kb_rows = [[(g["name"], f"group:{g['id']}")] for g in groups]
-    kb_rows.append([("🏠 返回目录", "menu:menu")])
+    kb_rows = _pair_rows([(g["name"], f"group:{g['id']}") for g in groups])
+    kb_rows.append(_back_row())
     return "分组列表\n点一个分组查看成员：", _kb(kb_rows)
 
 
@@ -379,8 +393,7 @@ def _group_detail(group: dict, settings: dict):
     else:
         lines.append("当前服务：无")
     lines.append(f"成员：{len(members)}")
-    back = _kb([[("⬅️ 返回", "menu:groups")],
-                [("🏠 返回目录", "menu:menu")]])
+    back = _kb([_back_row("menu:groups")])
     if not members:
         return "\n".join(lines) + "\n该分组没有成员", back
     current_id = d.get("current_account_id") if d else None
