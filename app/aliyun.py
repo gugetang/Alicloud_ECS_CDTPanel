@@ -310,7 +310,9 @@ class AliyunClient:
     # Bandwidth（字符串）、InstanceId、Status（InUse/Available），
     # 在共享带宽包里的 EIP 还有 BandwidthPackageId。
     # Add/RemoveCommonBandwidthPackageIp：RegionId、BandwidthPackageId、
-    # IpAddress 必填，把一个 EIP 加进/移出共享带宽包。
+    # IpInstanceId（EIP 的 AllocationId，如 eip-xxx）必填；Add 还可带
+    # IpType=EIP。注意不是 IpAddress（IP 字符串）。Add 是异步操作，返回
+    # RequestId 后后台完成关联。
     def describe_eip_for_instance(self) -> dict | None:
         """查当前实例绑定的 EIP（ECS 才有）。返回
         {"allocation_id", "ip", "bandwidth": int|None,
@@ -403,27 +405,30 @@ class AliyunClient:
             raise AliyunError(f"设置 EIP 带宽失败：{brief_error(exc)}") from exc
 
     def add_eip_to_bandwidth_package(self, bandwidth_package_id: str,
-                                     ip: str) -> None:
-        """把一个 EIP 加进共享带宽包（换 EIP 时新 EIP 跟旧 EIP 进同一个包）。"""
+                                     allocation_id: str) -> None:
+        """把一个 EIP 加进共享带宽包（换 EIP 时新 EIP 跟旧 EIP 进同一个包）。
+        注意：传的是 EIP 的 AllocationId（IpInstanceId），不是 IP 地址。"""
         try:
             self._common(_vpc_domain(self.region), VPC_VERSION,
                          "AddCommonBandwidthPackageIp", self.region,
                          {"RegionId": self.region,
                           "BandwidthPackageId": bandwidth_package_id,
-                          "IpAddress": ip})
+                          "IpInstanceId": allocation_id,
+                          "IpType": "EIP"})
         except Exception as exc:
             raise AliyunError(
                 f"加入共享带宽包失败：{brief_error(exc)}") from exc
 
     def remove_eip_from_bandwidth_package(self, bandwidth_package_id: str,
-                                          ip: str) -> None:
-        """把一个 EIP 移出共享带宽包（换 EIP 时旧 EIP 释放前先移出包）。"""
+                                          allocation_id: str) -> None:
+        """把一个 EIP 移出共享带宽包（换 EIP 时旧 EIP 释放前先移出包）。
+        注意：传的是 EIP 的 AllocationId（IpInstanceId），不是 IP 地址。"""
         try:
             self._common(_vpc_domain(self.region), VPC_VERSION,
                          "RemoveCommonBandwidthPackageIp", self.region,
                          {"RegionId": self.region,
                           "BandwidthPackageId": bandwidth_package_id,
-                          "IpAddress": ip})
+                          "IpInstanceId": allocation_id})
         except Exception as exc:
             raise AliyunError(
                 f"移出共享带宽包失败：{brief_error(exc)}") from exc

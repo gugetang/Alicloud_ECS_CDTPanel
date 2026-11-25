@@ -71,13 +71,13 @@ class FakeAliyun:
     def set_eip_bandwidth(self, allocation_id, bandwidth):
         FakeAliyun.calls.append(("set_bandwidth", allocation_id, bandwidth))
 
-    def add_eip_to_bandwidth_package(self, bandwidth_package_id, ip):
-        FakeAliyun.calls.append(("add_to_package", bandwidth_package_id, ip))
+    def add_eip_to_bandwidth_package(self, bandwidth_package_id, allocation_id):
+        FakeAliyun.calls.append(("add_to_package", bandwidth_package_id, allocation_id))
         if FakeAliyun.fail_on == "add-package":
             raise AliyunError("加入共享带宽包失败：模拟失败")
 
-    def remove_eip_from_bandwidth_package(self, bandwidth_package_id, ip):
-        FakeAliyun.calls.append(("remove_from_package", bandwidth_package_id, ip))
+    def remove_eip_from_bandwidth_package(self, bandwidth_package_id, allocation_id):
+        FakeAliyun.calls.append(("remove_from_package", bandwidth_package_id, allocation_id))
         if FakeAliyun.fail_on == "remove-package":
             raise AliyunError("移出共享带宽包失败：模拟失败")
 
@@ -237,8 +237,8 @@ def test_replace_eip_shared_bandwidth_package(client, accounts, headers):
     assert FakeAliyun.calls == [
         ("allocate", 5), ("unassociate", OLD_ALLOC),
         ("associate", NEW_ALLOC), ("set_bandwidth", NEW_ALLOC, 5),
-        ("remove_from_package", OLD_PKG, OLD_IP),
-        ("add_to_package", OLD_PKG, NEW_IP),
+        ("remove_from_package", OLD_PKG, OLD_ALLOC),
+        ("add_to_package", OLD_PKG, NEW_ALLOC),
         ("release", OLD_ALLOC)]
 
 
@@ -267,7 +267,7 @@ def test_replace_eip_shared_bandwidth_remove_fails_warns(client, accounts, heade
         r = client.post(f"/api/accounts/{accounts['EIP-HK-1']}/replace-eip", headers=headers)
     assert r.status_code == 200, r.text
     assert "移出共享带宽包失败" in r.json()["warning"]
-    assert ("add_to_package", OLD_PKG, NEW_IP) in FakeAliyun.calls
+    assert ("add_to_package", OLD_PKG, NEW_ALLOC) in FakeAliyun.calls
     assert ("release", OLD_ALLOC) in FakeAliyun.calls
 
 
@@ -287,18 +287,21 @@ def test_client_add_remove_bandwidth_package_params():
     c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
                       "instance_id": "i-eip123"}, "y")
     with patch.object(c, "_common", return_value="{}") as m:
-        c.add_eip_to_bandwidth_package(OLD_PKG, NEW_IP)
+        c.add_eip_to_bandwidth_package(OLD_PKG, NEW_ALLOC)
     domain, version, action, region, params = m.call_args.args
     assert domain == "vpc.cn-hongkong.aliyuncs.com"
     assert version == "2016-04-28" and action == "AddCommonBandwidthPackageIp"
+    # 注意：传的是 EIP 的 AllocationId（IpInstanceId），不是 IP 地址。
     assert params == {"RegionId": "cn-hongkong",
-                      "BandwidthPackageId": OLD_PKG, "IpAddress": NEW_IP}
+                      "BandwidthPackageId": OLD_PKG,
+                      "IpInstanceId": NEW_ALLOC, "IpType": "EIP"}
     with patch.object(c, "_common", return_value="{}") as m:
-        c.remove_eip_from_bandwidth_package(OLD_PKG, OLD_IP)
+        c.remove_eip_from_bandwidth_package(OLD_PKG, OLD_ALLOC)
     _, _, action, _, params = m.call_args.args
     assert action == "RemoveCommonBandwidthPackageIp"
     assert params == {"RegionId": "cn-hongkong",
-                      "BandwidthPackageId": OLD_PKG, "IpAddress": OLD_IP}
+                      "BandwidthPackageId": OLD_PKG,
+                      "IpInstanceId": OLD_ALLOC}
 
 
 def test_client_allocate_eip_params():

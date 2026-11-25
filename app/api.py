@@ -1123,11 +1123,11 @@ def replace_eip(aid: int, _: bool = Depends(_admin_required)):
     pkg_note = ""
     if old_pkg:
         try:
-            client.remove_eip_from_bandwidth_package(old_pkg, old_ip)
+            client.remove_eip_from_bandwidth_package(old_pkg, old_alloc)
         except AliyunError as exc:
             warnings.append(f"旧 EIP 移出共享带宽包失败（{exc}），请手动移出")
         try:
-            client.add_eip_to_bandwidth_package(old_pkg, new_ip)
+            client.add_eip_to_bandwidth_package(old_pkg, new_alloc)
             pkg_note = f"；新 EIP 已加入共享带宽包 {old_pkg}"
             log.info("更换 EIP %s：新 EIP %s 已加入共享带宽包 %s",
                      a["name"], new_ip, old_pkg)
