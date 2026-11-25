@@ -22,6 +22,7 @@ import requests
 
 from . import api as api_mod
 from . import db, scheduler
+from . import update as update_mod
 from .engine import _switch_rule_text
 from .notify import Notifier
 from .update import current_version
@@ -43,6 +44,7 @@ COMMANDS = [
     ("power", "开关机"),
     ("switch", "切换分组成员"),
     ("timers", "定时任务"),
+    ("update", "面板更新"),
     ("help", "帮助"),
 ]
 
@@ -209,7 +211,7 @@ def _menu_keyboard() -> dict:
         [("实例列表", "menu:list"), ("状态查询", "menu:status")],
         [("分组列表", "menu:groups"), ("定时任务", "menu:timers")],
         [("开关机", "menu:power"), ("切换分组成员", "menu:switch")],
-        [("帮助", "menu:help")],
+        [("面板更新", "menu:update"), ("帮助", "menu:help")],
     ])
 
 
@@ -404,6 +406,23 @@ def _cmd_timers(settings: dict) -> str:
     return "\n".join(lines)
 
 
+def _cmd_update() -> str:
+    """面板更新：有新版本就触发在线更新（与铃铛“立即更新”同一条路）。"""
+    st = update_mod.status()
+    cur = st.get("current_version") or "dev"
+    latest = (st.get("latest_version") or "")[:7]
+    if not st.get("update_available"):
+        return f"已是最新版本\n当前版本：{cur}"
+    r = update_mod.start_update()
+    if not r.get("started"):
+        msg = r.get("message") or "无法在线更新"
+        manual = r.get("manual")
+        return f"{msg}" + (f"\n手动更新：{manual}" if manual else "")
+    # 更新在后台线程跑，容器随即重启，机器人也跟着重启；这条回复在停机前发出。
+    return (f"更新已开始，容器将重启\n当前版本：{cur}\n最新版本：{latest or '—'}"
+            "\n机器人随容器重启，稍后恢复")
+
+
 def _cmd_help() -> str:
     lines = ["可用命令："]
     for cmd, desc in COMMANDS:
@@ -432,6 +451,8 @@ def _dispatch(settings: dict, cmd: str, args: list[str]):
         return _cmd_switch(args)
     if cmd == "timers":
         return _cmd_timers(settings), None
+    if cmd == "update":
+        return _cmd_update(), None
     if cmd == "help":
         return _cmd_help(), None
     return f"未知命令：/{cmd}\n输入 /help 查看命令", None
@@ -461,7 +482,7 @@ def _handle_callback(settings: dict, callback: dict) -> None:
     if data.startswith("menu:"):
         key = data[5:]
         mapping = {"list": "list", "status": "status", "groups": "groups",
-                   "timers": "timers", "help": "help"}
+                   "timers": "timers", "update": "update", "help": "help"}
         if key == "power":
             reply, markup = _cmd_power([])
         elif key == "switch":
