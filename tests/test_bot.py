@@ -181,12 +181,12 @@ def test_keyboard_two_per_row_back_row_at_bottom(monkeypatch):
     monkeypatch.setattr(botmod, "_public_accounts", lambda: rows)
     monkeypatch.setattr(botmod.db, "list_groups",
                         lambda: [{"id": 2, "name": "Premium"}])
-    # 实例列表：每台独占一行（拉伸满宽），名称加粗在上、IP（已打码）在下，
-    # 最底部只有返回目录
+    # 实例列表：一行两个按钮（拉伸铺满手机屏幕），每个按钮双行显示：
+    # 名称加粗在上、IP（已打码）在下；最底部只有返回目录
     _, kb_list = botmod._cmd_list(_settings(), [])
     assert [[b["text"] for b in row]
             for row in kb_list["inline_keyboard"]] == [
-        ["🟢 𝐀𝟏\nIP：203.0.*.*"], ["🟡 𝐀𝟐\nIP：203.0.*.*"],
+        ["🟢 𝐀𝟏\nIP：203.0.*.*", "🟡 𝐀𝟐\nIP：203.0.*.*"],
         ["🔴 𝐀𝟑\nIP：203.0.*.*"], ["🏠 返回目录"]]
     # 实例详情：最上面是双行显示按钮（圆点 + 加粗名称 / 已打码 IP），
     # 操作按钮每行两个（关闭、节省停机 / 更换 EIP、定时任务），
@@ -304,12 +304,12 @@ def test_groups_keyboard_and_detail(tmpdb, monkeypatch):
         ("【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）", "noop"),
         ("🟢 𝐀𝟏\nIP：203.0.*.*", "noop"), ("🟡 𝐀𝟐\nIP：203.0.*.*", "noop"),
         ("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]
-    # 成员每台独占一行（拉伸满宽），信息按钮独占一行，
+    # 成员一行两个按钮（拉伸铺满手机屏幕），信息按钮独占一行，
     # 返回在最底部一行（左）+ 返回目录（右）
     assert [[b["text"] for b in row]
             for row in kb2["inline_keyboard"]] == [
         ["【𝐏𝐫𝐞𝐦𝐢𝐮𝐦】（负载均衡）"],
-        ["🟢 𝐀𝟏\nIP：203.0.*.*"], ["🟡 𝐀𝟐\nIP：203.0.*.*"],
+        ["🟢 𝐀𝟏\nIP：203.0.*.*", "🟡 𝐀𝟐\nIP：203.0.*.*"],
         ["⬅️ 返回", "🏠 返回目录"]]
     # /groups 带名字参数直接进子菜单（标题跟随站点名，信息在双行显示按钮里）
     text3, kb3 = botmod._cmd_groups(_settings(site_name="Alicloud-CDT"),
