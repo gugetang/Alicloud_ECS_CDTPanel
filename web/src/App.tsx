@@ -2821,11 +2821,11 @@ export default function App() {
           <div className="card"><h2>{t("通知事件")}</h2>
             <p className="muted">{t("应用于所有已启用渠道。关闭期间仍跟踪状态，重新开启不补发历史事件。")}</p>
             <div className="row" style={{ padding: "6px 0 6px 2em" }}>
-              <span>{t("启用每日推送")}</span><span className="spacer" />
-              <Toggle checked={drEnabled} label={t("启用每日推送")}
+              <span>{t("每日推送")}</span><span className="spacer" />
+              <Toggle checked={drEnabled} label={t("每日推送")}
                 onChange={(v) => { setDrEnabled(v); saveSettings({ daily_report_enabled: v ? "1" : "0" }); }} />
             </div>
-            {(["instance_status", "threshold_alarm", "group_change", "update_available"] as const).map((k) => {
+            {(["instance_status", "group_change", "threshold_alarm", "update_available"] as const).map((k) => {
               const label = ({ instance_status: t("实例状态"), threshold_alarm: t("阈值报警"), group_change: t("分组动态"), update_available: t("面板更新") } as Any)[k] as string;
               return (
                 <div className="row" key={k} style={{ padding: "6px 0 6px 2em" }}>

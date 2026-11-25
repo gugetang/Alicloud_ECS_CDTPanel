@@ -1196,9 +1196,9 @@ def test_daily_report_card_on_top_telegram_first_time_input():
     assert '>{t("立即推送日报")}' not in channel
     assert '>{t("检测连接")}' in channel
     # 每日推送开关移到通知事件卡片（三个事件开关前面）；推送时间卡片里只剩时间输入
-    assert "启用每日推送" not in daily
+    assert "每日推送" not in daily
     assert "drEnabled" not in daily
-    assert notify.index('t("启用每日推送")') < notify.index('"instance_status"')
+    assert notify.index('t("每日推送")') < notify.index('"instance_status"')
 
 
 def test_nav_and_subtabs_selected_are_accent_border():
@@ -2120,7 +2120,7 @@ def test_notify_event_toggle_update_available():
     # 通知事件里有“面板更新”开关（有更新时推 TG/Email，每个版本只推一次）；
     # 后端事件键与默认开关都已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '"group_change", "update_available"] as const' in tsx
+    assert '"threshold_alarm", "update_available"] as const' in tsx
     assert 'update_available: t("面板更新")' in tsx
     assert 'settings[`notify_${k}`]' in tsx
     settings = (ROOT / "app" / "settings.py").read_text(encoding="utf-8")
@@ -2137,7 +2137,7 @@ def test_notify_event_toggle_instance_status():
     # 阈值报警、分组动态、面板更新；旧的分开关（实例启动/实例停机/更换 EIP）与
     # 六个只记日志的事件已从列表里删掉；后端事件键与默认开关已接好
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert '["instance_status", "threshold_alarm", "group_change", "update_available"] as const' in tsx
+    assert '["instance_status", "group_change", "threshold_alarm", "update_available"] as const' in tsx
     assert 'instance_status: t("实例状态")' in tsx
     assert 'threshold_alarm: t("阈值报警")' in tsx
     assert 'group_change: t("分组动态")' in tsx
@@ -2210,3 +2210,12 @@ def test_header_bell_and_palette_icons():
     # 登录页没有铃铛（未登录查不到更新状态）
     login = tsx[tsx.index("function LoginScreen"):tsx.index("function App(")]
     assert "BellIcon" not in login and "update/status" not in login
+
+
+def test_notify_event_order():
+    # 通知事件卡片的顺序（2026-11-25 用户截图编号）：
+    # 1 每日推送（单独首行）→ 2 实例状态 → 3 分组动态 → 4 阈值报警 → 5 面板更新
+    m = re.search(r'\(\[\s*"instance_status",\s*"([^"]+)",\s*"([^"]+)",\s*"update_available"\s*\]',
+                  TSX)
+    assert m, "notify event list missing"
+    assert (m.group(1), m.group(2)) == ("group_change", "threshold_alarm")
