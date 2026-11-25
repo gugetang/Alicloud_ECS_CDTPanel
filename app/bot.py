@@ -139,6 +139,18 @@ def _send(settings: dict, text: str, reply_markup: dict | None = None):
     return _api("sendMessage", payload, settings)
 
 
+def _edit(settings: dict, chat_id, message_id: int, text: str,
+          reply_markup: dict | None = None) -> bool:
+    """就地改一条已发消息的文字和按钮（editMessageText），不新发气泡。
+    改不动（消息太旧/已删）返回 False，调用方再发新消息。
+    内容没变时 Telegram 会报 message is not modified，也返回 False。"""
+    payload: dict = {"chat_id": chat_id, "message_id": message_id,
+                     "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    return _api("editMessageText", payload, settings) is not None
+
+
 def _answer_callback(settings: dict, callback_query_id: str, text: str | None = None):
     payload: dict = {"callback_query_id": callback_query_id}
     if text:
@@ -219,9 +231,12 @@ def _cmd_start() -> str:
 
 
 def _menu_keyboard() -> dict:
+    # 每行一个按钮，左右拉满（两列并排太窄）。
     return _kb([
-        [("实例列表", "menu:list"), ("分组列表", "menu:groups")],
-        [("定时任务", "menu:timers"), ("面板更新", "menu:update")],
+        [("实例列表", "menu:list")],
+        [("分组列表", "menu:groups")],
+        [("定时任务", "menu:timers")],
+        [("面板更新", "menu:update")],
         [("帮助", "menu:help")],
     ])
 
@@ -266,7 +281,8 @@ def _instance_detail(a: dict):
         kb_rows.append([("节省停机", f"powersave:{r['id']}")])
     if not is_swas_instance_id(r.get("instance_id")):
         kb_rows.append([("更换 EIP", f"eip:{r['id']}")])
-    kb_rows.append([("⬅️ 返回", "menu:list"), ("🏠 返回目录", "menu:menu")])
+    kb_rows.append([("⬅️ 返回", "menu:list")])
+    kb_rows.append([("🏠 返回目录", "menu:menu")])
     return text, _kb(kb_rows)
 
 
@@ -363,7 +379,8 @@ def _group_detail(group: dict, settings: dict):
     else:
         lines.append("当前服务：无")
     lines.append(f"成员：{len(members)}")
-    back = _kb([[("⬅️ 返回", "menu:groups"), ("🏠 返回目录", "menu:menu")]])
+    back = _kb([[("⬅️ 返回", "menu:groups")],
+                [("🏠 返回目录", "menu:menu")]])
     if not members:
         return "\n".join(lines) + "\n该分组没有成员", back
     current_id = d.get("current_account_id") if d else None
@@ -454,11 +471,32 @@ def _handle_message(settings: dict, message: dict) -> None:
 
 
 def _handle_callback(settings: dict, callback: dict) -> None:
-    chat = (callback.get("message") or {}).get("chat") or {}
+    msg = callback.get("message") or {}
+    chat = msg.get("chat") or {}
     if not _authorized(settings, chat.get("id")):
         return
-    _answer_callback(settings, callback.get("id") or "")
+    cb_id = callback.get("id") or ""
+    _answer_callback(settings, cb_id)
     data = callback.get("data") or ""
+    chat_id = chat.get("id")
+    message_id = msg.get("message_id")
+    current_text = msg.get("text") or ""
+
+    def show(text: str, markup: dict | None):
+        # 导航就地改同一条消息，不新发气泡；内容没变就什么都不做，
+        # 没消息可改或改不动（消息太旧）再发新消息。
+        if text == current_text:
+            return
+        if message_id and _edit(settings, chat_id, message_id, text, markup):
+            return
+        _send(settings, text, markup)
+
+    def refresh_detail(aid: int):
+        a = next((x for x in _public_accounts() if x["id"] == aid), None)
+        if a:
+            reply, markup = _instance_detail(a)
+            show(reply, markup)
+
     if data.startswith("menu:"):
         key = data[5:]
         mapping = {"menu": "menu", "list": "list", "groups": "groups",
@@ -467,7 +505,7 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             reply, markup = _dispatch(settings, mapping[key], [])
         else:
             return
-        _send(settings, reply, markup)
+        show(reply, markup)
     elif data.startswith("detail:"):
         try:
             aid = int(data[7:])
@@ -475,28 +513,31 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         a = next((x for x in _public_accounts() if x["id"] == aid), None)
         if not a:
-            _send(settings, "实例不存在")
+            show("实例不存在", None)
             return
         reply, markup = _instance_detail(a)
-        _send(settings, reply, markup)
+        show(reply, markup)
     elif data.startswith("power:"):
         try:
             aid = int(data[6:])
         except ValueError:
             return
-        _send(settings, _do_power(aid))
+        _answer_callback(settings, cb_id, _do_power(aid))
+        refresh_detail(aid)
     elif data.startswith("powersave:"):
         try:
             aid = int(data[10:])
         except ValueError:
             return
-        _send(settings, _do_power_save(aid))
+        _answer_callback(settings, cb_id, _do_power_save(aid))
+        refresh_detail(aid)
     elif data.startswith("eip:"):
         try:
             aid = int(data[4:])
         except ValueError:
             return
-        _send(settings, _do_replace_eip(aid))
+        _answer_callback(settings, cb_id, _do_replace_eip(aid))
+        refresh_detail(aid)
     elif data.startswith("group:"):
         try:
             gid = int(data[6:])
@@ -504,10 +545,10 @@ def _handle_callback(settings: dict, callback: dict) -> None:
             return
         g = next((x for x in db.list_groups() if x["id"] == gid), None)
         if not g:
-            _send(settings, "分组不存在")
+            show("分组不存在", None)
             return
         reply, markup = _group_detail(g, settings)
-        _send(settings, reply, markup)
+        show(reply, markup)
 
 
 # ---------------------------------------------------------------------------
