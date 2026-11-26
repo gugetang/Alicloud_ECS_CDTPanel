@@ -627,7 +627,7 @@ def test_header_lang_dropdown_and_logout():
     assert tsx.count("<ThemeIcon theme={theme} size={18} />") == 2
     assert tsx.count("<PaletteIcon size={18} />") == 2
     assert tsx.count("size={14}") == 0
-    assert tsx.count('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"') == 2  # 退出图标 16px，两处
+    assert tsx.count('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"') == 3  # 16px 图标三处：退出登录、登录页退出、登录图标
     assert tsx.count('<svg width="9" height="9" viewBox="0 0 24 24"') == 0
     assert ".btn.theme-btn { width:30px; height:30px; min-height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert 't(v === "light" ? "亮色" : v === "dark" ? "暗色" : "跟随系统")' in tsx
@@ -640,6 +640,11 @@ def test_header_lang_dropdown_and_logout():
     assert 'post("/api/auth/logout", {})' in tsx
     assert 'setToken(null)' in tsx
     assert 'setAuthState("public")' in tsx
+    # 登录键同样是图标按钮（与退出登录同款 30×30 theme-btn、16px 图标）：
+    # 未登录时页眉最右边是登录图标（feather log-in，与退出图标镜像），点开登录弹窗
+    assert '<button className="btn ghost theme-btn" aria-label={t("登录")} title={t("登录")} onClick={() => openLoginModal()}>' in tsx
+    assert '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />' in tsx
+    assert 'onClick={() => openLoginModal()}>{t("登录")}</button>' not in tsx
     # 顺序：语言键、主题键（模式）、调色板键（风格）、退出键（退出在最右）
     assert tsx.index("lang-btn") < tsx.index("theme-btn")
     assert tsx.index("theme-btn") < tsx.index('t("退出登录")')
