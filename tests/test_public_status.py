@@ -116,7 +116,8 @@ def test_public_status_narrowed_after_setup(client):
         "protection_threshold_pct",
     }
     assert s["site_name"] == "CDT 面板"
-    assert s["site_logo"] is False
+    # 没上传过 logo，但仓库默认 logo 存在，公开概览也显示默认 logo，所以是真
+    assert s["site_logo"] is True
     assert s["settlement_currency"] == "USD"
     assert s["exchange_rate_usd_cny"] is not None
     assert s["protection_threshold_pct"] is not None

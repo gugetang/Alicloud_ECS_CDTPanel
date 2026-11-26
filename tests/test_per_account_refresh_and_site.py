@@ -99,12 +99,19 @@ def test_site_logo_upload_serve_delete(client):
     assert client.get("/api/settings").json()["site_logo"] == "site_logo.png"
     # 登录页用的 auth/status 也带 site_logo 标记（有 logo 才显示）
     assert client.get("/api/auth/status").json()["site_logo"] is True
-    # 删除后读不到
+    # 删除已上传的 logo 后回落到仓库默认 logo（不是 404），默认文件本身还在
+    import app.api as apimod
     r = client.delete("/api/settings/logo")
     assert r.status_code == 200
-    assert client.get("/api/settings/logo").status_code == 404
+    assert apimod.DEFAULT_LOGO.is_file()
+    r = client.get("/api/settings/logo")
+    assert r.status_code == 200
+    assert r.content == apimod.DEFAULT_LOGO.read_bytes()
+    assert "image/svg+xml" in r.headers["content-type"]
     assert client.get("/api/settings").json()["site_logo"] == ""
-    assert client.get("/api/auth/status").json()["site_logo"] is False
+    assert client.get("/api/settings").json()["site_logo_default"] is True
+    # 登录页用的 auth/status 也带 site_logo 标记（默认 logo 存在也显示）
+    assert client.get("/api/auth/status").json()["site_logo"] is True
 
 
 def test_site_logo_rejects_non_image_and_oversize(client):
@@ -114,6 +121,63 @@ def test_site_logo_rejects_non_image_and_oversize(client):
     r = client.post("/api/settings/logo",
                     files={"file": ("x.exe", b"x", "application/octet-stream")})
     assert r.status_code == 400
+
+
+def test_site_logo_default_served_when_no_upload(client):
+    # 没上传过 logo 时，读取接口直接回落到仓库默认 logo（新部署不用手动传就有 logo）
+    import app.api as apimod
+    assert apimod.DEFAULT_LOGO.is_file()
+    r = client.get("/api/settings/logo")
+    assert r.status_code == 200
+    assert r.content == apimod.DEFAULT_LOGO.read_bytes()
+    assert "image/svg+xml" in r.headers["content-type"]
+    s = client.get("/api/settings").json()
+    assert s["site_logo"] == ""
+    assert s["site_logo_default"] is True
+    assert client.get("/api/auth/status").json()["site_logo"] is True
+    assert client.get("/api/public/status").json()["settings"]["site_logo"] is True
+
+
+def test_site_logo_404_when_no_default(client, tmp_path, monkeypatch):
+    # 默认 logo 文件也不存在时（比如被删了），读取接口才 404，各标记都是假
+    import app.api as apimod
+    monkeypatch.setattr(apimod, "DEFAULT_LOGO", Path(tmp_path) / "nope.svg")
+    assert client.get("/api/settings/logo").status_code == 404
+    assert client.get("/api/settings").json()["site_logo_default"] is False
+    assert client.get("/api/auth/status").json()["site_logo"] is False
+    assert client.get("/api/public/status").json()["settings"]["site_logo"] is False
+
+
+def test_site_logo_upload_takes_precedence_over_default(client):
+    # 上传了自定义 logo 就用上传的，不用默认；site_logo_default 为假
+    r = client.post("/api/settings/logo",
+                    files={"file": ("logo.png", PNG_1X1, "image/png")})
+    assert r.status_code == 200
+    r = client.get("/api/settings/logo")
+    assert r.status_code == 200
+    assert r.content == PNG_1X1
+    assert "image/png" in r.headers["content-type"]
+    s = client.get("/api/settings").json()
+    assert s["site_logo"] == "site_logo.png"
+    assert s["site_logo_default"] is False
+
+
+def test_site_logo_default_frontend_and_dockerfile():
+    # 前端：页眉与设置页预览在没上传时也显示默认 logo（site_logo_default），
+    # 删除按钮只在已上传自定义 logo 时出现；Dockerfile 把 logo/ 打进镜像。
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    tsx = (root / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 页眉：已上传或默认存在都显示
+    assert "settings?.site_logo || settings?.site_logo_default" in tsx
+    # 设置页：预览用 hasDisplayLogo（上传或默认），删除按钮只认已上传的 hasLogo
+    assert "const hasDisplayLogo = hasLogo || Boolean(settings?.site_logo_default);" in tsx
+    assert "{hasDisplayLogo && (" in tsx
+    logo = tsx.split('t("站点 logo")')[1].split('t("站点简介")')[0]
+    assert "{hasLogo && (<>" in logo
+    # Dockerfile 把仓库 logo/ 拷进镜像，否则容器里没有默认 logo 文件
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY logo ./logo" in dockerfile
 
 
 def test_site_intro_setting(client):

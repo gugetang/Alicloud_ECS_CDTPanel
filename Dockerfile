@@ -16,6 +16,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY logo ./logo
 COPY --from=frontend /src/app/static ./app/static
 COPY scripts ./scripts
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

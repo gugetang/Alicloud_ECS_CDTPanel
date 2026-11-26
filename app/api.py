@@ -10,6 +10,7 @@ import re
 import secrets
 import time
 import urllib.parse
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -393,7 +394,7 @@ def auth_status():
                                  or _any_oauth_bound()),
         "admin_name": db.get_flag("admin_name") or "",
         "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
-        "site_logo": bool(settings.get("site_logo")),  # 登录页用：有 logo 才显示
+        "site_logo": _display_logo_path() is not None,  # 登录页用：有 logo（含默认）才显示
         "oauth": {p: _oauth_configured(settings, p) for p in oauth.PROVIDERS},
         "webauthn": bool(db.list_webauthn_credentials()),
     }
@@ -907,7 +908,7 @@ def public_status():
     settings = db.get_settings()
     payload["settings"] = {
         "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
-        "site_logo": bool(settings.get("site_logo")),
+        "site_logo": _display_logo_path() is not None,
         "site_intro": settings.get("site_intro") or "",
         "exchange_rate_usd_cny": settings.get("exchange_rate_usd_cny"),
         "settlement_currency": settings.get("settlement_currency") or "USD",
@@ -1310,6 +1311,9 @@ def get_settings(_: bool = Depends(_admin_required)):
     s["cloudflare_configured"] = bool(s.get("cloudflare_token"))
     s["email_configured"] = bool(s.get("email_password"))
     s["telegram_configured"] = bool(s.get("telegram_token"))
+    # site_logo_default：没上传 logo 但仓库默认 logo 存在时为真，
+    # 前端用它判断页眉/设置页是否显示默认 logo；删除按钮只认已上传的 site_logo。
+    s["site_logo_default"] = _logo_path() is None and _default_logo_path() is not None
     s["google_oauth_configured"] = _oauth_configured(s, "google")
     s["github_oauth_configured"] = _oauth_configured(s, "github")
     s["google_oauth_bound"] = bool(_oauth_bound("google"))
@@ -1347,6 +1351,20 @@ def _logo_path() -> Any:
     return p if p.is_file() else None
 
 
+# 默认 logo：仓库自带的 logo/cdt-logo.svg。用户没上传 logo 时，
+# 读取接口与各处 site_logo 标记都回落到它，新部署不用手动传就有 logo。
+DEFAULT_LOGO = Path(__file__).resolve().parent.parent / "logo" / "cdt-logo.svg"
+
+
+def _default_logo_path() -> Any:
+    return DEFAULT_LOGO if DEFAULT_LOGO.is_file() else None
+
+
+def _display_logo_path() -> Any:
+    """展示用的 logo：已上传的优先，否则用仓库默认 logo，都没有返回 None。"""
+    return _logo_path() or _default_logo_path()
+
+
 @router.post("/settings/logo")
 async def upload_site_logo(file: UploadFile = File(...),
                            _: bool = Depends(_admin_required)):
@@ -1373,7 +1391,7 @@ async def upload_site_logo(file: UploadFile = File(...),
 
 @router.get("/settings/logo")
 def get_site_logo():
-    p = _logo_path()
+    p = _display_logo_path()
     if p is None:
         raise HTTPException(404, "未设置 logo")
     return FileResponse(p, media_type=LOGO_EXTS.get(

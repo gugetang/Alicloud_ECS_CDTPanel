@@ -1480,6 +1480,7 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const hasLogo = Boolean(settings?.site_logo);
+  const hasDisplayLogo = hasLogo || Boolean(settings?.site_logo_default);
 
   const saveSiteName = async () => {
     const nm = siteName.trim() || "CDT 面板";
@@ -1539,7 +1540,7 @@ function SiteInfoCard({ settings, setMsg, load }: { settings: Any; setMsg: (s: s
       <div style={{ marginTop: 12 }}>
       <label className="lbl">{t("站点 logo")}</label>
       <div className="row" style={{ alignItems: "center" }}>
-        {hasLogo && (
+        {hasDisplayLogo && (
           <img src="/api/settings/logo" alt="logo" style={{ height: 40, maxWidth: 160, objectFit: "contain" }} />
         )}
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon"
@@ -2289,7 +2290,7 @@ export default function App() {
       <header>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="row" style={{ alignItems: "center", gap: 10 }}>
-            {(settings?.site_logo as string) ? (
+            {(settings?.site_logo || settings?.site_logo_default) ? (
               <img src="/api/settings/logo" alt="logo" className="site-logo" />
             ) : null}
             <h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>
