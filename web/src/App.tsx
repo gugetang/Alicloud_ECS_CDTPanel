@@ -2465,7 +2465,7 @@ export default function App() {
             <div className="card dash-blue" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("服务器总数")}</h3>
               <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>{accounts.length}</div>
               <div style={{ marginTop: "auto", paddingTop: 8 }}>
-                <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {Number((status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5) === 0 ? t("不刷新") : `${(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} ${t("分钟")}`} · {t("DNS 已确认")} {status?.dns_confirmed ?? 0} / {status?.dns_total ?? 0}</span>
+                <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {Number((status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5) === 0 ? t("不刷新") : `${(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} ${t("分钟")}`}</span>
               </div>
             </div>
             <div className="card dash-green" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("服务器状态")}</h3>

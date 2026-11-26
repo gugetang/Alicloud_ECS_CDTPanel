@@ -1429,7 +1429,7 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
 
 def test_server_cards_one_per_row_no_wrap():
     # 服务器卡片一行一个（运行概览与实例管理），卡片内文字不换行：
-    # .grid2 已改成一列（类名未改，方便改回两列）；顶上四张总览卡片已是 dash-overview 两列，grid3 已删
+    # .grid2 已改成一列（类名未改，方便改回两列）；顶上四张总览卡片是 dash-overview（一行四列，手机端两列两行），grid3 已删
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert ".grid2 { display:grid; grid-template-columns:1fr; gap:16px; }" in css
@@ -1448,6 +1448,29 @@ def test_server_cards_one_per_row_no_wrap():
     assert ".stat b { font-size:14px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
     assert 'className="muted status-detail"' not in tsx
     assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
+
+
+def test_dash_overview_four_in_one_row_two_rows_on_mobile():
+    # 运行概览四张卡片：电脑端一行四列、长宽一致；手机端两列两行
+    # （2026-11-26 用户截图要求；之前是电脑手机都两列）。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".dash-overview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }" in css
+    # 手机端（max-width:800px）两列：四张卡片排成两行
+    mobile = css.split("@media (max-width: 800px)")[1]
+    assert ".dash-overview { gap:12px; margin-bottom:12px; grid-template-columns:repeat(2, minmax(0, 1fr)); }" in mobile
+    # 不再是两列通吃
+    assert "grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }" not in css
+
+
+def test_dash_status_line_no_dns_confirmed():
+    # 服务器总数卡片的状态行只显示“调度…· API 刷新 x 分钟”，
+    # “DNS 已确认 a / b”这段取消（2026-11-26 用户要求，只改文字、逻辑不变；
+    # 后端 /api/status 仍返回 dns_confirmed/dns_total，调度逻辑不动）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 't("DNS 已确认")' not in tsx
+    assert "dns_confirmed" not in tsx
+    assert "dns_total" not in tsx
+    assert '{t("调度")}' in tsx and '{t("API 刷新")}' in tsx
 
 
 def test_list_values_are_bold():

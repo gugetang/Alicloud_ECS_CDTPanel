@@ -57,9 +57,10 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
 .muted { color:var(--muted); font-size:13px; }
-/* 运行概览四张卡片：两列布局，电脑和手机都保持两列，不折单列；
-   minmax(0,1fr) 让半宽卡片里的长文字换行，不把列撑宽。 */
-.dash-overview { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
+/* 运行概览四张卡片：一行四列，长宽一致；手机端两列两行；
+   minmax(0,1fr) 让卡片里的长文字换行，不把列撑宽；
+   网格默认拉伸，同行卡片等高。 */
+.dash-overview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
 .dash-overview .card { margin-bottom:0; min-width:0; }
 /* 运行概览卡片边框颜色：平时不变，悬停/点按时边框变成本卡颜色；只改颜色，无发光、无渐变、无动画。 */
 .dash-overview .dash-blue:hover, .dash-overview .dash-blue:active { border-color:var(--dot-blue); }
@@ -363,7 +364,8 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
   .server-card-foot { flex:none; }
   /* 手机端卡片细节（实例 ID/站点/阈值）全部直接显示，不再折叠隐藏。 */
   .grid2 { gap:12px; }
-  .dash-overview { gap:12px; margin-bottom:12px; }
+  /* 手机端运行概览四张卡片：两列两行，长宽一致。 */
+  .dash-overview { gap:12px; margin-bottom:12px; grid-template-columns:repeat(2, minmax(0, 1fr)); }
   /* 手机端指标同样两列（与桌面端一致）。 */
   .stats { grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 12px; }
   /* 手机端指标值同样 14px、只加粗，与桌面端一致。 */

@@ -144,15 +144,18 @@ def test_frontend_site_and_refresh_and_footer():
     assert '<img src="/api/settings/logo"' in tsx
     assert "settings?.site_intro" in tsx
     # 页脚：AlicloudECS_CDT © 2026 | 版本号 + 项目地址超链 + TG 超链，联系邮箱已删；
+    # 页脚抽成了 SiteFooter 组件（登录页/首次设置页共用，不带版本号；主页面传 version）；
     # 版本号跟随当前版本（标签版完整显示，如 v1.1.0；SHA 才截 7 位；未加载时回退 v1.0.0）；
     # 页脚三项文字都是黑色字体（var(--text)），TG 是超链指向 @AliLang_AgentBot，
     # 但只显示“Telegram”四个字，不显示 @AliLang_AgentBot（那是后台配置）
-    assert "AlicloudECS_CDT © 2026 | {upd?.current_version ? shortVersion(upd.current_version) : \"v1.0.0\"}" in tsx
+    assert 'AlicloudECS_CDT © 2026{version ? ` | ${version}` : ""}' in tsx
+    # 主页面传 version：已登录时显示当前版本（标签版完整、SHA 截 7 位、未加载回退 v1.0.0），未登录（公开概览）不显示版本号
+    assert '<SiteFooter version={authState === "authed" ? (upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0") : undefined} />' in tsx
     assert "https://github.com/gugetang/Alicloud_ECS_CDTPanel" in tsx
     assert 't("项目地址")' in tsx
     assert "https://t.me/AliLang_AgentBot" in tsx
     assert "Telegram @AliLang_AgentBot" not in tsx
-    assert "\n            Telegram\n" in tsx
+    assert "\n          Telegram\n" in tsx  # SiteFooter 里 Telegram 独占一行（只显示四个字）
     # 三项文字都是黑色字体（var(--text)，亮色下近黑、夜间可读）
     assert tsx.count('style={{ color: "var(--text)", fontSize: 13') == 3
     # TG 超链是黑色字体（var(--text)，亮色下近黑、夜间可读），与项目地址同款

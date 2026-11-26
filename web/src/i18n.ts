@@ -144,7 +144,6 @@ export const EN: Record<string, string> = {
   调度已暂停: "Scheduling paused",
   "API 刷新": "API refresh",
   分钟: "min",
-  "DNS 已确认": "DNS confirmed",
   本月流量: "Monthly traffic",
   "已取得 {a} / {b} 个账户用量": "Usage fetched for {a} / {b} accounts",
   当前费用: "Current cost",
