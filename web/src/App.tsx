@@ -523,87 +523,9 @@ function SetupScreen({ onDone, onSkip }: { onDone: () => void; onSkip: () => voi
 // ---------------- 登录页：密码 / 指纹 / Google / GitHub ----------------
 function LoginScreen({ info, oauthMsg, onDone, theme, setTheme, accent, setAccent }: { info: Any; oauthMsg: string; onDone: () => void; theme: string; setTheme: (v: string) => void; accent: string; setAccent: (v: string) => void }) {
   const { lang, setLang, t } = useI18n();
-  const [username, setUsername] = useState(() => getRememberedUsername());
-  const [pw, setPw] = useState("");
-  const [remember, setRemember] = useState(true);
-  // 自动登录轮询闭包捕获的是首渲染的 loginPwWith，用 ref 跟住最新的勾选状态。
-  const rememberRef = useRef(true);
-  rememberRef.current = remember;
-  const [msg, setMsg] = useState(oauthMsg || "");
-  const [busy, setBusy] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const [accentMenuOpen, setAccentMenuOpen] = useState(false);
-  const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
-  // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
-  // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
-  // 一出现就同步到 state 并自动登录。用户一旦在密码框按过键（手动输入/
-  // 粘贴），就不再自动登录，避免误触。
-  const usernameRef = useRef<HTMLInputElement>(null);
-  const pwRef = useRef<HTMLInputElement>(null);
-  const userTyped = useRef(false);
-  const autoLoginDone = useRef(false);
-
-  const loginPwWith = async (password: string, name?: string) => {
-    if (!password) { setMsg(t("请输入密码")); return; }
-    const account = (name ?? username).trim();
-    if ((info.admin_name as string) && !account) { setMsg(t("请输入管理员账号")); return; }
-    setBusy(true); setMsg("");
-    try {
-      const r = await post("/api/auth/login", { username: account, password }) as Any;
-      // 记住账号密码：勾选时账号存 localStorage（下次自动填好）、token 也存
-      // localStorage（关闭浏览器后仍登录）；不勾选时不记账号，token 存
-      // sessionStorage（关闭浏览器后失效，需重新登录）。密码从不存本地。
-      if (rememberRef.current) {
-        if (account) setRememberedUsername(account);
-        setToken(r.token as string, true);
-      } else {
-        setRememberedUsername(null);
-        setToken(r.token as string, false);
-      }
-      onDone();
-    } catch (e) { setMsg(String((e as Error).message)); }
-    finally { setBusy(false); }
-  };
-  const loginPw = () => loginPwWith(pw);
-
-  useEffect(() => {
-    const check = () => {
-      if (autoLoginDone.current || userTyped.current) return;
-      const uel = usernameRef.current;
-      if (uel && uel.value && uel.value !== username) setUsername(uel.value);
-      const el = pwRef.current;
-      if (el && el.value) {
-        autoLoginDone.current = true;
-        setPw(el.value);
-        loginPwWith(el.value, usernameRef.current?.value || username);
-      }
-    };
-    check();
-    const timer = setInterval(check, 300);
-    const stop = setTimeout(() => clearInterval(timer), 8000);
-    return () => { clearInterval(timer); clearTimeout(stop); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const loginWebauthn = async () => {
-    if (!webauthnSupported) { setMsg(t("当前浏览器不支持指纹登录")); return; }
-    setBusy(true); setMsg("");
-    try {
-      const opts = await post("/api/auth/webauthn/authenticate/begin", {}) as Any;
-      const pk: Any = {
-        ...opts,
-        challenge: b64urlToBuf(opts.challenge),
-        allowCredentials: (opts.allowCredentials || []).map((c: Any) => ({ ...c, id: b64urlToBuf(c.id) })),
-      };
-      const cred = await navigator.credentials.get({ publicKey: pk as PublicKeyCredentialRequestOptions }) as any;
-      if (!cred) throw new Error(t("未完成指纹验证"));
-      const r = await post("/api/auth/webauthn/authenticate/finish", { credential: credentialToJSON(cred) }) as Any;
-      setToken(r.token as string);
-      onDone();
-    } catch (e) { setMsg(String((e as Error).message)); }
-    finally { setBusy(false); }
-  };
 
   return (
     <>
@@ -674,49 +596,137 @@ function LoginScreen({ info, oauthMsg, onDone, theme, setTheme, accent, setAccen
           </svg>
         </button>
       </div>
-      <div className="auth-wrap">
-      <div className="card">
+      <LoginFormCard info={info} oauthMsg={oauthMsg} onDone={onDone} />
+      <SiteFooter />
+    </>
+  );
+}
+
+// ---------------- 登录卡片（登录页与登录弹窗共用）：密码 / 指纹 / Google / GitHub ----------------
+function LoginFormCard({ info, oauthMsg, onDone, hideTitle }: { info: Any; oauthMsg: string; onDone: () => void; hideTitle?: boolean }) {
+  const { t } = useI18n();
+  const [username, setUsername] = useState(() => getRememberedUsername());
+  const [pw, setPw] = useState("");
+  const [remember, setRemember] = useState(true);
+  // 自动登录轮询闭包捕获的是首渲染的 loginPwWith，用 ref 跟住最新的勾选状态。
+  const rememberRef = useRef(true);
+  rememberRef.current = remember;
+  const [msg, setMsg] = useState(oauthMsg || "");
+  const [busy, setBusy] = useState(false);
+  const webauthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+  // 自动填充后自动登录：浏览器自动填充不会触发 React onChange（受控输入的
+  // state 还是 ""），且下次渲染会把填充值清空；轮询读输入框的 DOM 值，
+  // 一出现就同步到 state 并自动登录。用户一旦在密码框按过键（手动输入/
+  // 粘贴），就不再自动登录，避免误触。
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const pwRef = useRef<HTMLInputElement>(null);
+  const userTyped = useRef(false);
+  const autoLoginDone = useRef(false);
+
+  const loginPwWith = async (password: string, name?: string) => {
+    if (!password) { setMsg(t("请输入密码")); return; }
+    const account = (name ?? username).trim();
+    if ((info.admin_name as string) && !account) { setMsg(t("请输入管理员账号")); return; }
+    setBusy(true); setMsg("");
+    try {
+      const r = await post("/api/auth/login", { username: account, password }) as Any;
+      // 记住账号密码：勾选时账号存 localStorage（下次自动填好）、token 也存
+      // localStorage（关闭浏览器后仍登录）；不勾选时不记账号，token 存
+      // sessionStorage（关闭浏览器后失效，需重新登录）。密码从不存本地。
+      if (rememberRef.current) {
+        if (account) setRememberedUsername(account);
+        setToken(r.token as string, true);
+      } else {
+        setRememberedUsername(null);
+        setToken(r.token as string, false);
+      }
+      onDone();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+  const loginPw = () => loginPwWith(pw);
+
+  useEffect(() => {
+    const check = () => {
+      if (autoLoginDone.current || userTyped.current) return;
+      const uel = usernameRef.current;
+      if (uel && uel.value && uel.value !== username) setUsername(uel.value);
+      const el = pwRef.current;
+      if (el && el.value) {
+        autoLoginDone.current = true;
+        setPw(el.value);
+        loginPwWith(el.value, usernameRef.current?.value || username);
+      }
+    };
+    check();
+    const timer = setInterval(check, 300);
+    const stop = setTimeout(() => clearInterval(timer), 8000);
+    return () => { clearInterval(timer); clearTimeout(stop); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loginWebauthn = async () => {
+    if (!webauthnSupported) { setMsg(t("当前浏览器不支持指纹登录")); return; }
+    setBusy(true); setMsg("");
+    try {
+      const opts = await post("/api/auth/webauthn/authenticate/begin", {}) as Any;
+      const pk: Any = {
+        ...opts,
+        challenge: b64urlToBuf(opts.challenge),
+        allowCredentials: (opts.allowCredentials || []).map((c: Any) => ({ ...c, id: b64urlToBuf(c.id) })),
+      };
+      const cred = await navigator.credentials.get({ publicKey: pk as PublicKeyCredentialRequestOptions }) as any;
+      if (!cred) throw new Error(t("未完成指纹验证"));
+      const r = await post("/api/auth/webauthn/authenticate/finish", { credential: credentialToJSON(cred) }) as Any;
+      setToken(r.token as string);
+      onDone();
+    } catch (e) { setMsg(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="auth-wrap">
+    <div className="card">
+      {!hideTitle && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
           {(info.site_logo as boolean) ? (
             <img src="/api/settings/logo" alt="logo" style={{ height: 36, maxWidth: 120, objectFit: "contain", flex: "none" }} />
           ) : null}
           <div className="auth-title" style={{ margin: 0 }}>{(info.site_name as string) || "CDT 面板"}</div>
         </div>
-        <label className="req">{t("用户名 *")}</label>
-        <div className="input-ico">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-          <input ref={usernameRef} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("请输入用户名")}
-            autoComplete="username" onKeyDown={(e) => { if (e.key === "Enter") pwRef.current?.focus(); }} />
-        </div>
-        <label className="req">{t("密码 *")}</label>
-        <PasswordField value={pw} onChange={setPw} placeholder={t("请输入密码")} inputRef={pwRef} autoComplete="current-password"
-          onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
-        {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
-        <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, cursor: "pointer", fontSize: 14 }}>
-          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ width: "auto", margin: 0 }} />
-          {t("记住账号密码")}
-        </label>
-        <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy} title={t("登录")}>{t("登录")}</button>
-        <div className="auth-divider">{t("或使用以下方式登录")}</div>
-        {info.webauthn && (
-          <button className="oauth-btn" title={t("指纹登录")} onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
-            {t("指纹登录")}{webauthnSupported ? "" : t("（当前浏览器不支持）")}
-          </button>
-        )}
-        <button className="oauth-btn" title={t("使用 Google 登录")} disabled={!info.oauth?.google}
-          onClick={() => { window.location.href = "/api/auth/oauth/google/login"; }}>
-          <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.223 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
-          {t("使用 Google 登录")}
-        </button>
-        <button className="oauth-btn" title={t("使用 GitHub 登录")} disabled={!info.oauth?.github}
-          onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
-          {t("使用 GitHub 登录")}
-        </button>
+      )}
+      <label className="req">{t("用户名 *")}</label>
+      <div className="input-ico">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+        <input ref={usernameRef} value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("请输入用户名")}
+          autoComplete="username" onKeyDown={(e) => { if (e.key === "Enter") pwRef.current?.focus(); }} />
       </div>
-      </div>
-      <SiteFooter />
-    </>
+      <label className="req">{t("密码 *")}</label>
+      <PasswordField value={pw} onChange={setPw} placeholder={t("请输入密码")} inputRef={pwRef} autoComplete="current-password"
+        onKeyDown={(e) => { userTyped.current = true; if (e.key === "Enter") loginPw(); }} />
+      {msg && <p style={{ color: "#f87171", marginTop: 12 }}>{msg}</p>}
+      <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, cursor: "pointer", fontSize: 14 }}>
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ width: "auto", margin: 0 }} />
+        {t("记住账号密码")}
+      </label>
+      <button className="btn" style={{ width: "100%", marginTop: 16 }} onClick={loginPw} disabled={busy} title={t("登录")}>{t("登录")}</button>
+      <div className="auth-divider">{t("或使用以下方式登录")}</div>
+      {info.webauthn && (
+        <button className="oauth-btn" title={t("指纹登录")} onClick={loginWebauthn} disabled={busy || !webauthnSupported}>
+          {t("指纹登录")}{webauthnSupported ? "" : t("（当前浏览器不支持）")}
+        </button>
+      )}
+      <button className="oauth-btn" title={t("使用 Google 登录")} disabled={!info.oauth?.google}
+        onClick={() => { window.location.href = "/api/auth/oauth/google/login"; }}>
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.223 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
+        {t("使用 Google 登录")}
+      </button>
+      <button className="oauth-btn" title={t("使用 GitHub 登录")} disabled={!info.oauth?.github}
+        onClick={() => { window.location.href = "/api/auth/oauth/github/login"; }}>
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        {t("使用 GitHub 登录")}
+      </button>
+    </div>
+    </div>
   );
 }
 
@@ -1707,6 +1717,42 @@ export default function App() {
     });
   };
   const onUpdDragEnd = () => { updDragRef.current = null; };
+  // 登录弹窗：可拖动窗口（与更新弹窗同一套 pointer 拖动做法，手机触摸也能拖）。
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [loginPos, setLoginPos] = useState<{ left: number; top: number } | null>(null);
+  const loginModalRef = useRef<HTMLDivElement | null>(null);
+  const loginDragRef = useRef<{ px: number; py: number; left: number; top: number } | null>(null);
+  const openLoginModal = () => {
+    const w = Math.min(420, window.innerWidth - 32);
+    setLoginPos({ left: Math.max(8, (window.innerWidth - w) / 2), top: Math.max(8, Math.round(window.innerHeight * 0.12)) });
+    setLoginModalOpen(true);
+  };
+  const handleLoginDone = () => {
+    setLoginModalOpen(false);
+    setAuthState("authed");
+  };
+  const onLoginDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!loginPos) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    loginDragRef.current = { px: e.clientX, py: e.clientY, left: loginPos.left, top: loginPos.top };
+  };
+  const onLoginDragMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = loginDragRef.current;
+    const el = loginModalRef.current;
+    if (!d || !el) return;
+    const w = el.offsetWidth;
+    setLoginPos({
+      left: Math.min(Math.max(d.left + e.clientX - d.px, -(w - 60)), window.innerWidth - 60),
+      top: Math.min(Math.max(d.top + e.clientY - d.py, 0), window.innerHeight - 60),
+    });
+  };
+  const onLoginDragEnd = () => { loginDragRef.current = null; };
+  useEffect(() => {
+    if (!loginModalOpen) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") setLoginModalOpen(false); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [loginModalOpen]);
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -1729,7 +1775,10 @@ export default function App() {
   }, [accent]);
 
   // ---------- 登录门：首次设置 / 登录 / 已登录 ----------
-  const [authState, setAuthState] = useState<"loading" | "setup" | "login" | "authed">("loading");
+  const [authState, setAuthState] = useState<"loading" | "setup" | "public" | "authed">("loading");
+  // authState 的 ref 镜像：cdt-unauthorized 事件处理里读最新值，避免闭包过期。
+  const authStateRef = useRef(authState);
+  authStateRef.current = authState;
   const [authInfo, setAuthInfo] = useState<Any>({});
   const [oauthMsg, setOauthMsg] = useState("");
 
@@ -1741,17 +1790,18 @@ export default function App() {
       if (getToken()) {
         try { await get("/api/status"); setAuthState("authed"); return; }
         catch (e) {
-          // E-05：401 才是未登录；网络失败 / 500 是服务不可达，提示而不跳登录。
-          if ((e as Any)?.status === 401) { setAuthState("login"); return; }
+          // E-05：401 才是未登录，进公开概览；网络失败 / 500 是服务不可达，
+          // 提示而不弹登录弹窗。
+          if ((e as Any)?.status === 401) { setTab("dash"); setAuthState("public"); return; }
           setConnError(t("服务不可达，请检查后端是否运行，稍后重试"));
-          setAuthState("login"); return;
+          setTab("dash"); setAuthState("public"); return;
         }
       }
-      setAuthState("login");
+      setTab("dash"); setAuthState("public");
     } catch (e) {
-      if ((e as Any)?.status) setAuthState("login");
+      if ((e as Any)?.status) { setTab("dash"); setAuthState("public"); }
       else setConnError(t("服务不可达，请检查后端是否运行，稍后重试"));
-      setAuthState("login");
+      setTab("dash"); setAuthState("public");
     }
   };
 
@@ -1767,7 +1817,10 @@ export default function App() {
       window.history.replaceState({}, "", window.location.pathname);
     }
     checkAuth();
-    const onUnauth = () => { setToken(null); setAuthState("login"); };
+    // token 在使用中过期：回公开概览并自动打开登录弹窗，方便重新登录。
+    // 初次打开页面时 checkAuth 的 401 也会触发本事件，那时还不是登录态，
+    // 不自动弹弹窗（只在使用中过期才弹）。
+    const onUnauth = () => { setToken(null); setTab("dash"); setAuthState("public"); if (authStateRef.current === "authed") setLoginModalOpen(true); };
     window.addEventListener("cdt-unauthorized", onUnauth);
     return () => window.removeEventListener("cdt-unauthorized", onUnauth);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1805,6 +1858,26 @@ export default function App() {
     try { setTimezones((((await get("/api/timezones") as Any).timezones as Any[]) || [])); } catch { /* 失败时下拉用内置列表 */ }
   };
   useEffect(() => { if (authState === "authed") load(); }, [authState]);
+  // 公开概览：未登录时调公开接口（无需 token），用返回的 settings 小对象补
+  // settings；不调 /api/settings 与 /api/timezones（那两个要登录）。
+  // 刷新方式与登录后概览一致：进公开态时加载一次。
+  const loadPublic = async () => {
+    try {
+      const s = await get("/api/public/status") as Any;
+      setStatus(s);
+      setAccounts((s.accounts as Any[]) || []);
+      setDomains((s.domains as Any[]) || []);
+      setGroups((s.groups as Any[]) || []);
+      setLoadError("");
+      // 公开态只留公开小对象：退出登录后进公开态时，不把登录态的完整设置留在内存里。
+      setSettings(((s.settings as Any) || {}) as Any);
+    } catch (e) {
+      // E-04：关键路径失败不再静默空态，显示错误 + 重试按钮。
+      setLoadError(t("加载失败：后端未就绪或网络断开，请重试"));
+      showError(String((e as Error).message || t("加载失败")));
+    }
+  };
+  useEffect(() => { if (authState === "public") loadPublic(); }, [authState]);
   // 面板更新状态：登录后查一次（后端缓存 1 小时），有更新才显示铃铛
   useEffect(() => {
     if (authState !== "authed") return;
@@ -2149,19 +2222,6 @@ export default function App() {
       </div>
     );
   }
-  if (authState === "login") {
-    return (
-      <div className="app">
-        {connError ? (
-          <p className="notice" style={{ marginBottom: 12 }}>{connError}{" "}
-            <button className="btn btn-sm" onClick={() => { setConnError(""); checkAuth(); }}>{t("重试")}</button>
-          </p>
-        ) : null}
-        <LoginScreen info={authInfo} oauthMsg={oauthMsg} onDone={() => { setAuthState("authed"); }} theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} />
-      </div>
-    );
-  }
-
   // 当前费用卡片右上角：最后一次账单读取日期（本地 YYYY-MM-DD）。
   // 取各账户 billing_updated_at（秒级时间戳）的最大值；全为 0/缺失时退而取
   // 最近一次调度的 ran_at 日期；两者都没有就不显示。
@@ -2204,8 +2264,8 @@ export default function App() {
             <h1 style={{ margin: 0 }}>{(settings?.site_name as string) || "CDT 面板"}</h1>
           </div>
           <div className="row">
-            {/* 铃铛常驻显示：有更新时带红点角标，没更新时点开能看当前/最新版本、手动检查更新。 */}
-            <div className="theme-menu">
+            {/* 铃铛常驻显示：有更新时带红点角标，没更新时点开能看当前/最新版本、手动检查更新。未登录时隐藏（更新操作要登录）。 */}
+            {authState === "authed" && (<div className="theme-menu">
               <button className="btn ghost theme-btn" style={{ position: "relative" }} aria-label={t("面板更新")} title={t("面板更新")} onClick={(e) => {
                 if (!updMenuOpen) {
                   // 打开时按铃铛位置落点：右边缘贴铃铛，左右夹在屏幕内（手机上铃铛在左边缘，弹窗不再伸出屏幕外）。
@@ -2273,7 +2333,7 @@ export default function App() {
                     </div>
                   </>
                 )}
-            </div>
+            </div>)}
             <div className="theme-menu">
               <button className="btn ghost lang-btn" aria-label={t("语言")} title={t("语言")} onClick={(e) => { flipMenu("lang", 200, e); setLangMenuOpen(!langMenuOpen); setThemeMenuOpen(false); setAccentMenuOpen(false); setUpdMenuOpen(false); }}>
                 <span className="lang-on">{lang === "zh" ? "中" : "En"}</span>
@@ -2332,33 +2392,45 @@ export default function App() {
                 </>
               )}
             </div>
-            <button className="btn ghost theme-btn" aria-label={t("退出登录")} title={t("退出登录")} onClick={() => {
-              post("/api/auth/logout", {}).catch(() => {});
-              setToken(null);
-              setAuthState("login");
-            }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </button>
+            {authState === "authed" ? (
+              <button className="btn ghost theme-btn" aria-label={t("退出登录")} title={t("退出登录")} onClick={() => {
+                post("/api/auth/logout", {}).catch(() => {});
+                setToken(null);
+                setTab("dash");
+                setAuthState("public");
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            ) : (
+              <button className="btn ghost" aria-label={t("登录")} title={t("登录")} onClick={() => openLoginModal()}>{t("登录")}</button>
+            )}
           </div>
         </div>
         <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("每日推送与事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算。"))}</p>
       </header>
-      <nav ref={navRef}>{TABS.map(([k, label]) => (
-        <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
-      ))}</nav>
+      {authState === "authed" && (
+        <nav ref={navRef}>{TABS.map(([k, label]) => (
+          <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
+        ))}</nav>
+      )}
       {tab === "config" && (
         <div className="subtabs" ref={subtabsRef}>{SUB_TABS.map(([k, label]) => (
           <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{t(label)}</button>
         ))}</div>
       )}
       {msg && <div className={`toast${msgError ? " toast-error" : ""}`} role="alert"><span>{msg}</span><button className="toast-close" aria-label={t("关闭")} onClick={() => { setMsg(""); setMsgError(false); }}>×</button></div>}
-      {loadError && authState === "authed" ? (
+      {connError ? (
+        <p className="notice" style={{ marginBottom: 12 }}>{connError}{" "}
+          <button className="btn btn-sm" onClick={() => { setConnError(""); checkAuth(); }}>{t("重试")}</button>
+        </p>
+      ) : null}
+      {loadError && (authState === "authed" || authState === "public") ? (
         <p className="notice" style={{ marginBottom: 12 }}>{loadError}{" "}
-          <button className="btn btn-sm" onClick={() => void load()}>{t("重试")}</button>
+          <button className="btn btn-sm" onClick={() => void (authState === "public" ? loadPublic() : load())}>{t("重试")}</button>
         </p>
       ) : null}
 
@@ -2881,7 +2953,21 @@ export default function App() {
           ))}
         </div>
       )}
-      <SiteFooter version={upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0"} />
+      <SiteFooter version={authState === "authed" ? (upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0") : undefined} />
+      {loginModalOpen && (
+        <div className="modal-overlay" onClick={() => setLoginModalOpen(false)}>
+          <div ref={loginModalRef} className="modal modal-wd" style={loginPos ? { position: "fixed", left: loginPos.left, top: loginPos.top, width: "min(420px, calc(100vw - 32px))", margin: 0 } : { width: "min(420px, calc(100vw - 32px))", margin: 0 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "grab", touchAction: "none", userSelect: "none", padding: "2px 2px 12px" }} onPointerDown={onLoginDragStart} onPointerMove={onLoginDragMove} onPointerUp={onLoginDragEnd} onPointerCancel={onLoginDragEnd}>
+              {(authInfo.site_logo as boolean) ? (
+                <img src="/api/settings/logo" alt="logo" style={{ height: 28, maxWidth: 96, objectFit: "contain", flex: "none" }} />
+              ) : null}
+              <span style={{ fontSize: 18, fontWeight: 700 }}>{(authInfo.site_name as string) || "CDT 面板"}</span>
+              <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label={t("关闭")} title={t("关闭")} onClick={() => setLoginModalOpen(false)}>×</button>
+            </div>
+            <LoginFormCard info={authInfo} oauthMsg={oauthMsg} onDone={handleLoginDone} hideTitle />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

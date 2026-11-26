@@ -75,7 +75,7 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
     throw err;
   }
   if (r.status === 401) {
-    // 会话失效：通知 App 回到登录页
+    // 会话失效：通知 App 回到公开概览（使用中过期时再自动打开登录弹窗）
     window.dispatchEvent(new Event("cdt-unauthorized"));
   }
   if (!r.ok) {

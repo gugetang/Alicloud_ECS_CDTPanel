@@ -635,11 +635,11 @@ def test_header_lang_dropdown_and_logout():
     assert '<div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>' in tsx
     assert 'aria-label={t("退出")}' in tsx
     # 退出登录图标在页眉最右边（主题按钮之后）：调 /api/auth/logout、
-    # 清 token、回登录页
+    # 清 token、回公开概览（未登录态不再是全页登录，而是公开概览 + 登录弹窗）
     assert 'aria-label={t("退出登录")}' in tsx
     assert 'post("/api/auth/logout", {})' in tsx
     assert 'setToken(null)' in tsx
-    assert 'setAuthState("login")' in tsx
+    assert 'setAuthState("public")' in tsx
     # 顺序：语言键、主题键（模式）、调色板键（风格）、退出键（退出在最右）
     assert tsx.index("lang-btn") < tsx.index("theme-btn")
     assert tsx.index("theme-btn") < tsx.index('t("退出登录")')
@@ -2203,3 +2203,47 @@ def test_notify_event_order():
                   TSX)
     assert m, "notify event list missing"
     assert (m.group(1), m.group(2)) == ("group_change", "threshold_alarm")
+
+
+def test_public_overview_and_login_modal():
+    # 公开概览 + 登录弹窗（2026-11-26 用户要求）：未登录只显示概览页面，
+    # 登录后显示所有页和功能操作；登录按钮与退出登录是右上角同一个位置。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    # 登录态：loading / setup / public / authed，没有全页 "login"
+    assert 'useState<"loading" | "setup" | "public" | "authed">' in tsx
+    assert 'authState === "login"' not in tsx
+    assert 'setAuthState("login")' not in tsx
+    # 公开数据走公开接口，不调要登录的 /api/settings 与 /api/timezones
+    assert 'get("/api/public/status")' in tsx
+    assert "const loadPublic = async () => {" in tsx
+    assert 'useEffect(() => { if (authState === "public") loadPublic(); }, [authState]);' in tsx
+    # 未登录时页签只留概览：导航只在登录后渲染，tab 强制回概览
+    assert '{authState === "authed" && (\n        <nav ref={navRef}>' in tsx
+    # 铃铛（面板更新）未登录时隐藏
+    assert '{authState === "authed" && (<div className="theme-menu">' in tsx
+    # 右上角一个按钮：登录后退出登录，未登录时登录（点开登录弹窗）
+    assert 'aria-label={t("登录")}' in tsx
+    assert "onClick={() => openLoginModal()}" in tsx
+    assert 'setTab("dash");\n                setAuthState("public");' in tsx
+    # 登录卡片抽成共用内层组件：登录页与弹窗共用，弹窗里标题栏已有 logo+站名
+    # 时卡片内不重复显示标题
+    assert "function LoginFormCard({ info, oauthMsg, onDone, hideTitle }" in tsx
+    assert "<LoginFormCard info={info} oauthMsg={oauthMsg} onDone={onDone} />" in tsx
+    assert "<LoginFormCard info={authInfo} oauthMsg={oauthMsg} onDone={handleLoginDone} hideTitle />" in tsx
+    # 登录弹窗：遮罩 + 居中卡片 + 标题栏（logo+站名+X），标题栏可拖动
+    # （与更新弹窗同一套 pointer 拖动，手机触摸也能拖），可 X/遮罩/Esc 关闭
+    assert 'className="modal-overlay" onClick={() => setLoginModalOpen(false)}' in tsx
+    assert "onLoginDragStart" in tsx and "onLoginDragMove" in tsx and "onLoginDragEnd" in tsx
+    assert 'e.key === "Escape"' in tsx
+    assert 'aria-label={t("关闭")}' in tsx
+    # 登录成功关弹窗进登录态；token 在使用中过期回公开概览并自动打开登录弹窗，
+    # 但初次打开页面时 checkAuth 的 401 不自动弹（那时还不是登录态）
+    assert "const handleLoginDone = () => {" in tsx
+    assert "setLoginModalOpen(false);\n    setAuthState(\"authed\");" in tsx
+    assert 'const onUnauth = () => { setToken(null); setTab("dash"); setAuthState("public"); if (authStateRef.current === "authed") setLoginModalOpen(true); };' in tsx
+    assert 'authStateRef.current === "authed"' in tsx
+    # 公开模式页脚不显示版本号（与登录页一致）
+    assert 'version={authState === "authed" ? (upd?.current_version ? shortVersion(upd.current_version) : "v1.0.0") : undefined}' in tsx
+    # 弹窗里的卡片不要登录页那 60px 顶边距
+    assert ".modal .auth-wrap { margin:0; max-width:none; }" in css
