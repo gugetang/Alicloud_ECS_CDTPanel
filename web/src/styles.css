@@ -57,10 +57,6 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 .card h2 { margin:0 0 4px; font-size:18px; }
 .card h3 { margin:0 0 8px; font-size:16px; }
 .muted { color:var(--muted); font-size:13px; }
-.grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
-@media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
-/* M-01：平板（801–1024px）两列，之前是压缩的桌面三列。 */
-@media (min-width:801px) and (max-width:1024px){ .grid3{grid-template-columns:repeat(2,1fr);} }
 /* 运行概览四张卡片：两列布局，电脑和手机都保持两列，不折单列；
    minmax(0,1fr) 让半宽卡片里的长文字换行，不把列撑宽。 */
 .dash-overview { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
@@ -362,7 +358,6 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
   .server-card-body { flex:1 1 auto; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
   .server-card-foot { flex:none; }
   /* 手机端卡片细节（实例 ID/站点/阈值）全部直接显示，不再折叠隐藏。 */
-  .grid3 { gap:12px; }
   .grid2 { gap:12px; }
   .dash-overview { gap:12px; margin-bottom:12px; }
   /* M-05：手机端指标改 1 列（以前 2 列挤在一起）。 */
