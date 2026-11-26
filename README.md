@@ -128,14 +128,14 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 
 ### 所需权限
 
-面板用一个阿里云 AK 管所有实例，按功能分的最小权限（RAM Action）：
+给 AK 挂这几个系统策略就能用（RAM 控制台直接搜名字挂上）：
 
-- **读取实例状态 / IP**：`ecs:DescribeInstances`；轻量服务器再加 `swas:ListInstances`
-- **开机 / 停机 / 重启**：`ecs:StartInstance`、`ecs:StopInstance`、`ecs:RebootInstance`；轻量服务器再加 `swas:StartInstance`、`swas:StopInstance`、`swas:RebootInstance`
-- **读取流量**：`cdt:ListCdtInternetTraffic`
-- **读取费用**：`bss:DescribeInstanceBill`、`bss:QueryBillOverview`、`bss:QueryAccountBalance`
-- **查询可用区域**：`ecs:DescribeRegions`
-- **一键更换 EIP**：`vpc:DescribeEipAddresses`、`vpc:AllocateEipAddress`、`vpc:UnassociateEipAddress`、`vpc:AssociateEipAddress`、`vpc:ModifyEipAddressAttribute`、`vpc:ReleaseEipAddress`；旧 EIP 在共享带宽包里时再加 `vpc:RemoveCommonBandwidthPackageIp`、`vpc:AddCommonBandwidthPackageIp`
+- **实例状态 / 开机 / 停机 / 重启 / 查区域**：`AliyunECSFullAccess`；轻量服务器再加 `AliyunSWASOpenFullAccess`
+- **读取流量**：`AliyunCDTFullAccess`
+- **读取费用**：`AliyunBSSFullAccess`
+- **一键更换 EIP**：`AliyunVPCFullAccess`
+
+想最小权限就用自定义策略，只给这些操作：`ecs:DescribeInstances`、`ecs:StartInstance`、`ecs:StopInstance`、`ecs:RebootInstance`、`ecs:DescribeRegions`、`swas:ListInstances`、`swas:StartInstance`、`swas:StopInstance`、`swas:RebootInstance`、`cdt:ListCdtInternetTraffic`、`bss:DescribeInstanceBill`、`bss:QueryBillOverview`、`bss:QueryAccountBalance`、`vpc:DescribeEipAddresses`、`vpc:AllocateEipAddress`、`vpc:UnassociateEipAddress`、`vpc:AssociateEipAddress`、`vpc:ModifyEipAddressAttribute`、`vpc:ReleaseEipAddress`、`vpc:RemoveCommonBandwidthPackageIp`、`vpc:AddCommonBandwidthPackageIp`（后两个只在旧 EIP 在共享带宽包里时用）。
 
 DNS 切换不走阿里云：Cloudflare API Token 要有对应 Zone 的 DNS 编辑权限。
 
