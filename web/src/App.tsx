@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent } from "react";
 import { get, post, put, del, getToken, setToken, getRememberedUsername, setRememberedUsername } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
 import { menuShouldFlipLeft } from "./menuFlip";
+import { isDragHandleTarget, shouldCommitDrag, shouldSaveOnTap, clampModalPos } from "./modalDrag";
 import { formatTimeInput } from "./timeInput";
 import { shouldReloadUpdate, UPDATE_COUNTDOWN_SECONDS } from "./updateCountdown";
 
@@ -221,9 +222,12 @@ const credentialToJSON = (cred: any) => {
 // 编辑保持原分组；不要再把 1 硬编码为默认分组——库里未必有 id=1 的分组，
 // 新建发 group_id=1 会直接 400“分组 1 不存在”）；必填项标签加粗（label.req）。
 // 站点/阈值动作/恢复方式/日报参与都用按键式选择。
-function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAutoSaved }: {
+function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAutoSaved, flushRef }: {
   account: Any | null; settings: Any; count: number; groups: Any[];
   onDone: () => void; onCancel: () => void; onAutoSaved?: () => void;
+  // 弹窗外点击时先刷掉待保存的改动再退出：父级通过 flushRef 调 flushSave，
+  // 返回 saved（已保存）/ skipped（没东西可存）/ error（校验或保存失败，弹窗保持打开）。
+  flushRef?: MutableRefObject<(() => Promise<"saved" | "skipped" | "error">) | null>;
 }) {
   const { t } = useI18n();
   const isNew = !account;
@@ -303,14 +307,26 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     finally { setFormBusy(false); }
   };
 
+  // 脏标记：只有字段改过且未成功保存时才存。快照对比，不用每个 onChange
+  // 单独打标记（自动发现、参数模式切换这类程序改值也能覆盖到）；保存成功后
+  // 快照更新为当前值，之后再点按/失焦不再重复保存、不重复弹成功提示。
+  const savedSnapRef = useRef<string | null>(null);
+  const snap = () => JSON.stringify([name, akId, akSecret, instanceId, site, region, regionCustom, regionCustomVal, paramMode, quota, threshold, schedEnabled, onTime, offTime]);
+  // 首次渲染时把快照记为初始值（挂载后用户再改才算脏；不能等第一次保存时
+  // 再记快照，那会把已经改过的值当成初始值，改动就丢了）。
+  if (savedSnapRef.current == null) savedSnapRef.current = snap();
+  const isDirty = () => snap() !== savedSnapRef.current;
+
   // 实例表单自动保存：改完失焦即存（300ms 防抖），不用点保存。没填完不存、
   // 不报错；编辑已有账户存完不关闭表单；新建账户填完必填项后失焦即创建并关闭。
+  // 点按弹窗内非编辑区也会触发保存（见 flushSave）；没改过不存。
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
-  const saveAutoNow = async (ov?: { mode?: string; quota?: string; threshold?: string }) => {
-    if (savingRef.current) { autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300); return; }
-    if (!name.trim() || !akId.trim() || !instanceId.trim()) return;
+  const saveAutoNow = async (ov?: { mode?: string; quota?: string; threshold?: string }): Promise<"saved" | "skipped" | "error"> => {
+    if (savingRef.current) { autoTimer.current = setTimeout(() => { void saveAutoNow(); }, 300); return "saved"; }
+    if (!isDirty()) return "skipped";
+    if (!name.trim() || !akId.trim() || !instanceId.trim()) return "skipped";
     const mode = ov?.mode ?? paramMode;
     const quotaVal = ov?.quota ?? quota;
     const thresholdVal = ov?.threshold ?? threshold;
@@ -318,13 +334,13 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     // 否则显示中文错误、不保存。
     if (mode === "custom") {
       const q = Number(quotaVal);
-      if (!quotaVal || !(q > 0)) { setFormMsg(t("流量额度必须大于 0")); return; }
+      if (!quotaVal || !(q > 0)) { setFormMsg(t("流量额度必须大于 0")); return "error"; }
       const th = Number(thresholdVal);
-      if (!thresholdVal || !(th > 0 && th <= 100)) { setFormMsg(t("流量保护阈值必须在 0 到 100 之间")); return; }
+      if (!thresholdVal || !(th > 0 && th <= 100)) { setFormMsg(t("流量保护阈值必须在 0 到 100 之间")); return "error"; }
     }
-    if (schedEnabled && onTime === offTime) return;
+    if (schedEnabled && onTime === offTime) return "skipped";
     const finalRegion = regionCustom ? regionCustomVal.trim() : region;
-    if (!finalRegion) return;
+    if (!finalRegion) return "skipped";
     savingRef.current = true;
     const payload: Any = {
       name: name.trim(), access_key_id: akId.trim(), instance_id: instanceId.trim(),
@@ -344,12 +360,17 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     };
     if (akSecret && akSecret !== SECRET_MASK) payload.access_key_secret = akSecret;  // 掩码不是新密钥，留空/掩码都保持不变，绝不清空
     try {
-      if (isNew) { payload.priority = count; await post("/api/accounts", payload); onDone(); }
-      else { await put(`/api/accounts/${account.id}`, payload); onAutoSaved?.(); }
+      if (isNew) { payload.priority = count; await post("/api/accounts", payload); }
+      else { await put(`/api/accounts/${account.id}`, payload); }
+      savedSnapRef.current = snap();
+      if (isNew) onDone();
+      else onAutoSaved?.();
+      return "saved";
     } catch (e) {
       // 自动保存失败要让用户看见（之前静默吞掉，400“分组不存在”这类错
       // 表单看着像没反应，用户无从得知）。后端 detail 已是中文提示。
       setFormMsg(String((e as Error).message || t("保存失败")));
+      return "error";
     }
     finally { savingRef.current = false; }
   };
@@ -357,6 +378,16 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     if (autoTimer.current) clearTimeout(autoTimer.current);
     autoTimer.current = setTimeout(() => { void saveAutoNow(ov); }, 300);
   };
+
+  // 弹窗外点击时调用：先刷掉防抖里待保存的改动，再立即保存一次。
+  // 正在保存时等它落定（最多 2 秒）；仍在保存视为已在保存，允许关闭。
+  const flushSave = async (): Promise<"saved" | "skipped" | "error"> => {
+    if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }
+    for (let i = 0; i < 20 && savingRef.current; i++) await new Promise((r) => setTimeout(r, 100));
+    if (savingRef.current) return "saved";
+    return saveAutoNow();
+  };
+  useEffect(() => { if (flushRef) flushRef.current = flushSave; });
 
   // 参数模式切换：选跟随系统即存 NULL（两个输入框不显示）；从跟随系统
   // 切到自定义时，先把全局值填入两个输入框再保存，不留空。
@@ -1754,6 +1785,86 @@ export default function App() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [loginModalOpen]);
+
+  // ---------- 实例设置弹窗：添加/编辑共用，可拖动窗口 ----------
+  // 打开条件直接复用现有状态：editingId === "new" 是添加，cardSettingsId 是
+  // 齿轮编辑；弹窗在 App 层只渲染一份，表单不再原地展开。
+  const instEditAccount = cardSettingsId != null ? accounts.find((a) => a.id === cardSettingsId) : null;
+  const instModalOpen = editingId === "new" || instEditAccount != null;
+  const [instPos, setInstPos] = useState<{ left: number; top: number } | null>(null);
+  const [instDragging, setInstDragging] = useState(false);
+  const instModalRef = useRef<HTMLDivElement | null>(null);
+  const instFlushRef = useRef<(() => Promise<"saved" | "skipped" | "error">) | null>(null);
+  const instDragRef = useRef<{ px: number; py: number; left: number; top: number; pointerId: number; pointerType: string; committed: boolean } | null>(null);
+  const instDragEndAt = useRef(0);
+  // 打开时居中（与登录弹窗同一落点算法，宽 680）；关闭后下次打开重新居中。
+  useEffect(() => {
+    if (!instModalOpen) return;
+    const w = Math.min(680, window.innerWidth - 32);
+    setInstPos({ left: Math.max(8, (window.innerWidth - w) / 2), top: Math.max(8, Math.round(window.innerHeight * 0.08)) });
+  }, [instModalOpen]);
+  const closeInstModal = () => { setEditingId(null); setCardSettingsId(null); };
+  // 点弹窗外：先刷掉待保存的改动再退出；校验/保存失败时保持打开、显示错误。
+  const closeInstModalWithSave = async () => {
+    if (Date.now() - instDragEndAt.current < 200) return;
+    const st = (await instFlushRef.current?.()) ?? "skipped";
+    if (st === "error") return;
+    closeInstModal();
+  };
+  useEffect(() => {
+    if (!instModalOpen) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") { setEditingId(null); setCardSettingsId(null); } };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [instModalOpen]);
+  // 拖动：任意非编辑区域都可拖（输入框/按钮/包着控件的 label 等除外，见 modalDrag.ts）。
+  // 鼠标移动 >3px 即拖；触摸只认横向为主的移动，竖向交给内容滚动。
+  const onInstDragStart = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!instPos) return;
+    if (!isDragHandleTarget(e.target as HTMLElement)) return;
+    if (e.pointerType === "mouse") e.preventDefault();
+    instDragRef.current = { px: e.clientX, py: e.clientY, left: instPos.left, top: instPos.top, pointerId: e.pointerId, pointerType: e.pointerType, committed: false };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+    const onMove = (ev: PointerEvent) => {
+      const d = instDragRef.current;
+      if (!d || ev.pointerId !== d.pointerId) return;
+      const dx = ev.clientX - d.px;
+      const dy = ev.clientY - d.py;
+      if (!d.committed) {
+        const r = shouldCommitDrag(d.pointerType, dx, dy);
+        if (r === "abandon") { instDragRef.current = null; cleanup(); return; }
+        if (r === "wait") return;
+        d.committed = true;
+        setInstDragging(true);
+      }
+      const el = instModalRef.current;
+      if (!el) return;
+      setInstPos(clampModalPos(d.left + dx, d.top + dy, el.offsetWidth, window.innerWidth, window.innerHeight));
+    };
+    const onUp = (ev: PointerEvent) => {
+      const d = instDragRef.current;
+      if (!d || ev.pointerId !== d.pointerId) return;
+      if (d.committed) instDragEndAt.current = Date.now();
+      // 点按非编辑区（没拖动、移动 <6px）即自动保存；改过才存，没改过是空操作。
+      else if (shouldSaveOnTap(d.committed, ev.clientX - d.px, ev.clientY - d.py)) void instFlushRef.current?.();
+      instDragRef.current = null;
+      setInstDragging(false);
+      cleanup();
+    };
+    const onCancel = (ev: PointerEvent) => {
+      if (instDragRef.current?.pointerId !== ev.pointerId) return;
+      instDragRef.current = null;
+      setInstDragging(false);
+      cleanup();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+  };
   useEffect(() => {
     const apply = () => {
       const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -2118,23 +2229,6 @@ export default function App() {
       </div>
     );
   };
-
-  // ---------- 卡片设置面板：右上角 ⚙ 打开；配置表单 + 复制 + 删除实例（最下面） ----------
-  const CardSettings = ({ a }: { a: Any }) => (
-    <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-      <InstanceForm account={a} settings={settings} count={accounts.length} groups={groups}
-        onDone={() => { setCardSettingsId(null); load(); setMsg(t("已保存成功")); }}
-        onCancel={() => setCardSettingsId(null)}
-        onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
-      <div className="row" style={{ marginTop: 12 }}>
-        <button className="btn ghost" title={t("复制配置摘要")} onClick={async () => {
-          const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("区域")}：${regionAbbr(a.region)}\nIP：${a.public_ip || "—"}`;
-          try { await navigator.clipboard.writeText(text); setMsg(t("配置摘要已复制")); }
-          catch { setMsg(text); }
-        }}>⧉ {t("复制配置摘要")}</button>
-      </div>
-    </div>
-  );
 
   // ---------- 全局设置页的按键式选择：与 settings 同步 ----------
   const [sExcl, setSExcl] = useState("none");
@@ -2551,12 +2645,6 @@ export default function App() {
           <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
             <ViewToggle value={acctViewMode} onToggle={() => setAcctViewMode(acctViewMode === "card" ? "list" : "card")} />
           </div>
-          {editingId === "new" && (
-            <InstanceForm account={null} settings={settings} count={accounts.length} groups={groups}
-              onDone={() => { setEditingId(null); load(); setMsg(t("账户已添加")); }}
-              onCancel={() => setEditingId(null)}
-              onAutoSaved={() => { load(); setMsg(t("已保存成功")); }} />
-          )}
           {acctViewMode === "card" ? (
           <div className="grid2">
           {accounts.map((a) => (
@@ -2579,7 +2667,6 @@ export default function App() {
                   <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</div>
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 </div>
-                {cardSettingsId === a.id && <CardSettings a={a} />}
               </div>
               <div className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>
                 <div className="card-actions"><ActionButtons a={a} /></div>
@@ -2591,8 +2678,8 @@ export default function App() {
           <div className="table-wrap"><table className="accounts-table"><thead><tr><th></th><th>{t("名称")}</th><th>ID</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("流量")}</th><th>{t("费用")}</th><th>{t("阈值")}</th><th>{t("操作")}</th></tr></thead>
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
-              <tr {...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}
-                style={{ cursor: cardSettingsId === a.id ? "default" : "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
+              <tr {...dragProps("account", a.id as number)}
+                style={{ cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
                 <td><IdView a={a} /></td>
@@ -2607,11 +2694,6 @@ export default function App() {
                   <ActionButtons a={a} />
                 </div></td>
               </tr>
-              {cardSettingsId === a.id && (
-                <tr><td colSpan={9} style={{ padding: "0 8px 12px" }}>
-                  <CardSettings a={a} />
-                </td></tr>
-              )}
               </Fragment>
             ))}</tbody></table></div>
           )}
@@ -2995,6 +3077,33 @@ export default function App() {
               <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label={t("关闭")} title={t("关闭")} onClick={() => setLoginModalOpen(false)}>×</button>
             </div>
             <LoginFormCard info={authInfo} oauthMsg={oauthMsg} onDone={handleLoginDone} hideTitle />
+          </div>
+        </div>
+      )}
+      {instModalOpen && (
+        <div className="modal-overlay" onClick={() => void closeInstModalWithSave()}>
+          <div ref={instModalRef} className="modal modal-wd" style={{ ...(instPos ? { position: "fixed", left: instPos.left, top: instPos.top } : {}), width: "min(680px, calc(100vw - 32px))", margin: 0, display: "flex", flexDirection: "column", maxHeight: "calc(100dvh - 40px)", overflow: "hidden", touchAction: "pan-y", cursor: instDragging ? "grabbing" : "grab", userSelect: instDragging ? "none" : undefined }} onClick={(e) => e.stopPropagation()} onPointerDown={onInstDragStart}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 2px 12px", flex: "none" }}>
+              <span style={{ fontSize: 18, fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{editingId === "new" ? t("添加实例") : ((instEditAccount?.name as string) || t("实例设置"))}</span>
+              <button className="icon-btn" style={{ marginLeft: "auto" }} aria-label={t("关闭")} title={t("关闭")} onClick={closeInstModal}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", minHeight: 0 }}>
+              <InstanceForm key={editingId === "new" ? "new" : `edit-${cardSettingsId}`} account={editingId === "new" ? null : instEditAccount ?? null} settings={settings} count={accounts.length} groups={groups}
+                onDone={() => { setEditingId(null); setCardSettingsId(null); load(); setMsg(t("账户已添加")); }}
+                onCancel={closeInstModal}
+                onAutoSaved={() => { load(); setMsg(t("已保存成功")); }}
+                flushRef={instFlushRef} />
+              {instEditAccount && (
+                <div className="row" style={{ marginTop: 12 }}>
+                  <button className="btn ghost" title={t("复制配置摘要")} onClick={async () => {
+                    const a = instEditAccount;
+                    const text = `${a.name}\n${t("实例 ID")}：${a.instance_id}\n${t("区域")}：${regionAbbr(a.region)}\nIP：${a.public_ip || "—"}`;
+                    try { await navigator.clipboard.writeText(text); setMsg(t("配置摘要已复制")); }
+                    catch { setMsg(text); }
+                  }}>⧉ {t("复制配置摘要")}</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

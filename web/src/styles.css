@@ -119,6 +119,8 @@ html[data-theme="dark"] .modal { background:rgba(71,85,105,0.5); }
 /* 云端备份设置对话框：90% 不透明（其它对话框仍是 50% 磨砂） */
 .modal.modal-wd { background:rgba(255,255,255,0.9); }
 html[data-theme="dark"] .modal.modal-wd { background:rgba(71,85,105,0.9); }
+/* 实例设置弹窗里的表单：弹窗本身已是卡片面，去掉表单自带的卡片底/边框/间距 */
+.modal .instance-form { background:transparent; border:none; border-radius:0; padding:0; margin-top:0; }
 /* 主题风格选择器：5 张卡片横排，每张是渐变色块 + 中文名 + 英文名；
    选中卡片用当前主题色 2px 边框，色块右上角白底圆圈打勾。 */
 .theme-grid { display:flex; gap:12px; flex-wrap:wrap; }
