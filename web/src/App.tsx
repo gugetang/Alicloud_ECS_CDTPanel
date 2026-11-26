@@ -1850,13 +1850,17 @@ export default function App() {
     if (!group) return list;
     return [...list.filter((a) => statusGroupOf(a.status_dot) === group), ...list.filter((a) => statusGroupOf(a.status_dot) !== group)];
   };
-  // 卡片/列表切换：单个按钮，显示当前视图，点一下切换。
+  // 卡片/列表切换：单个按钮，显示当前视图的图标（无文字，悬停显示名称），点一下切换。
   const ViewToggle = ({ value, onToggle }: { value: "card" | "list"; onToggle: () => void }) => (
-    <button type="button" className={`view-toggle${value === "list" ? " view-toggle-list" : ""}`} onClick={onToggle}>
-      {value === "card" ? t("卡片") : t("列表")}
+    <button type="button" className={`view-toggle${value === "list" ? " view-toggle-list" : ""}`} onClick={onToggle} title={value === "card" ? t("卡片") : t("列表")}>
+      {value === "card" ? (
+        <Ico label={t("卡片")}><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></Ico>
+      ) : (
+        <Ico label={t("列表")}><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></Ico>
+      )}
     </button>
   );
-  // 状态圆点排序按钮：绿/黄/灰/红（Φ5mm），激活态放大。
+  // 状态圆点排序按钮：绿/黄/灰/红（Φ14px），选中放大 1.5 倍（21px），与未选中拉开差距才看得出来。
   const StatusSortDots = ({ sort, onToggle }: { sort: SortGroup | null; onToggle: (g: SortGroup) => void }) => (
     <div className="status-sort-dots">
       {(["green", "yellow", "gray", "red"] as SortGroup[]).map((g) => (
@@ -2470,7 +2474,7 @@ export default function App() {
             </div>
             <div className="card dash-green" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("服务器状态")}</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 8px", marginTop: 8 }}>
-                <div>{dotEl("green")}{t("在线状态 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
+                <div>{dotEl("green")}{t("在线 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
                 <div>{dotEl("yellow")}{t("排队 {count}", { count: accounts.filter((a) => a.status_dot === "yellow").length })}</div>
                 <div>{dotEl("gray")}{t("离队 {count}", { count: accounts.filter((a) => a.evicted || a.status_label === "离队").length })}</div>
                 <div>{dotEl("red")}{t("停机 {count}", { count: accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length })}</div>
@@ -2483,10 +2487,11 @@ export default function App() {
               </div>
             </div>
             <div className="card dash-yellow" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
-              <div className="big"><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">G / {fmtNum(totalQuota)} G{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</span></div>
+              <div className="big" style={{ marginTop: 20 }}><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">/ {fmtNum(totalQuota)} G{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</span></div>
             </div>
-            <div className="card dash-red" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
-              <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
+            <div className="card dash-red" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}</h3>
+              <div className="big" style={{ marginTop: 20 }}>{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
+              {costAsOf ? <div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span className="muted">{t("截至 {date}", { date: costAsOf })}</span></div> : null}
             </div>
           </div>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>

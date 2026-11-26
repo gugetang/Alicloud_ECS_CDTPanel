@@ -1436,10 +1436,10 @@ def test_server_cards_one_per_row_no_wrap():
     assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr)" not in css
     assert tsx.count('<div className="grid2">') == 2  # 运行概览与实例管理各一处，头部行已留间距
     assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
-    # 指标两列等宽 1fr 撑满卡片：实例/区域、IP/站点、流量/费用三行两列；
+    # 指标三列等宽 1fr 撑满卡片：实例/区域/IP、站点/流量/费用两行三列（电脑端）；
     # 之前 auto + 两端对齐在宽卡片上会把三列推到两端、中间留出大片空白显空
-    # （用户 2026-11-24 截图反馈）。
-    assert ".stats { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
+    # （用户 2026-11-24 截图反馈）。手机端仍是两列三行，见媒体查询。
+    assert ".stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
     # 实例管理卡片原来的五项一行（.stats.five）同样放不下，已改成三列
     assert ".stats.five" not in css and "stats five" not in tsx
     # 卡片内文字不换行：指标标签/数值、服务器名（手机端恢复换行）；状态详情行已删
@@ -1460,6 +1460,75 @@ def test_dash_overview_four_in_one_row_two_rows_on_mobile():
     assert ".dash-overview { gap:12px; margin-bottom:12px; grid-template-columns:repeat(2, minmax(0, 1fr)); }" in mobile
     # 不再是两列通吃
     assert "grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }" not in css
+
+
+def test_status_sort_dots_selected_much_bigger():
+    # 状态圆点排序按钮：原点缩小到 14px，选中放大 1.5 倍（21px），
+    # 与未选中拉开差距才看得出来（之前 19px + 1.08 倍只大 1.5px，几乎看不出；
+    # 2026-11-26 用户截图要求，数值由我定）。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".status-dot-btn { width:14px; height:14px; border-radius:50%; border:none; padding:0; cursor:pointer; transition:transform .15s ease; }" in css
+    assert ".status-dot-btn.active { transform:scale(1.5); }" in css
+    # 悬停仍是轻微 1.08 倍，与选中态区分开
+    assert ".status-dot-btn:hover { transform:scale(1.08); }" in css
+
+
+def test_server_card_stats_two_rows_desktop_three_rows_mobile():
+    # 服务器卡片的 6 项数据（实例/区域/IP/站点/流量/费用）：电脑端三列两行，
+    # 手机端两列三行不变（2026-11-26 用户截图要求；运行概览与实例管理共用 .stats）。
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
+    mobile = css.split("@media (max-width: 800px)")[1]
+    assert ".stats { grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 12px; }" in mobile
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert tsx.count('<div className="stats">') == 2
+
+
+def test_view_toggle_is_icon_no_text():
+    # 卡片/列表切换按钮做成图标、不要文字（2026-11-26 用户截图要求）；
+    # 卡片视图显示九宫格图标，列表视图显示列表图标，悬停显示名称；
+    # 运行概览与实例管理共用同一个 ViewToggle，两处都生效。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 按钮内容不再是文字（title 悬停提示里仍有“卡片/列表”，那是无障碍提示不是显示文字）
+    assert 'onClick={onToggle}>\n      {value === "card" ? t("卡片") : t("列表")}' not in tsx
+    assert '<rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />' in tsx
+    assert '<line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />' in tsx
+    assert 'title={value === "card" ? t("卡片") : t("列表")}' in tsx
+    assert tsx.count("<ViewToggle value=") == 2
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".view-toggle { background:transparent; border:1px solid var(--seg-off); color:var(--muted); border-radius:10px; padding:8px 10px;" in css
+
+
+def test_dash_current_cost_blank_line_and_date_bottom_right():
+    # 当前费用卡片：标题与数值上下两行中间空一行（与本月流量同款）；
+    # 截至时间从标题行右端移到卡片右下角（2026-11-26 用户截图要求）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 标题行里不再带截至时间
+    assert '<h3>{t("当前费用")}{costAsOf' not in tsx
+    assert 'style={{ float: "right" }}>{t("截至 {date}"' not in tsx
+    # 数值行空一行
+    assert '<div className="big" style={{ marginTop: 20 }}>{costConverted' in tsx
+    # 截至时间钉在卡片右下角（marginTop auto + 右对齐）
+    assert '<div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span className="muted">{t("截至 {date}", { date: costAsOf })}</span></div>' in tsx
+
+
+def test_dash_monthly_traffic_blank_line():
+    # 本月流量卡片：标题与数值上下两行中间空一行（2026-11-26 用户截图要求）。
+    # 数值只显示“53.74 / 900 G (5.97%)”：已用量后面不带 G（与服务器卡片/列表同款），
+    # G 只跟在额度后面（2026-11-26 用户截图要求，取消 53.74 后面的 G）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<div className="big" style={{ marginTop: 20 }}><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">/ {fmtNum(totalQuota)} G' in tsx
+    assert 'G / {fmtNum(totalQuota)} G' not in tsx
+
+
+def test_dash_status_online_label():
+    # 服务器状态卡片里绿点那项叫“在线”，不叫“在线状态”（2026-11-26 用户截图要求）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 't("在线 {count}"' in tsx
+    assert 't("在线状态 {count}"' not in tsx
+    i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
+    assert '"在线 {count}": "Online {count}"' in i18n
+    assert '"在线状态 {count}"' not in i18n
 
 
 def test_dash_status_line_no_dns_confirmed():
@@ -1901,10 +1970,10 @@ def test_accounts_traffic_no_wrap_and_used_bold():
 
 def test_server_card_stats_two_equal_columns():
     # 服务器卡片统计区太空：之前 auto + 两端对齐（space-between）在宽卡片
-    # （一行一个）上把三列推到两端、中间留出大片空白；改成两列等宽 1fr 撑满
-    # 卡片宽度——实例/区域、IP/站点、流量/费用三行两列。
+    # （一行一个）上把三列推到两端、中间留出大片空白；改成三列等宽 1fr 撑满
+    # 卡片宽度——实例/区域/IP、站点/流量/费用两行三列（电脑端；手机端仍两列三行）。
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert ".stats { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
+    assert ".stats { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
     # .stats 不再用 space-between（手机端两列 .stats 不受影响，见媒体查询）
     import re as _re
     m = _re.search(r"\.stats \{[^}]*\}", css)

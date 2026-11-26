@@ -126,7 +126,7 @@ export const EN: Record<string, string> = {
   服务器状态: "Server status",
   分组动态: "Group dynamics",
   "服务器总数 {count}": "Total servers {count}",
-  "在线状态 {count}": "Online {count}",
+  "在线 {count}": "Online {count}",
   在线: "Online",
   "排队 {count}": "Queued {count}",
   排队: "Queued",
