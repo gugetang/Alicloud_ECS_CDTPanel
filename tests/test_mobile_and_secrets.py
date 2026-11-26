@@ -106,9 +106,8 @@ def test_mobile_media_query():
     assert ".icon-btn { width:36px; height:36px" not in block
     assert ".auth-wrap { margin:24px auto 0" in block
     assert ".app { padding:16px 12px 60px" in block
-    # 电脑端保持 1200px 三列
+    # 电脑端页面保持 1200px 宽（概览已是 dash-overview 两列，grid3 已删）
     assert ".app { max-width:1200px" in CSS
-    assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr)" in CSS
 
 
 def test_mobile_server_card_fixed_header_footer():
@@ -420,10 +419,6 @@ def test_fee_two_decimals_and_theme_font_and_stat_weight():
     assert "fmtCost(v)} ${c}" in tsx
     # 状态详情（在线/排队）用主题色，不再是绿色
     assert 'var(--dot-green)" : undefined' not in tsx
-    # 实例状态卡片字体缩小一号：卡片 fontSize 14
-    assert '<div className="card" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("实例状态")}</h3>' in tsx
-    # 本月流量“已取得”与当前费用“已查询”小字都用主题色、14px
-    assert tsx.count('color: "var(--accent)", fontSize: 14') >= 2
     assert 'className="muted" style={{ fontSize: 14 }}' not in tsx
     # 服务器卡片统计数值比标签大一号（值 14px、标签 12px）、只加粗
     assert ".stat b { font-size:14px; font-weight:700;" in css
@@ -654,27 +649,13 @@ def test_header_lang_dropdown_and_logout():
     assert hdr.index('t("主题风格")') < hdr.index('t("退出登录")')
 
 
-def test_traffic_obtained_line_uses_theme_color():
-    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 本月流量卡片的“已取得 X / Y 个账户用量”用主题色（与“已查询 X / Y 个账户账单”一致），
-    # 钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）
-    line = [l for l in tsx.splitlines() if "已取得 {a} / {b} 个账户用量" in l]
-    assert len(line) == 1
-    assert 'color: "var(--accent)"' in line[0]
-    assert 'marginTop: "auto"' in line[0]
-    assert 'textAlign' not in line[0]
-    assert 'className="muted"' not in line[0]
-
-
 def test_theme_lines_alignment_dash_left_accounts_left():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行概览：主题字体的小字行都钉在卡片左下角（卡片 flex 列布局 + marginTop: auto，左对齐默认）——
-    # 实例状态底部“调度…”、本月流量“已取得…”、当前费用“已查询…”；服务器卡片的状态详情
+    # 运行概览：服务器总数卡片底部的“调度…”小字行钉在卡片左下角（卡片 flex 列布局 + marginTop: auto）；
+    # 本月流量/当前费用的小字行已删；服务器卡片的状态详情
     # 不再钉底，改在卡片内上下滑动的中间区里（手机端名称固定顶部、按钮固定底部）。
-    assert 'marginTop: "auto", paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8' in tsx
     assert '<span style={{ color: "var(--accent)" }}>{t("调度")}' in tsx
     assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
-    assert tsx.count('color: "var(--accent)", fontSize: 14, marginTop: "auto"') >= 2
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
     # 服务器卡片状态详情在可滚动中间区（server-card-body）里，不再用 marginTop: auto 钉底
     assert 'marginTop: "auto", paddingTop: 6' not in tsx
@@ -935,7 +916,7 @@ def test_subsection_h3_indent_two_chars_under_card_title():
     # 子项 h3（登录与安全下的修改密码/指纹登录/Google 登录/GitHub 登录，
     # 分组卡片的选择成员实例/域名选择）对应父项（卡片 h2
     # 标题）留 2 字符空位：h3 缩进 2em，与其下已缩进的内容对齐。应用全局。
-    # 概览顶卡（实例状态/本月流量/当前费用）与弹窗标题是卡片主标题，不缩进。
+    # 概览顶卡（服务器总数/服务器状态/本月流量/当前费用）与弹窗标题是卡片主标题，不缩进。
     # 每日推送已是单独卡片（h2 标题），不再是渠道卡片里的 h3 子项。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     for h3 in ['<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("修改密码")}</h3>',
@@ -946,7 +927,6 @@ def test_subsection_h3_indent_two_chars_under_card_title():
                 '<h3 style={{ marginTop: 12, paddingLeft: "2em", fontSize: 14 }}>{t("域名选择")}</h3>']:
         assert h3 in tsx, h3
     # 概览顶卡标题不缩进
-    assert '<h3>{t("实例状态")}</h3>' in tsx
     assert '<h3>{t("本月流量")}</h3>' in tsx
 
 
@@ -1452,15 +1432,13 @@ def test_button_font_not_bold_by_default_bold_on_select_or_hover():
 
 def test_server_cards_one_per_row_no_wrap():
     # 服务器卡片一行一个（运行概览与实例管理），卡片内文字不换行：
-    # .grid2 已改成一列（类名未改，方便改回两列）；顶上三张总览卡片仍是 grid3 三列，不动
+    # .grid2 已改成一列（类名未改，方便改回两列）；顶上四张总览卡片已是 dash-overview 两列，grid3 已删
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert ".grid2 { display:grid; grid-template-columns:1fr; gap:16px; }" in css
     assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr)" not in css
     assert '<div className="grid2" style={{ marginTop: 12 }}>' in tsx  # 运行概览服务器卡片
     assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
-    assert '<div className="grid3">' in tsx  # 顶上总览卡片仍三列
-    assert ".grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }" in css
     # 指标三列等宽 1fr 撑满卡片：卡片一行一个后每列约 370px，流量值
     # （179–195px）与实例 ID（207px）放得下；之前 auto + 两端对齐在宽卡片
     # 上把三列推到两端、中间留大片空白显空（用户 2026-11-24 截图反馈）。
