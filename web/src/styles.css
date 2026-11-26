@@ -7,7 +7,7 @@
    matchMedia("(prefers-color-scheme: dark)") 判断。 */
 :root {
   --accent:#2563eb; --green:#34A853; --red:#EA4335;
-  --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6;
+  --dot-blue:#4285F4; --dot-green:#34A853; --dot-yellow:#FBBC04; --dot-red:#EA4335; --dot-gray:#9AA0A6;
 }
 /* 主题风格：5 种配色（500 档，与 App.tsx 里 ACCENTS 渐变色一致），点卡片即切换，
    App.tsx 里 setAccent 写 <html data-accent>，只改 --accent（按钮与边框），
@@ -61,7 +61,16 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 @media (max-width:800px){ .grid3{grid-template-columns:1fr;} }
 /* M-01：平板（801–1024px）两列，之前是压缩的桌面三列。 */
 @media (min-width:801px) and (max-width:1024px){ .grid3{grid-template-columns:repeat(2,1fr);} }
-/* 服务器卡片一行一个（运行概览与实例管理共用；顶上三张总览卡片仍是 grid3 三列） */
+/* 运行概览四张卡片：两列布局，电脑和手机都保持两列，不折单列；
+   minmax(0,1fr) 让半宽卡片里的长文字换行，不把列撑宽。 */
+.dash-overview { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
+.dash-overview .card { margin-bottom:0; min-width:0; }
+/* 运行概览卡片边框颜色：平时不变，悬停/点按时边框变成本卡颜色；只改颜色，无发光、无渐变、无动画。 */
+.dash-overview .dash-blue:hover, .dash-overview .dash-blue:active { border-color:var(--dot-blue); }
+.dash-overview .dash-green:hover, .dash-overview .dash-green:active { border-color:var(--dot-green); }
+.dash-overview .dash-yellow:hover, .dash-overview .dash-yellow:active { border-color:var(--dot-yellow); }
+.dash-overview .dash-red:hover, .dash-overview .dash-red:active { border-color:var(--dot-red); }
+/* 服务器卡片一行一个（运行概览与实例管理共用） */
 .grid2 { display:grid; grid-template-columns:1fr; gap:16px; }
 .big { font-size:14px; font-weight:700; }
 .big small { font-size:14px; color:var(--muted); font-weight:400; }
@@ -353,6 +362,7 @@ nav button:hover:not(:disabled), .subtabs button:hover:not(:disabled),
   /* 手机端卡片细节（实例 ID/站点/阈值）全部直接显示，不再折叠隐藏。 */
   .grid3 { gap:12px; }
   .grid2 { gap:12px; }
+  .dash-overview { gap:12px; margin-bottom:12px; }
   /* M-05：手机端指标改 1 列（以前 2 列挤在一起）。 */
   .stats { grid-template-columns:1fr; gap:8px 12px; }
   /* 手机端指标值同样 14px、只加粗，与桌面端一致。 */
