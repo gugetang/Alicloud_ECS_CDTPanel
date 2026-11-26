@@ -37,7 +37,7 @@ def test_render_structure_title_date_seven_lines():
     assert len(chunks) == 1
     text = chunks[0]["text"]
     assert text.startswith(f"{DAILY_TITLE}\n日期：2026-11-22")
-    assert "<b>" in chunks[0]["html"] and "37.77 GB" in chunks[0]["html"]
+    assert "<b>" in chunks[0]["html"] and "37.77</b> G" in chunks[0]["html"]
     # 每账户 ≤7 行：按分隔线切块数行（第一块前面还带标题+日期两行）
     parts = text.split("\n\n──────\n\n")
     assert len(parts) == 2
@@ -52,7 +52,7 @@ def test_render_structure_title_date_seven_lines():
     # 日报里的 IP 也只显示 A.B 段，C.D 用 * 代替，完整 IP 不出现在推送里
     assert "🌐 IP：203.0.*.*" in text
     assert "203.0.113.11" not in text
-    assert "📊 流量：37.77 GB (18.89%)" in text
+    assert "📊 流量：37.77 G (18.89%)" in text
     assert "💰 账单：$0.47" in text
     assert "💰 余额：$0.00" in text
     assert "💬 评价：✅" in text
@@ -64,7 +64,7 @@ def test_render_structure_title_date_seven_lines():
     assert "💻 状态：<b>在线（🟢）</b>" in html
     assert "🌐 IP：<b>203.0.*.*</b>" in html
     assert "203.0.113.11" not in html
-    assert "📊 流量：<b>37.77 GB (18.89%)</b>" in html
+    assert "📊 流量：<b>37.77</b> G (18.89%)" in html
     assert "💰 账单：<b>$0.47</b>" in html
     assert "💰 余额：<b>$0.00</b>" in html
     assert "💬 评价：<b>✅</b>" in html

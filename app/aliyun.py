@@ -9,7 +9,7 @@
   且 AK 须有 SWAS 权限（AliyunSWASOpenFullAccess / AliyunSWASFullAccess），
   否则报 403 NoPermission——此时记日志并当作“SWAS 查不到”，不掩盖 ECS 结果。
 - CDT 流量：CommonRequest，cdt.aliyuncs.com，2021-08-13，ListCdtInternetTraffic，
-  累加 TrafficDetails[].Traffic（字节）→ GiB。与参考项目同口径。
+  累加 TrafficDetails[].Traffic（字节）→ G。与参考项目同口径。
 - BSS 费用：DescribeInstanceBill（失败回退 QueryBillOverview）+ QueryAccountBalance，
   端点按站点先国际站 business.ap-southeast-1.aliyuncs.com / 国内站
   business.aliyuncs.com，失败换另一站；失败只返回 None，
@@ -531,7 +531,7 @@ class AliyunClient:
         raise AliyunError(f"实例 {instance_id} 在该账号下查不到", kind="other")
 
     def get_traffic_gb(self) -> float:
-        """当月 CDT 出方向流量 GiB。失败抛 AliyunError，调用方记为未知。"""
+        """当月 CDT 出方向流量 G。失败抛 AliyunError，调用方记为未知。"""
         import json
         try:
             raw = self._common(CDT_DOMAIN, CDT_VERSION,

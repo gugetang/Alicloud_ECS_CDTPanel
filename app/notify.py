@@ -136,9 +136,10 @@ def _account_block(a: dict) -> dict:
                 rate = round(float(a["traffic_used_gb"]) / float(a["quota_gb"]) * 100, 2)
             except (TypeError, ValueError, ZeroDivisionError):
                 rate = None
-        num = (f"{float(a['traffic_used_gb']):.2f} GB ({rate:.2f}%)"
-               if rate is not None else f"{float(a['traffic_used_gb']):.2f} GB")
-        traffic_html, traffic_text = f"📊 流量：<b>{num}</b>", f"📊 流量：{num}"
+        used = f"{float(a['traffic_used_gb']):.2f}"
+        pct = f" ({rate:.2f}%)" if rate is not None else ""
+        # HTML 版只加粗数字，单位 G 与百分比不加粗；纯文本版无加粗，内容一致。
+        traffic_html, traffic_text = f"📊 流量：<b>{used}</b> G{pct}", f"📊 流量：{used} G{pct}"
     cost = format_money(a.get("billing_month_cost"), a.get("billing_currency") or "USD")
     bal = format_money(a.get("billing_balance"),
                        a.get("billing_balance_currency") or a.get("billing_currency") or "USD")

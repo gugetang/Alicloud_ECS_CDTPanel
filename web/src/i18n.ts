@@ -255,7 +255,7 @@ export const EN: Record<string, string> = {
   自动发现: "Auto-discover",
   重新拉取区域列表: "Reload region list",
   "“自动发现”按实例 ID 查出该实例真实所在区域并填入；查不到会报错，不会静默填错。": "“Auto-discover” looks up the instance's real region by instance ID and fills it in; it errors out if not found instead of silently filling a wrong value.",
-  "月度流量额度 *（GiB）": "Monthly traffic quota * (GiB)",
+  "月度流量额度 *（G）": "Monthly traffic quota * (G)",
   每日定时开关机: "Scheduled daily power on/off",
   每日开机时间: "Daily power-on time",
   每日关机时间: "Daily power-off time",
@@ -281,7 +281,7 @@ export const EN: Record<string, string> = {
   "流量额度必须大于 0": "Traffic quota must be greater than 0",
   "流量保护阈值必须在 0 到 100 之间": "Traffic protection threshold must be between 0 and 100",
   "流量额度和阈值继承全局设置": "Quota and threshold inherit the global settings",
-  "跟随系统：流量额度 {quota} GiB，流量保护阈值 {threshold}%。": "Follow system: quota {quota} GiB, traffic protection threshold {threshold}%.",
+  "跟随系统：流量额度 {quota} G，流量保护阈值 {threshold}%。": "Follow system: quota {quota} G, traffic protection threshold {threshold}%.",
   每日开机时间与关机时间不能相同: "Daily power-on and power-off times must not be the same",
   请选择区域或填写自定义区域: "Please select a region or fill in a custom region",
   // 登录 / 首次设置
