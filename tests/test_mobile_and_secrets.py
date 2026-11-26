@@ -91,11 +91,11 @@ def test_mobile_media_query():
     m = re.search(r"@media\s*\(max-width:\s*800px\)\s*\{(.*)\}\s*$", CSS, re.S)
     assert m, "mobile media query missing"
     block = m.group(1)
-    # M-05（已批准）：手机端指标改 1 列（以前 2 列太挤）
-    assert ".stats { grid-template-columns:1fr" in block
-    # 桌面端卡片内文字不换行（.stat b/span 与 .status-detail 的 nowrap），
+    # 手机端指标同样两列（与桌面端一致）
+    assert ".stats { grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 12px; }" in block
+    # 桌面端卡片内文字不换行（.stat b/span 的 nowrap），
     # 手机端卡片窄，恢复换行
-    assert ".stat b, .stat span, .status-detail { white-space:normal; }" in block
+    assert ".stat b, .stat span { white-space:normal; }" in block
     assert "input, select, textarea { font-size:16px" in block
     # 手机端表格横向滚动由 .table-wrap 提供（基础规则，全尺寸适用），
     # 表格本身不再 display:block（否则列宽只按内容算、右边留空）
@@ -110,27 +110,27 @@ def test_mobile_media_query():
     assert ".app { max-width:1200px" in CSS
 
 
-def test_mobile_server_card_fixed_header_footer():
-    # 手机端服务器卡片：高度降为原来的 2/3（自然高度约 390px → 260px），
-    # 名称行固定顶部、操作按钮固定底部，中间内容在卡片内上下滑动；桌面端不动。
+def test_mobile_server_card_no_inner_scroll():
+    # 手机端服务器卡片：自然高度、不固定、不内滚动（2026-11-26 用户要求取消卡片内滚动条）；
+    # 名称行与底部按钮行仍是 flex 子项，桌面端卡片高度与布局不变。
     m = re.search(r"@media\s*\(max-width:\s*800px\)\s*\{(.*)\}\s*$", CSS, re.S)
     assert m, "mobile media query missing"
     block = m.group(1)
-    assert ".server-card { height:260px; overflow:hidden; }" in block
+    assert ".server-card { height:260px; overflow:hidden; }" not in block
     assert ".server-card-head { flex:none; }" in block
-    assert ".server-card-body { flex:1 1 auto; min-height:0; overflow-y:auto;" in block
+    assert ".server-card-body { flex:1 1 auto; min-height:0; }" in block
+    assert "overflow-y:auto" not in block
     assert ".server-card-foot { flex:none; }" in block
     # 固定高度只在手机端媒体查询里，桌面端卡片高度不变
     assert ".server-card" not in CSS.split("@media (max-width: 800px)")[0]
-    # 运行概览与实例管理两处服务器卡片：名称行 + 可滚动中间区
+    # 运行概览与实例管理两处服务器卡片：名称行 + 中间区
     assert TSX.count('className="card server-card"') == 2
     assert TSX.count('className="row server-card-head"') == 2
     assert TSX.count('<div className="server-card-body">') == 2
-    # 底部固定按钮行只在实例管理卡片（运行概览卡片本来就没有操作按钮）
+    # 底部按钮行只在实例管理卡片（运行概览卡片本来就没有操作按钮）
     assert TSX.count('className="row server-card-foot"') == 1
-    # 状态说明在可滚动中间区里，不在底部按钮行里
-    body = TSX.split('<div className="server-card-body">')[1]
-    assert 'className="muted status-detail"' in body
+    # 状态说明行已删，不在卡片中间区里
+    assert 'className="muted status-detail"' not in TSX
 
 
 def test_dark_bg_is_not_pure_black():
@@ -178,10 +178,7 @@ def test_list_font_and_dash_notice_removed():
     # M-10（已批准）：Toast 带关闭按钮、错误时加 toast-error 类
     assert 'className={`toast${msgError ? " toast-error" : ""}`}' in tsx
     assert 'className="toast-close"' in tsx
-    # 在线/排队状态详情（当前在线…/池内排队待命…）显示主题色字体，
-    # 仅 status_dot 为 green/yellow 时用主题色，其它状态仍是 muted 灰色
-    # （2026-11-22 用户要求：以前的绿色字体统一改成主题字体）
-    assert tsx.count('(a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)"') == 2
+    # 状态详情行已删（2026-11-26 卡片改版）；--dot-green 仍用于概览卡片边框等处
     assert "var(--dot-green)" in CSS
 
 
@@ -517,18 +514,21 @@ def test_logs_title_same_size_bold_and_detail_numbers_accent():
     assert "{accentNums(e.detail as string)}" in tsx
 
 
-def test_dash_card_stats_site_before_traffic_traffic_cost_same_row():
+def test_dash_card_stats_two_columns_id_region_ip_site_traffic_cost():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 运行概览卡片指标顺序：区域、IP、站点、流量、费用（三列网格，第一行
-    # 区域/IP/站点，第二行流量/费用——站点排在流量前面，流量和费用同一行）
-    m = re.search(r'<div className="stats">\s*(.*?)\s*</div>\s*\{a\.status_detail', tsx, re.S)
-    assert m, "dash card .stats missing"
-    block = m.group(1)
-    labels = ['t("区域")', "IP", 't("站点")', 't("流量")', 't("费用")']
+    # 运行概览卡片指标：两列网格，实例、区域、IP、站点、流量、费用
+    # （第一行实例/区域，第二行 IP/站点，第三行流量/费用；与实例列表卡片同款）
+    i = tsx.index('<div className="stats">')
+    # 只取统计区本身（到 </div> 闭合为止），不越过后面的列表视图表头
+    # （概览列表现在也有阈值列，固定 1400 字符的窗口会越界误判）
+    j = tsx.index('\n                      </div>', i)
+    block = tsx[i:j]
+    labels = ['t("实例")', 't("区域")', "IP", 't("站点")', 't("流量")', 't("费用")']
     idx = [block.index(x) for x in labels]
     assert idx == sorted(idx), idx
-    # 三列网格里第 4、5 项（流量、费用）落在同一行（第二行）
-    assert block.count('<div className="stat') == 5
+    # 两列网格里共 6 项（容器 <div className="stats"> 本身不计），阈值不在卡片统计区里
+    assert block.count('<div className="stat ') + block.count('<div className="stat">') == 6
+    assert 't("阈值")' not in block
 
 
 def test_modal_frosted_50_percent():
@@ -652,22 +652,19 @@ def test_header_lang_dropdown_and_logout():
 def test_theme_lines_alignment_dash_left_accounts_left():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     # 运行概览：服务器总数卡片底部的“调度…”小字行钉在卡片左下角（卡片 flex 列布局 + marginTop: auto）；
-    # 本月流量/当前费用的小字行已删；服务器卡片的状态详情
-    # 不再钉底，改在卡片内上下滑动的中间区里（手机端名称固定顶部、按钮固定底部）。
+    # 本月流量/当前费用的小字行已删；服务器卡片的状态详情行已删。
     assert '<span style={{ color: "var(--accent)" }}>{t("调度")}' in tsx
     assert 'marginTop: 8, color: "var(--accent)", textAlign: "right"' not in tsx
     assert 'color: "var(--accent)", fontSize: 14, textAlign: "right"' not in tsx
-    # 服务器卡片状态详情在可滚动中间区（server-card-body）里，不再用 marginTop: auto 钉底
+    # 服务器卡片状态详情行已删，不再钉底也不在中间区
     assert 'marginTop: "auto", paddingTop: 6' not in tsx
-    # 实例管理卡片：状态详情与操作按钮同一行（详情在左、按钮在右），
-    # 这是对之前“状态详情放中间区、按钮单独一行固定底部”的反转（2026-11-24 用户截图要求）
-    assert 'className="row server-card-foot" style={{ justifyContent: "space-between", paddingTop: 12, alignItems: "center" }}>' in tsx
-    # foot 行里先是状态详情、后是操作按钮（同一行，详情在左、按钮在右）
+    assert 'className="muted status-detail"' not in tsx
+    # 实例管理卡片：底部只剩操作按钮单独一行（右对齐），状态详情已删
+    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>' in tsx
     foot = tsx.split('className="row server-card-foot"')[1][:600]
-    assert 'className="muted status-detail"' in foot
+    assert 'className="muted status-detail"' not in foot
     assert '<ActionButtons a={a} />' in foot
-    assert foot.index('status-detail') < foot.index('<ActionButtons a={a} />')
-    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12 }}>' not in tsx
+    assert 'className="row server-card-foot" style={{ justifyContent: "space-between", paddingTop: 12, alignItems: "center" }}>' not in tsx
     assert 'marginTop: 4, color: (a.status_dot' not in tsx
     assert 'justifyContent: "flex-end", marginTop: 12 }}><ActionButtons' not in tsx
 
@@ -1437,20 +1434,19 @@ def test_server_cards_one_per_row_no_wrap():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     assert ".grid2 { display:grid; grid-template-columns:1fr; gap:16px; }" in css
     assert ".grid2 { display:grid; grid-template-columns:repeat(2,1fr)" not in css
-    assert '<div className="grid2" style={{ marginTop: 12 }}>' in tsx  # 运行概览服务器卡片
+    assert tsx.count('<div className="grid2">') == 2  # 运行概览与实例管理各一处，头部行已留间距
     assert '<div className="grid2">\n          {accounts.map((a) => (' in tsx  # 实例管理卡片包一层 grid2
-    # 指标三列等宽 1fr 撑满卡片：卡片一行一个后每列约 370px，流量值
-    # （179–195px）与实例 ID（207px）放得下；之前 auto + 两端对齐在宽卡片
-    # 上把三列推到两端、中间留大片空白显空（用户 2026-11-24 截图反馈）。
-    assert ".stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }" in css
+    # 指标两列等宽 1fr 撑满卡片：实例/区域、IP/站点、流量/费用三行两列；
+    # 之前 auto + 两端对齐在宽卡片上会把三列推到两端、中间留出大片空白显空
+    # （用户 2026-11-24 截图反馈）。
+    assert ".stats { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
     # 实例管理卡片原来的五项一行（.stats.five）同样放不下，已改成三列
     assert ".stats.five" not in css and "stats five" not in tsx
-    # 卡片内文字不换行：指标标签/数值、状态详情行、服务器名（手机端恢复换行）
+    # 卡片内文字不换行：指标标签/数值、服务器名（手机端恢复换行）；状态详情行已删
     # 标签规则是 .stat > span（直接子元素），<b> 里的 IpView/IdView 内层 span 不被染灰
     assert ".stat > span { display:block; font-size:12px; color:var(--muted); white-space:nowrap; }" in css
     assert ".stat b { font-size:14px; font-weight:700; overflow-wrap:anywhere; white-space:nowrap; }" in css
-    assert ".status-detail { white-space:nowrap; }" in css
-    assert tsx.count('className="muted status-detail"') == 2
+    assert 'className="muted status-detail"' not in tsx
     assert tsx.count('<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b>') == 2
 
 
@@ -1635,7 +1631,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
     # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
     # 不再是 ID / IP 后面的小字后缀；卡片指标顺序与列表一致：
-    # 实例、区域、IP、站点、流量、费用、阈值
+    # 实例、区域、IP、站点、流量、费用（阈值不在卡片统计区里）
     assert '<b><IdView a={a} /></b>' in tsx
     assert '· {regionAbbr(a.region)}</span></b>' not in tsx
     assert '· {a.site === "cn" ? t("中国站 cn") : t("国际站 global")}</span></b>' not in tsx
@@ -1649,7 +1645,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert stats.index('<span>IP</span>') < stats.index('<span>{t("站点")}</span>')
     assert stats.index('<span>{t("站点")}</span>') < stats.index('<span>{t("流量")}</span>')
     assert stats.index('<span>{t("流量")}</span>') < stats.index('<span>{t("费用")}</span>')
-    assert stats.index('<span>{t("费用")}</span>') < stats.index('<span>{t("阈值")}</span>')
+    assert '<span>{t("阈值")}</span>' not in stats
     # 复制配置摘要仍给完整 ID（与 IP 复制给完整 IP 一致），编辑表单也不脱敏
     assert '${t("实例 ID")}：${a.instance_id}' in tsx
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
@@ -1681,8 +1677,9 @@ def test_accounts_list_column_order():
 
 
 def test_dash_list_column_order():
-    # 运行概览列表：列顺序也是服务器、区域、IP、站点、流量、费用（站点移到
-    # IP 后面，与实例管理页列表一致；没有 ID 与阈值列，也没有复制按钮）
+    # 运行概览列表：列顺序也是服务器、区域、IP、站点、流量、费用、阈值（站点移到
+    # IP 后面，与实例管理页列表一致；没有 ID 列，也没有复制按钮；阈值在费用后面、
+    # 末尾一列，2026-11-26 用户要求与实例列表同款保留）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     i = tsx.index('<th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th>')
     header = tsx[i:i + 400]
@@ -1690,6 +1687,10 @@ def test_dash_list_column_order():
     assert header.index('<th>IP</th>') < header.index('<th>{t("站点")}</th>')
     assert header.index('<th>{t("站点")}</th>') < header.index('<th>{t("已用 / 月度流量额度")}</th>')
     assert header.index('<th>{t("已用 / 月度流量额度")}</th>') < header.index('<th>{t("实时费用")}</th>')
+    assert header.index('<th>{t("实时费用")}</th>') < header.index('<th>{t("阈值")}</th>')
+    # 行里的阈值单元格也在费用单元格后面（末尾）
+    k = tsx.index('<td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>', i)
+    assert k < tsx.index('<td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>', k)
     # 行里的单元格顺序与表头一致：名称、区域、IpView（无复制）、站点
     j = tsx.index('<td><IpView a={a} copy={false} /></td>', i)
     assert tsx.index('<td>{regionAbbr(a.region)}</td>', i) < j
@@ -1855,8 +1856,8 @@ def test_list_value_columns_not_bold_and_overview_padding():
     # 基础加粗规则仍在：两张列表的 td 默认 700
     assert ".overview-table td, .accounts-table td { font-weight:700; }" in css
     # 区域/站点/流量/阈值列不加粗（nth-child 按表头列序）：
-    # 运行概览：区域(2)/站点(4)/流量(5)；实例管理：区域(4)/站点(6)/流量(7)/阈值(9)
-    assert ".overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5)," in css
+    # 运行概览：区域(2)/站点(4)/流量(5)/阈值(7)；实例管理：区域(4)/站点(6)/流量(7)/阈值(9)
+    assert ".overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5), .overview-table td:nth-child(7)," in css
     assert ".accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }" in css
     # 运行概览列表行距放宽：14px 12px（默认 th,td 是 10px 8px）
     assert ".overview-table th, .overview-table td { padding:14px 12px; }" in css
@@ -1875,13 +1876,13 @@ def test_accounts_traffic_no_wrap_and_used_bold():
 
 
 
-def test_server_card_stats_three_equal_columns():
+def test_server_card_stats_two_equal_columns():
     # 服务器卡片统计区太空：之前 auto + 两端对齐（space-between）在宽卡片
-    # （一行一个）上把三列推到两端、中间留出大片空白；改成三列等宽 1fr 撑满
-    # 卡片宽度——每列约 370px，流量值（179–195px）与实例 ID（207px）放得下。
+    # （一行一个）上把三列推到两端、中间留出大片空白；改成两列等宽 1fr 撑满
+    # 卡片宽度——实例/区域、IP/站点、流量/费用三行两列。
     css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
-    assert ".stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; margin-top:12px; }" in css
-    # .stats 不再用 space-between（手机端单列 .stats 1fr 不受影响，见媒体查询）
+    assert ".stats { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 16px; margin-top:12px; }" in css
+    # .stats 不再用 space-between（手机端两列 .stats 不受影响，见媒体查询）
     import re as _re
     m = _re.search(r"\.stats \{[^}]*\}", css)
     assert m is not None and "space-between" not in m.group(0)
