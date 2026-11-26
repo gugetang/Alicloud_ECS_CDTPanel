@@ -357,7 +357,7 @@ def test_dash_summary_left_group_counts_status_label_not_only_evicted():
     # 总数对不上（2026-11-24 用户截图：3 台里 1 在线 + 1 排队，离队却显示 0，
     # SWAS-KR 明明是离队；这里没改）
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert 't("离队 {count}", { count: accounts.filter((a) => a.evicted || a.status_label === "离队").length })' in tsx
+    assert '{t("离队")} <b>{accounts.filter((a) => a.evicted || a.status_label === "离队").length}</b>' in tsx
 
 
 def test_group_settings_stay_open_after_save():
@@ -1462,6 +1462,32 @@ def test_dash_overview_four_in_one_row_two_rows_on_mobile():
     assert "grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }" not in css
 
 
+def test_dash_overview_cards_selectable():
+    # 概览四张卡片可选中（单选，点已选中的取消）：选中后框体显示本卡颜色
+    # （与悬停/点按同款边框色；2026-11-26 用户截图要求）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert "const [selectedDash, setSelectedDash] = useState<string | null>(null);" in tsx
+    assert 'className={`card dash-blue${selectedDash === "total" ? " selected" : ""}`}' in tsx
+    assert 'className={`card dash-green${selectedDash === "status" ? " selected" : ""}`}' in tsx
+    assert 'className={`card dash-yellow${selectedDash === "traffic" ? " selected" : ""}`}' in tsx
+    assert 'className={`card dash-red${selectedDash === "cost" ? " selected" : ""}`}' in tsx
+    assert tsx.count('cursor: "pointer" }} onClick={() => setSelectedDash(selectedDash ===') == 0  # 鼠标不变，不加手形光标
+    assert tsx.count('onClick={() => setSelectedDash(selectedDash ===') == 4
+    css = (ROOT / "web" / "src" / "styles.css").read_text(encoding="utf-8")
+    assert ".dash-overview .dash-blue:hover, .dash-overview .dash-blue:active, .dash-overview .dash-blue.selected { border-color:var(--dot-blue); }" in css
+    assert ".dash-overview .dash-green:hover, .dash-overview .dash-green:active, .dash-overview .dash-green.selected { border-color:var(--dot-green); }" in css
+    assert ".dash-overview .dash-yellow:hover, .dash-overview .dash-yellow:active, .dash-overview .dash-yellow.selected { border-color:var(--dot-yellow); }" in css
+    assert ".dash-overview .dash-red:hover, .dash-overview .dash-red:active, .dash-overview .dash-red.selected { border-color:var(--dot-red); }" in css
+
+
+def test_dash_total_count_smaller_than_title():
+    # 服务器总数卡片的大数字比标题小一号：标题 h3 是 16px，数字改成 14px
+    # （2026-11-26 用户截图要求；之前数字是 28px，比标题大得多）。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '<div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{accounts.length}</div>' in tsx
+    assert '<div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>{accounts.length}</div>' not in tsx
+
+
 def test_status_sort_dots_selected_much_bigger():
     # 状态圆点排序按钮：原点缩小到 14px，选中放大 1.5 倍（21px），
     # 与未选中拉开差距才看得出来（之前 19px + 1.08 倍只大 1.5px，几乎看不出；
@@ -1521,13 +1547,29 @@ def test_dash_monthly_traffic_blank_line():
     assert 'G / {fmtNum(totalQuota)} G' not in tsx
 
 
+def test_dash_status_numbers_bold():
+    # 服务器状态卡片里六项的数字都加粗（标签普通字、数字 <b>），2026-11-26 用户截图要求。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert '{t("在线")} <b>{accounts.filter((a) => a.status_dot === "green").length}</b>' in tsx
+    assert '{t("排队")} <b>{accounts.filter((a) => a.status_dot === "yellow").length}</b>' in tsx
+    assert '{t("离队")} <b>{accounts.filter((a) => a.evicted || a.status_label === "离队").length}</b>' in tsx
+    assert '{t("停机")} <b>{accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length}</b>' in tsx
+    assert '{t("未参与")} <b>{accounts.filter((a) => a.status_label === "未参与").length}</b>' in tsx
+    assert '{t("启动中")} <b>{accounts.filter((a) => a.status_dot === "green_pulse").length}</b>' in tsx
+    # 旧的 {count} 插值写法不再使用
+    for k in ('"在线 {count}"', '"排队 {count}"', '"离队 {count}"', '"停机 {count}"', '"未参与 {count}"', '"启动中 {count}"'):
+        assert k not in tsx
+
+
 def test_dash_status_online_label():
     # 服务器状态卡片里绿点那项叫“在线”，不叫“在线状态”（2026-11-26 用户截图要求）。
+    # 数字加粗：标签与数字分开渲染，数字包在 <b> 里（2026-11-26 用户截图要求）。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert 't("在线 {count}"' in tsx
+    assert '{t("在线")} <b>{accounts.filter((a) => a.status_dot === "green").length}</b>' in tsx
     assert 't("在线状态 {count}"' not in tsx
+    assert 't("在线 {count}"' not in tsx
     i18n = (ROOT / "web" / "src" / "i18n.ts").read_text(encoding="utf-8")
-    assert '"在线 {count}": "Online {count}"' in i18n
+    assert '"在线 {count}"' not in i18n
     assert '"在线状态 {count}"' not in i18n
 
 

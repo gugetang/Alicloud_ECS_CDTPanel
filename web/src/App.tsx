@@ -1651,6 +1651,8 @@ export default function App() {
   const [acctViewMode, setAcctViewMode] = useState<"card" | "list">("card");
   // 圆点排序：只在概览（null=默认顺序）
   const [dashSort, setDashSort] = useState<SortGroup | null>(null);
+  // 概览四张卡片选中（单选，点已选中的取消；选中后框体显示本卡颜色）
+  const [selectedDash, setSelectedDash] = useState<string | null>(null);
   // 域名管理页：正在编辑的行（null=无），行内表单
   const [editDomId, setEditDomId] = useState<number | null>(null);
   const [editDomName, setEditDomName] = useState("");
@@ -2466,30 +2468,30 @@ export default function App() {
       {tab === "dash" && (
         <>
           <div className="dash-overview">
-            <div className="card dash-blue" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("服务器总数")}</h3>
-              <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>{accounts.length}</div>
+            <div className={`card dash-blue${selectedDash === "total" ? " selected" : ""}`} style={{ fontSize: 14, display: "flex", flexDirection: "column" }} onClick={() => setSelectedDash(selectedDash === "total" ? null : "total")}><h3>{t("服务器总数")}</h3>
+              <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{accounts.length}</div>
               <div style={{ marginTop: "auto", paddingTop: 8 }}>
                 <span style={{ color: "var(--accent)" }}>{t("调度")}{(status?.scheduler as Any)?.paused ? t("已暂停") : t("运行中")} · {t("API 刷新")} {Number((status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5) === 0 ? t("不刷新") : `${(status?.scheduler as Any)?.api_refresh_minutes ?? (status?.scheduler as Any)?.check_interval_minutes ?? 5} ${t("分钟")}`}</span>
               </div>
             </div>
-            <div className="card dash-green" style={{ fontSize: 14, display: "flex", flexDirection: "column" }}><h3>{t("服务器状态")}</h3>
+            <div className={`card dash-green${selectedDash === "status" ? " selected" : ""}`} style={{ fontSize: 14, display: "flex", flexDirection: "column" }} onClick={() => setSelectedDash(selectedDash === "status" ? null : "status")}><h3>{t("服务器状态")}</h3>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 8px", marginTop: 8 }}>
-                <div>{dotEl("green")}{t("在线 {count}", { count: accounts.filter((a) => a.status_dot === "green").length })}</div>
-                <div>{dotEl("yellow")}{t("排队 {count}", { count: accounts.filter((a) => a.status_dot === "yellow").length })}</div>
-                <div>{dotEl("gray")}{t("离队 {count}", { count: accounts.filter((a) => a.evicted || a.status_label === "离队").length })}</div>
-                <div>{dotEl("red")}{t("停机 {count}", { count: accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length })}</div>
+                <div>{dotEl("green")}{t("在线")} <b>{accounts.filter((a) => a.status_dot === "green").length}</b></div>
+                <div>{dotEl("yellow")}{t("排队")} <b>{accounts.filter((a) => a.status_dot === "yellow").length}</b></div>
+                <div>{dotEl("gray")}{t("离队")} <b>{accounts.filter((a) => a.evicted || a.status_label === "离队").length}</b></div>
+                <div>{dotEl("red")}{t("停机")} <b>{accounts.filter((a) => a.status_dot === "red" || a.status_dot === "red_pulse").length}</b></div>
                 {accounts.some((a) => a.status_label === "未参与") && (
-                  <div>{dotEl("gray")}{t("未参与 {count}", { count: accounts.filter((a) => a.status_label === "未参与").length })}</div>
+                  <div>{dotEl("gray")}{t("未参与")} <b>{accounts.filter((a) => a.status_label === "未参与").length}</b></div>
                 )}
                 {accounts.some((a) => a.status_dot === "green_pulse") && (
-                  <div>{dotEl("green_pulse")}{t("启动中 {count}", { count: accounts.filter((a) => a.status_dot === "green_pulse").length })}</div>
+                  <div>{dotEl("green_pulse")}{t("启动中")} <b>{accounts.filter((a) => a.status_dot === "green_pulse").length}</b></div>
                 )}
               </div>
             </div>
-            <div className="card dash-yellow" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
+            <div className={`card dash-yellow${selectedDash === "traffic" ? " selected" : ""}`} style={{ display: "flex", flexDirection: "column" }} onClick={() => setSelectedDash(selectedDash === "traffic" ? null : "traffic")}><h3>{t("本月流量")}</h3>
               <div className="big" style={{ marginTop: 20 }}><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">/ {fmtNum(totalQuota)} G{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</span></div>
             </div>
-            <div className="card dash-red" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}</h3>
+            <div className={`card dash-red${selectedDash === "cost" ? " selected" : ""}`} style={{ display: "flex", flexDirection: "column" }} onClick={() => setSelectedDash(selectedDash === "cost" ? null : "cost")}><h3>{t("当前费用")}</h3>
               <div className="big" style={{ marginTop: 20 }}>{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
               {costAsOf ? <div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span className="muted">{t("截至 {date}", { date: costAsOf })}</span></div> : null}
             </div>

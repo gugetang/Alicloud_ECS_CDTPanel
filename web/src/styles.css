@@ -62,11 +62,11 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
    网格默认拉伸，同行卡片等高。 */
 .dash-overview { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:16px; margin-bottom:16px; }
 .dash-overview .card { margin-bottom:0; min-width:0; }
-/* 运行概览卡片边框颜色：平时不变，悬停/点按时边框变成本卡颜色；只改颜色，无发光、无渐变、无动画。 */
-.dash-overview .dash-blue:hover, .dash-overview .dash-blue:active { border-color:var(--dot-blue); }
-.dash-overview .dash-green:hover, .dash-overview .dash-green:active { border-color:var(--dot-green); }
-.dash-overview .dash-yellow:hover, .dash-overview .dash-yellow:active { border-color:var(--dot-yellow); }
-.dash-overview .dash-red:hover, .dash-overview .dash-red:active { border-color:var(--dot-red); }
+/* 运行概览卡片边框颜色：平时不变，悬停/点按/选中时边框变成本卡颜色；只改颜色，无发光、无渐变、无动画。 */
+.dash-overview .dash-blue:hover, .dash-overview .dash-blue:active, .dash-overview .dash-blue.selected { border-color:var(--dot-blue); }
+.dash-overview .dash-green:hover, .dash-overview .dash-green:active, .dash-overview .dash-green.selected { border-color:var(--dot-green); }
+.dash-overview .dash-yellow:hover, .dash-overview .dash-yellow:active, .dash-overview .dash-yellow.selected { border-color:var(--dot-yellow); }
+.dash-overview .dash-red:hover, .dash-overview .dash-red:active, .dash-overview .dash-red.selected { border-color:var(--dot-red); }
 /* 服务器卡片一行一个（运行概览与实例管理共用） */
 .grid2 { display:grid; grid-template-columns:1fr; gap:16px; }
 .big { font-size:14px; font-weight:700; }
