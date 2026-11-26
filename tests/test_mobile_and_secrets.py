@@ -396,10 +396,11 @@ def test_group_time_section_only_interval():
 
 def test_cards_not_draggable_when_settings_open():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    # 点开设置时卡片不可拖动：设置展开时不挂拖拽属性、光标变默认；收起时恢复可拖动
-    # 账户卡片：cardSettingsId === a.id 时不展开 dragProps
-    assert 'cursor: cardSettingsId === a.id ? "default" : "grab"' in tsx
-    assert '{...(cardSettingsId === a.id ? {} : dragProps("account", a.id as number))}' in tsx
+    # 分组卡片：点开设置时卡片不可拖动（设置展开时不挂拖拽属性、光标变默认）
+    # 账户行不再有这条：实例设置改成弹窗后，行上不再原地展开设置，始终可拖动
+    assert '{...dragProps("account", a.id as number)}' in tsx
+    assert 'cursor: "grab", ...(dragOverId === a.id' in tsx
+    assert 'cardSettingsId === a.id ? "default" : "grab"' not in tsx
     # 分组卡片：showSettings 为真时不展开 gDragProps
     assert 'cursor: showSettings ? "default" : "grab"' in tsx
     assert '{...(showSettings ? {} : (gDragProps || {}))}' in tsx
@@ -1256,10 +1257,27 @@ def test_card_settings_gear_same_size_as_action_icons():
     for m in re.finditer(r'title=\{t\("卡片设置"\)\}.*?</button>', tsx):
         assert '<Ico label={t("卡片设置")}>' in m.group(0)
         assert '⚙️' not in m.group(0)
-    # 实例管理卡片点齿轮打开卡片设置（单行形式）；实例管理列表行是多行形式
-    # {cardSettingsId === a.id && (，另算；运行概览卡片不再有设置区
-    assert tsx.count('{cardSettingsId === a.id && <CardSettings a={a} />}') == 1
-    assert '{cardSettingsId === a.id && (' in tsx
+    # 实例管理卡片/列表点齿轮打开实例设置弹窗（添加/编辑共用一个可拖动弹窗）：
+    # 表单不再原地展开，CardSettings 组件已删除，弹窗里渲染 InstanceForm
+    assert "const CardSettings" not in tsx
+    assert "<CardSettings" not in tsx
+    assert "{instModalOpen && (" in tsx
+    assert "onPointerDown={onInstDragStart}" in tsx
+
+
+def test_instance_modal_tap_non_editing_area_saves_and_dirty_flag():
+    # 实例设置弹窗：点按非编辑区自动保存（松手时没拖动、移动 <6px 才保存），
+    # 拖动不保存；脏标记（快照对比）保证没改过不重复保存、不重复弹成功提示。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    # 松手点按保存：onUp 里没进入拖动且移动 <6px 时调 flush
+    assert "shouldSaveOnTap(d.committed, ev.clientX - d.px, ev.clientY - d.py)" in tsx
+    assert "void instFlushRef.current?.();" in tsx
+    # 脏标记：快照对比（首次渲染记初始值），保存成功后更新快照
+    assert "savedSnapRef" in tsx
+    assert 'if (!isDirty()) return "skipped";' in tsx
+    assert "savedSnapRef.current = snap();" in tsx
+    # flush 先清掉防抖定时器再立即保存，避免点按保存和失焦保存重复触发
+    assert "if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }" in tsx
 
 
 def test_overview_no_settings_button():
@@ -2071,7 +2089,7 @@ def test_delete_instance_icon_after_stop_with_gap():
     # 停机按钮后面，中间空出一个按钮位（30px spacer，与 icon-btn 同宽）；
     # 设置区里不再有红色实心“删除实例”文字按钮
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    ab = tsx.split("const ActionButtons")[1].split("const CardSettings")[0]
+    ab = tsx.split("const ActionButtons")[1].split("// ---------- 全局设置页")[0]
     assert '<button className="icon-btn danger" title={t("删除实例")}' in ab
     assert '<Ico label={t("删除实例")}><polyline points="3 6 5 6 21 6"' in ab
     # 顺序：停机按钮 → 30px 空位 → 删除图标
@@ -2081,9 +2099,9 @@ def test_delete_instance_icon_after_stop_with_gap():
     assert '<span style={{ width: 30, flex: "none" }} />' in ab[stop_idx:del_idx]
     # 删除仍先 confirm，文案不变
     assert 'confirm(t("删除实例 {name}？删除后域名将重新分配。"' in ab
-    # 设置区里没有删除按钮了
-    cs = tsx.split("const CardSettings")[1].split("// ----------")[0]
-    assert 't("删除实例")' not in cs
+    # 设置区（实例设置弹窗）里没有删除按钮了
+    modal = tsx.split("{instModalOpen && (")[1]
+    assert 't("删除实例")' not in modal
 
 
 def test_power_buttons_save_stop_and_normal_toggle():
@@ -2093,7 +2111,7 @@ def test_power_buttons_save_stop_and_normal_toggle():
     # 两个按钮共用 /api/accounts/{id}/stop，用 stop_charging 区分；共用 ActionButtons，
     # 所以其它实例与新建实例自动都有。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    ab = tsx.split("const ActionButtons")[1].split("const CardSettings")[0]
+    ab = tsx.split("const ActionButtons")[1].split("// ---------- 全局设置页")[0]
     # 方块键：停机时 start（绿色三角），运行时 stop + stop_charging=false（方块，可点）
     assert 'btn("start", t("普通开关机"), false,' in ab
     assert 'btn("stop", t("普通开关机"), false,' in ab
