@@ -156,8 +156,9 @@ def test_frontend_site_and_refresh_and_footer():
     assert "https://t.me/AliLang_AgentBot" in tsx
     assert "Telegram @AliLang_AgentBot" not in tsx
     assert "\n          Telegram\n" in tsx  # SiteFooter 里 Telegram 独占一行（只显示四个字）
-    # 三项文字都是黑色字体（var(--text)，亮色下近黑、夜间可读）
-    assert tsx.count('style={{ color: "var(--text)", fontSize: 13') == 3
+    # 三项文字都是黑色字体（var(--text)，亮色下近黑、夜间可读）；当前费用卡片的
+    # “截至 {date}”也是同款黑色不加粗（2026-11-26 用户要求），所以一共 4 处
+    assert tsx.count('style={{ color: "var(--text)", fontSize: 13') == 4
     # TG 超链是黑色字体（var(--text)，亮色下近黑、夜间可读），与项目地址同款
     # 图标在前文字在后；它本来就是 <a> 超链
     assert 'href="https://t.me/AliLang_AgentBot" target="_blank" rel="noreferrer" style={{ color: "var(--text)"' in tsx

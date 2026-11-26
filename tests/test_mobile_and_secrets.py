@@ -1534,8 +1534,9 @@ def test_dash_current_cost_blank_line_and_date_bottom_right():
     assert 'style={{ float: "right" }}>{t("截至 {date}"' not in tsx
     # 数值行空一行
     assert '<div className="big" style={{ marginTop: 20 }}>{costConverted' in tsx
-    # 截至时间钉在卡片右下角（marginTop auto + 右对齐）
-    assert '<div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span className="muted">{t("截至 {date}", { date: costAsOf })}</span></div>' in tsx
+    # 截至时间钉在卡片右下角（marginTop auto + 右对齐）；黑色字体不加粗
+    # （2026-11-26 用户截图要求；之前是 muted 灰字）
+    assert '<div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span style={{ color: "var(--text)", fontSize: 13 }}>{t("截至 {date}", { date: costAsOf })}</span></div>' in tsx
 
 
 def test_dash_monthly_traffic_blank_line():

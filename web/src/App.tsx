@@ -2493,7 +2493,7 @@ export default function App() {
             </div>
             <div className={`card dash-red${selectedDash === "cost" ? " selected" : ""}`} style={{ display: "flex", flexDirection: "column" }} onClick={() => setSelectedDash(selectedDash === "cost" ? null : "cost")}><h3>{t("当前费用")}</h3>
               <div className="big" style={{ marginTop: 20 }}>{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
-              {costAsOf ? <div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span className="muted">{t("截至 {date}", { date: costAsOf })}</span></div> : null}
+              {costAsOf ? <div style={{ marginTop: "auto", paddingTop: 8, textAlign: "right" }}><span style={{ color: "var(--text)", fontSize: 13 }}>{t("截至 {date}", { date: costAsOf })}</span></div> : null}
             </div>
           </div>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
