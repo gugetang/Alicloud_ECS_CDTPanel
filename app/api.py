@@ -6,6 +6,7 @@ import datetime as dt
 import ipaddress
 import logging
 import os
+import re
 import secrets
 import time
 import urllib.parse
@@ -777,8 +778,8 @@ def reorder_groups(body: dict, _: bool = Depends(_admin_required)):
     return db.list_groups()
 
 
-@router.get("/status")
-def status(_: bool = Depends(_admin_required)):
+def _build_status_payload() -> dict:
+    """组装概览数据（登录态 /api/status 与公开 /api/public/status 共用）。"""
     settings = db.get_settings()
     evicted_ids = db.list_evicted_account_ids()
     raw_accounts = db.list_accounts()
@@ -826,6 +827,93 @@ def status(_: bool = Depends(_admin_required)):
         # 上次数据清理（定时/手动）：flags.cleanup_last 存 JSON，无记录为 None
         "cleanup": _last_cleanup(),
     }
+
+
+@router.get("/status")
+def status(_: bool = Depends(_admin_required)):
+    return _build_status_payload()
+
+
+_IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+
+
+def _mask_public_ip(ip):
+    """公开接口的 IP 脱敏：与前端 web/src/App.tsx 的 maskIp 同规则
+    （IPv4 只留 A.B 段，C.D 用 * 代替；非 IPv4 原样返回；空值不动，
+    前端显示仍是原来的 “—”）。"""
+    if not ip:
+        return ip
+    parts = str(ip).split(".")
+    return f"{parts[0]}.{parts[1]}.*.*" if len(parts) == 4 else str(ip)
+
+
+def _mask_public_instance_id(iid):
+    """公开接口的实例 ID 脱敏：与前端 maskInstanceId 同规则
+    （i- 开头取前 8 位，其它取前 6 位，后面 ***；空值不动）。"""
+    if not iid:
+        return iid
+    s = str(iid)
+    return f"{s[:8]}***" if s.startswith("i-") else f"{s[:6]}***"
+
+
+def _mask_public_text(text):
+    """事件标题/正文里的 IPv4 按同一规则打码。"""
+    if not text:
+        return text
+    return _IPV4_RE.sub(lambda m: _mask_public_ip(m.group(0)), str(text))
+
+
+def _narrow_public_account(a: dict) -> None:
+    """公开接口的账户行收窄：AK ID 不给，IP 与实例 ID 按页面规则打码。
+    只改公开接口返回的这份 payload，不动登录态。"""
+    a.pop("access_key_id", None)
+    if a.get("public_ip"):
+        a["public_ip"] = _mask_public_ip(a["public_ip"])
+    if a.get("instance_id"):
+        a["instance_id"] = _mask_public_instance_id(a["instance_id"])
+
+
+def _narrow_public_payload(payload: dict) -> dict:
+    """公开 payload 收窄：账户行（概览 accounts 与分组内 accounts）去 AK ID、
+    IP 与实例 ID 打码；域名 current_ip 打码；事件标题/正文里的 IP 打码。
+    其余字段（名称、流量、费用、状态等）不变，概览显示与登录态一致。"""
+    for a in payload.get("accounts") or []:
+        _narrow_public_account(a)
+    for g in payload.get("groups") or []:
+        for a in g.get("accounts") or []:
+            _narrow_public_account(a)
+        dom = g.get("domain")
+        if isinstance(dom, dict) and dom.get("current_ip"):
+            dom["current_ip"] = _mask_public_ip(dom["current_ip"])
+    for d in payload.get("domains") or []:
+        if d.get("current_ip"):
+            d["current_ip"] = _mask_public_ip(d["current_ip"])
+    for e in payload.get("events") or []:
+        if e.get("title"):
+            e["title"] = _mask_public_text(e["title"])
+        if e.get("detail"):
+            e["detail"] = _mask_public_text(e["detail"])
+    return payload
+
+
+@router.get("/public/status")
+def public_status():
+    """公开只读概览接口：管理员明确决定，未登录也可看服务器状态/流量/费用。
+    返回与 /api/status 相同的概览数据，但经 _narrow_public_payload 收窄：
+    AK ID 不给，IP 与实例 ID 按页面显示规则打码（域名与事件里的 IP 同理），
+    另加概览渲染要用的公开设置字段；不含任何凭据与完整设置。
+    反代限制（_ProxyOnlyMiddleware）仍适用，只挡直连 IP 访问，不挡域名访问。"""
+    payload = _narrow_public_payload(_build_status_payload())
+    settings = db.get_settings()
+    payload["settings"] = {
+        "site_name": (settings.get("site_name") or "").strip() or "CDT 面板",
+        "site_logo": bool(settings.get("site_logo")),
+        "site_intro": settings.get("site_intro") or "",
+        "exchange_rate_usd_cny": settings.get("exchange_rate_usd_cny"),
+        "settlement_currency": settings.get("settlement_currency") or "USD",
+        "protection_threshold_pct": settings.get("protection_threshold_pct"),
+    }
+    return payload
 
 
 def _last_cleanup() -> Any:
