@@ -126,6 +126,19 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 - **登录与安全**：管理员密码登录（失败 5 次锁定 15 分钟）、WebAuthn 指纹登录、Google / GitHub OAuth 登录，会话有效期 14 天；备份与恢复（本地 JSON 导出、WebDAV 云端备份，含加密主密钥）；每天 03:00 自动清理 90 天前的日志与流量采样并做 VACUUM。
 - **在线更新**：面板每小时查一次 GitHub 最新提交，有新版本时页眉出现铃铛（在语言切换前面，无消息不显示），点开看当前/最新版本与最新提交信息，点“立即更新”即拉取最新镜像并按当前容器配置原样重建、重启。更新走 Docker socket（compose 里已挂 `/var/run/docker.sock`）；首次启用须手动 `docker compose pull && docker compose up -d` 一次，之后才能在线更新。没有 socket 时面板会提示手动命令，不假装更新成功。主题风格改到页眉调色板图标下拉（退出按钮前面），主题设置卡片已删除。
 
+### 所需权限
+
+面板用一个阿里云 AK 管所有实例，按功能分的最小权限（RAM Action）：
+
+- **读取实例状态 / IP**：`ecs:DescribeInstances`；轻量服务器再加 `swas:ListInstances`
+- **开机 / 停机 / 重启**：`ecs:StartInstance`、`ecs:StopInstance`、`ecs:RebootInstance`；轻量服务器再加 `swas:StartInstance`、`swas:StopInstance`、`swas:RebootInstance`
+- **读取流量**：`cdt:ListCdtInternetTraffic`
+- **读取费用**：`bss:DescribeInstanceBill`、`bss:QueryBillOverview`、`bss:QueryAccountBalance`
+- **查询可用区域**：`ecs:DescribeRegions`
+- **一键更换 EIP**：`vpc:DescribeEipAddresses`、`vpc:AllocateEipAddress`、`vpc:UnassociateEipAddress`、`vpc:AssociateEipAddress`、`vpc:ModifyEipAddressAttribute`、`vpc:ReleaseEipAddress`；旧 EIP 在共享带宽包里时再加 `vpc:RemoveCommonBandwidthPackageIp`、`vpc:AddCommonBandwidthPackageIp`
+
+DNS 切换不走阿里云：Cloudflare API Token 要有对应 Zone 的 DNS 编辑权限。
+
 ## 图片展示
 
 ### 运行概览
