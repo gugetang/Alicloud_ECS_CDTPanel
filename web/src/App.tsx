@@ -2386,7 +2386,7 @@ export default function App() {
               </div>
             </div>
             <div className="card dash-yellow" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
-              <div className="big"><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">G</span> / <b>{fmtNum(totalQuota)}</b> <span className="plain">G</span>{totalUsedPct != null ? <span className="plain"> ({totalUsedPct.toFixed(2)}%)</span> : ""}</div>
+              <div className="big"><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">G / {fmtNum(totalQuota)} G{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</span></div>
             </div>
             <div className="card dash-red" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
               <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
@@ -2413,7 +2413,7 @@ export default function App() {
                         <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                         <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                         <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
-                        <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</div>
+                        <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</div>
                         <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                       </div>
                       {a.status_detail ? <div className="muted status-detail" style={{ paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
@@ -2429,7 +2429,7 @@ export default function App() {
                     <td>{regionAbbr(a.region)}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                    <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table></div>
@@ -2472,7 +2472,7 @@ export default function App() {
                   <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                   <div className="stat stat-ip"><span>IP</span><b><IpView a={a} /></b></div>
                   <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
-                  <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</div>
+                  <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</div>
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                   <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
                 </div>
@@ -2497,7 +2497,7 @@ export default function App() {
                 <td>{regionAbbr(a.region)}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>
+                <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                 <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
