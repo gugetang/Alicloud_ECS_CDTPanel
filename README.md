@@ -110,40 +110,9 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 
 首次访问先设置管理员账号和密码（至少 6 位）。`./data/cdt.db` + `./data/master.key` 必须一起备份，丢了 `master.key`，已加密的 AccessKey Secret 无法解密。
 
-## 图片展示
-
-### 运行概览
-
-实例状态、本月流量、当前费用与服务器卡片一览。
-
-<img src="docs/screenshots/overview.png" width="800" alt="运行概览">
-
-### 实例管理
-
-查看与操作每台实例：刷新、启动、重启、停机，卡片右上角 ⚙ 改配置。
-
-<img src="docs/screenshots/instances.png" width="800" alt="实例管理">
-
-### 分组管理
-
-一个分组一个 IP 池、最多绑定一个域名，按分组选切换模式。
-
-<img src="docs/screenshots/groups.png" width="800" alt="分组管理">
-
-### 域名管理
-
-管理 Cloudflare 域名与 DDNS 设置，查看域名当前指向。
-
-<img src="docs/screenshots/domains.png" width="800" alt="域名管理">
-
-### 全局设置
-
-流量保护阈值、轮巡周期、阈值动作与恢复、API 刷新时间等全局参数。
-
-<img src="docs/screenshots/settings.png" width="800" alt="全局设置">
-
 ## 功能介绍
 
+- **一键更换 EIP**：实例卡片/详情页点“更换 EIP”，自动完成：先分配新 EIP → 解绑旧 EIP → 绑定新 EIP → 带宽跟旧的保持一致 → DNS 自动刷新到新 IP → 旧 EIP 若在共享带宽包里，先移出包、再把新 EIP 加进同一个包 → 最后释放旧 EIP；中途失败自动回滚（释放新 EIP、旧 EIP 重新绑回），成功/失败都推送通知；共享带宽步骤在 DNS 切走后做，失败只告警不回滚。仅 ECS 实例可用（i- 开头），轻量服务器不支持；机器人详情页里同样可以换。
 - **分组与 DDNS**：1 个分组 = 1 个 IP 池 + 最多 1 个域名。分组卡片可开关 DDNS（开关在卡片右上角，⚙ 左边）：开启时域名指向组内当前工作的实例 IP，关闭时暂停分组、域名指向 `0.0.0.0`。删除分组是卡片右下角的红色垃圾桶图标。域名用 Cloudflare Zone 名 + 账户邮箱 + API Token 管理，DNS 记录按 Zone ID / 记录 ID 精确更新，IP 不变不发请求。
 - **三种切换模式**（按分组设置，不同分组可不同）：定时轮巡（夜间窗口、间隔切换、每天固定时刻）、负载均衡（按流量差值切换，百分比模式或固定流量 GB 模式）、动态模式（每隔固定时间切到剩余流量最多的服务器，默认 30 分钟，最少 30 分钟）。分组未设置时跟随全局。
 - **阈值保护**：使用率 ≥ 流量保护阈值（默认 95%）时先踢出分配池、域名先切到下一台，然后按阈值动作决定是否停机：默认只踢出、不停机（`none`），也可选择普通停机（`stop`）或节省停机（`stop_charging`）。用量回落后自动恢复入池。80% 有一次阈值告警推送，低于 80% 后重新布防。
@@ -153,10 +122,50 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 - **Telegram 机器人**：在 Telegram 卡片里开启机器人控制（默认关闭），只响应绑定的聊天 ID；命令 /start /menu /list /groups /timers /update /help。实例列表只显示名称 + 状态圆点（🟢在线/🟡排队/🔴停机/⚪离队），一行两个；点开详情页可开关机、节省停机、更换 EIP、定时任务（开关、开机/关机时间可编辑）；/update 检查新版本，有更新一键执行。
 - **实例参数设置**：每台实例可跟随系统或自定义月度流量额度与保护阈值，也可单独覆盖 API 刷新时间；自定义数值有校验（额度 > 0 G，阈值 0 < % ≤ 100）。
 - **账号与域名管理**：多阿里云账号（AccessKey 加密存储）、多域名；实例支持拖拽排序、改名（1–64 字符，同分组内不重名）、单台刷新 / 启动 / 重启 / 停机；状态点全站统一（绿在线、黄排队、灰跳出/未参与、红停机/离线，闪烁绿启动中、闪烁红停止中）。
-- **一键更换 EIP**：实例卡片/详情页点“更换 EIP”，自动完成：先分配新 EIP → 解绑旧 EIP → 绑定新 EIP → 带宽跟旧的保持一致 → DNS 自动刷新到新 IP → 旧 EIP 若在共享带宽包里，先移出包、再把新 EIP 加进同一个包 → 最后释放旧 EIP；中途失败自动回滚（释放新 EIP、旧 EIP 重新绑回），成功/失败都推送通知；共享带宽步骤在 DNS 切走后做，失败只告警不回滚。仅 ECS 实例可用（i- 开头），轻量服务器不支持；机器人详情页里同样可以换。
 - **界面**：父项字体统一 16px、子项字体统一 14px（父项比子项大一号），子项相对父项缩进 2 字符；父项只留卡片标题与全局设置的运行模式、API 刷新时间（分组卡片里组名称是唯一的父项，全部标签与小标题都是子项）；全部按钮（含顶部导航、设置子标签、设置 ⚙ 与删除图标）悬停时放大 1.08 倍；页眉增高（logo 48px、标题 32px）；页脚固定在视口底部，不跟随页面滚动，内容为“AlicloudECS_CDT © 2026 | v1.0.0”+ 项目地址 + TG（@AliLang_AgentBot）；两张列表的流量值不换行，“/”前已用量加粗；域名管理页“+ 添加域名”按钮在域名卡片右下角；登录窗口：用户名/密码框内带左侧图标（人像/锁），登录按钮与第三方登录之间有“或使用以下方式登录”分隔线，标题只留站点名（26px）。
 - **登录与安全**：管理员密码登录（失败 5 次锁定 15 分钟）、WebAuthn 指纹登录、Google / GitHub OAuth 登录，会话有效期 14 天；备份与恢复（本地 JSON 导出、WebDAV 云端备份，含加密主密钥）；每天 03:00 自动清理 90 天前的日志与流量采样并做 VACUUM。
 - **在线更新**：面板每小时查一次 GitHub 最新提交，有新版本时页眉出现铃铛（在语言切换前面，无消息不显示），点开看当前/最新版本与最新提交信息，点“立即更新”即拉取最新镜像并按当前容器配置原样重建、重启。更新走 Docker socket（compose 里已挂 `/var/run/docker.sock`）；首次启用须手动 `docker compose pull && docker compose up -d` 一次，之后才能在线更新。没有 socket 时面板会提示手动命令，不假装更新成功。主题风格改到页眉调色板图标下拉（退出按钮前面），主题设置卡片已删除。
+
+## 图片展示
+
+### 运行概览
+
+实例状态、本月流量、当前费用与服务器卡片一览。
+
+<img src="docs/screenshots/overview.png" width="600" alt="运行概览">
+
+### 实例管理
+
+查看与操作每台实例：刷新、启动、重启、停机，卡片右上角 ⚙ 改配置。
+
+<img src="docs/screenshots/instances.png" width="600" alt="实例管理">
+
+点卡片右上角 ⚙ 打开实例配置：服务器名、实例 ID、AccessKey、站点、区域、流量额度与阈值（ID 与 AccessKey 已打码）。
+
+<img src="docs/screenshots/account-form.png" width="600" alt="实例配置">
+
+### 分组管理
+
+一个分组一个 IP 池、最多绑定一个域名，按分组选切换模式。
+
+<img src="docs/screenshots/groups.png" width="600" alt="分组管理">
+
+### 域名管理
+
+管理 Cloudflare 域名与 DDNS 设置，查看域名当前指向。
+
+<img src="docs/screenshots/domains.png" width="600" alt="域名管理">
+
+### 全局设置
+
+流量保护阈值、轮巡周期、阈值动作与恢复、API 刷新时间等全局参数。负载均衡模式：按流量差值切换（百分比或固定流量 GB），也可切动态模式。
+
+<table>
+<tr>
+<td><img src="docs/screenshots/settings.png" width="300" alt="全局设置-定时轮巡"></td>
+<td><img src="docs/screenshots/settings-lb.png" width="300" alt="全局设置-负载均衡"></td>
+</tr>
+</table>
 
 ## 逻辑分析
 
@@ -190,7 +199,7 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 
 ## 项目赞助
 
-[<img src="docs/assets/alibabacloud-icon.svg" height="28" alt="Alibaba Cloud"> Alibaba Cloud](https://www.alibabacloud.com)[<img src="docs/assets/muse-ai-logo.jpg" height="28" alt="Muse AI"> Muse AI](https://www.muse.ai)
+[<img src="docs/assets/alibabacloud-icon.svg" height="28" alt="Alibaba Cloud">](https://www.alibabacloud.com) [<img src="docs/assets/muse-ai-logo.jpg" height="28" alt="Muse AI">](https://www.muse.ai)
 
 ## 贡献者
 
