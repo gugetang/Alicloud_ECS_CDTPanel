@@ -546,7 +546,7 @@ def _maybe_stop_evicted(plan: Plan, current: AccountView, cfg: Config,
         # 推送）：这里排班时 cfg 与用量都在手，直接写进 detail，推送与
         # 日志都带上；流量未知时不写用量，只写停机方式。
         _rate = current.usage_rate
-        _usage = (f"（用量 {_rate:.2f}% / {current.used_gb:.2f} GiB，"
+        _usage = (f"（用量 {_rate:.2f}% / {current.used_gb:.2f} G，"
                   f"阈值 {_eff_protection(current, cfg):.0f}%）"
                   if _rate is not None and current.used_gb is not None else "")
         plan.actions.append(Action("stop", domain_id=domain.id, account_id=current.id,

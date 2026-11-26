@@ -382,7 +382,7 @@ def _check_threshold_alarms(settings: dict, accounts: list[dict],
         db.set_flag(key, "1")
         title = "阈值报警"
         body = (f"{a['name']} 使用率 {rate:.2f}% 已达到 80%，"
-                f"阈值 {thr:.0f}%（已用 {float(used):.2f} / {float(quota):.0f} GiB），"
+                f"阈值 {thr:.0f}%（已用 {float(used):.2f} / {float(quota):.0f} G），"
                 "请注意流量余量")
         sent = notifier.send("threshold_alarm", title, body)
         if not sent and getattr(notifier, "last_errors", None):

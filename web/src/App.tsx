@@ -151,7 +151,7 @@ const fmtCost = (v: number | string | null | undefined) => {
   const n = Number(v);
   return Number.isFinite(n) ? n.toFixed(2) : String(v);
 };
-// 流量“已用 / 额度 GiB”后面加的百分比（用后端已算好的 usage_rate，2 位小数；
+// 流量“已用 / 额度 G”后面加的百分比（用后端已算好的 usage_rate，2 位小数；
 // 流量未知、usage_rate 为 null 时不加括号）。
 const trafficPct = (a: Any) => a.usage_rate != null ? ` (${Number(a.usage_rate).toFixed(2)}%)` : "";
 // 版本号显示：标签版（如 v1.1.0、v1.1.0-2-g53f14a3）完整显示；
@@ -415,10 +415,10 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
             { value: "follow", label: t("跟随系统"), title: t("流量额度和阈值继承全局设置") },
             { value: "custom", label: t("自定义") },
           ]} onChange={changeParamMode} />
-          {paramMode === "follow" && <div className="muted" style={{ marginTop: 6 }}>{t("跟随系统：流量额度 {quota} GiB，流量保护阈值 {threshold}%。", { quota: _globalQuota, threshold: _globalThreshold })}</div>}
+          {paramMode === "follow" && <div className="muted" style={{ marginTop: 6 }}>{t("跟随系统：流量额度 {quota} G，流量保护阈值 {threshold}%。", { quota: _globalQuota, threshold: _globalThreshold })}</div>}
         </div>
         {paramMode === "custom" && (<>
-          <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={() => saveAuto()} /></div>
+          <div><label className="req">{t("月度流量额度 *（G）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={() => saveAuto()} /></div>
           <div><label className="req">{t("流量保护阈值 *（%）")}</label><input type="number" min={1} max={100} value={threshold} onChange={(e) => setThreshold(e.target.value)} onBlur={() => saveAuto()} /></div>
         </>)}
       </div>
@@ -2386,7 +2386,7 @@ export default function App() {
               </div>
             </div>
             <div className="card dash-yellow" style={{ display: "flex", flexDirection: "column" }}><h3>{t("本月流量")}</h3>
-              <div className="big">{fmtGb(status?.total_used_gb ?? 0)} GiB / {fmtNum(totalQuota)} GiB{totalUsedPct != null ? ` (${totalUsedPct.toFixed(2)}%)` : ""}</div>
+              <div className="big"><b>{fmtGb(status?.total_used_gb ?? 0)}</b> <span className="plain">G</span> / <b>{fmtNum(totalQuota)}</b> <span className="plain">G</span>{totalUsedPct != null ? <span className="plain"> ({totalUsedPct.toFixed(2)}%)</span> : ""}</div>
             </div>
             <div className="card dash-red" style={{ display: "flex", flexDirection: "column" }}><h3>{t("当前费用")}{costAsOf ? <span className="muted" style={{ float: "right" }}>{t("截至 {date}", { date: costAsOf })}</span> : null}</h3>
               <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
@@ -2413,7 +2413,7 @@ export default function App() {
                         <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                         <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                         <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
-                        <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
+                        <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</div>
                         <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                       </div>
                       {a.status_detail ? <div className="muted status-detail" style={{ paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
@@ -2429,7 +2429,7 @@ export default function App() {
                     <td>{regionAbbr(a.region)}</td>
                     <td><IpView a={a} copy={false} /></td>
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                    <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                   </tr>
                 ))}</tbody></table></div>
@@ -2472,7 +2472,7 @@ export default function App() {
                   <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
                   <div className="stat stat-ip"><span>IP</span><b><IpView a={a} /></b></div>
                   <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
-                  <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>
+                  <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</div>
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                   <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
                 </div>
@@ -2497,7 +2497,7 @@ export default function App() {
                 <td>{regionAbbr(a.region)}</td>
                 <td><IpView a={a} /></td>
                 <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
-                <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>
+                <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                 <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
@@ -2697,7 +2697,7 @@ export default function App() {
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => setTab("groups")}>{t("去分组管理")}</button>
             </div>
             <div className="form2" style={{ paddingLeft: "2em", gridTemplateColumns: "1fr" }}>
-              <div><label className="req">{t("月度流量额度 *（GiB）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
+              <div><label className="req">{t("月度流量额度 *（G）")}</label><input defaultValue={String(settings.quota_gb ?? 200)} id="s-quota" onBlur={() => saveParamSettings()} /></div>
               <div><label className="req">{t("流量保护阈值 *（%）")}</label><input defaultValue={String(settings.protection_threshold_pct ?? 95)} id="s-prot" onBlur={() => saveParamSettings()} /></div>
             </div>
             {/* 运行模式（全局）：在负载均衡上面；两项，定时轮巡 / 负载均衡。

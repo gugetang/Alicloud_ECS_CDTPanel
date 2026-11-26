@@ -73,6 +73,8 @@ nav button.active { border:2px solid var(--accent); font-weight:600; padding:7px
 /* 服务器卡片一行一个（运行概览与实例管理共用） */
 .grid2 { display:grid; grid-template-columns:1fr; gap:16px; }
 .big { font-size:14px; font-weight:700; }
+/* 流量大数字：只有数值加粗，单位 G 与百分比不加粗（.big 本身是 700）。 */
+.big .plain { font-weight:400; }
 .big small { font-size:14px; color:var(--muted); font-weight:400; }
 /* 状态点：Google 色，直径约 2mm（8px，1mm ≈ 3.78px @96dpi），正圆，
    垂直居中于字体高度（vertical-align: middle）。
@@ -260,7 +262,7 @@ header .btn, header .icon-btn { min-height:30px; }
 .spacer { flex:1; }
 input,select,textarea { background:var(--input); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px; width:100%; }
 label { display:block; font-size:14px; color:var(--muted); margin:12px 0 4px; }
-/* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（GiB）） */
+/* 必填项标签加粗（如 AccessKey ID *、月度流量额度 *（G）） */
 label.req { font-weight:700; color:var(--text); }
 /* 参数标签加粗（如切换模式、切换阀值、间隔切换周期） */
 label.lbl { font-weight:700; color:var(--text); }

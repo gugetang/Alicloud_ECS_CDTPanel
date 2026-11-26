@@ -1775,11 +1775,11 @@ def test_stat_values_uniform_weight():
     # 列表流量已用数：两张列表（运行概览与实例管理）都按用户新要求（2026-11-24）
     # 把“/”前的已用量加粗并整格不换行，覆盖了早期的统一粗细规则；
     # plain 格式已不存在，两处都是 nowrap + <b> 格式
-    assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 0
-    assert tsx.count('<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>') == 2
+    assert tsx.count('<td>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} G{trafficPct(a)}</td>') == 0
+    assert tsx.count('<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>') == 2
     # 卡片数值仍在 .stat b 里，比标签大一号（值 14px、标签 12px）、只加粗（700），流量/费用/阈值与区域/IP/实例 ID 同款
     assert '.stat b { font-size:14px; font-weight:700;' in css
-    assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)} / {a.quota_gb ?? 200} GiB{trafficPct(a)}</b></div>') == 2
+    assert tsx.count('<div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</div>') == 2
 
 
 def test_status_pill_follows_dot_and_mode_label_no_parens():
@@ -1884,11 +1884,11 @@ def test_list_value_columns_not_bold_and_overview_padding():
     assert ".overview-table th, .overview-table td { padding:14px 12px; }" in css
 
 def test_accounts_traffic_no_wrap_and_used_bold():
-    # 两张列表的流量列：值不换行显示（27.79 / 200 GiB (13.90%) 一行放下），
-    # “/”前面的已用量加粗（<b>），后面“/ 额度 GiB (百分比)”不加粗。
+    # 两张列表的流量列：值不换行显示（27.79 / 200 G (13.90%) 一行放下），
+    # 已用量和额度两个数字都加粗（<b>），单位 G 与百分比不加粗。
     # 先只改了实例管理列表，用户随后要求运行概览列表也同样改动，两处同款。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    cell = '<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} GiB{trafficPct(a)}</td>'
+    cell = '<td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / <b>{a.quota_gb ?? 200}</b> G{trafficPct(a)}</td>'
     accounts = tsx.split('<table className="accounts-table">')[1]
     assert cell in accounts
     dash = tsx.split('<table className="overview-table"')[1].split("</table>")[0]
