@@ -1307,6 +1307,22 @@ def test_dynamic_mode_heading_not_bold():
     assert tsx.index('t("动态切换间隔")', seg_idx) < act_idx
 
 
+def test_global_custom_interval_tap_does_not_save_immediately():
+    # 全局设置里动态切换间隔 / 轮巡周期的“自定义”选项点不开（2026-11-26 报障）：
+    # 根因是点“自定义”时 onChange 一边显示输入框、一边立刻把当前值存了一次，
+    # 保存完成刷新 settings 后同步 effect 见存值是预设（30 / 6 小时）就把选项
+    # 弹回预设，输入框被卸载，用户来不及打字。修法：点“自定义”只显示输入框
+    # 不存，输完失焦再存（失焦保存本来就有）；输 45 这类非预设值存完仍留在自定义。
+    tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
+    assert 'onChange={(v) => { setSDynInterval(v); if (v === "0") return; saveParamSettings({ dynamic_interval_minutes: Number(v) }); }}' in tsx
+    assert 'onChange={(v) => { setSInterval(v); if (v === "0") return; saveParamSettings({ interval_hours: v }); }}' in tsx
+    # 旧的点选即存写法已删除
+    assert 'dynamic_interval_minutes: v === "0" ? Math.max(30' not in tsx
+    # 失焦保存还在：动态自定义输入框失焦存分钟数，轮巡自定义区失焦存整组参数
+    assert 'onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}' in tsx
+    assert '{sInterval === "0" && (' in tsx
+
+
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
     # 语言按钮与主题/退出图标按钮同大（30×30 圆角正方形，内容居中），
     # 按钮只显示当前语言（中 或 En），用主题色高亮（.lang-on）；

@@ -2832,7 +2832,7 @@ export default function App() {
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
                     { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义"), sub: sDynInterval === "0" && (Number(sDynCustVal) || 0) > 0 ? `${sDynCustVal} ${t("分钟")}` : undefined },
-                  ]} onChange={(v) => { setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: v === "0" ? Math.max(30, Number(sDynCustVal) || 30) : Number(v) }); }} /></div></div>
+                  ]} onChange={(v) => { setSDynInterval(v); if (v === "0") return; saveParamSettings({ dynamic_interval_minutes: Number(v) }); }} /></div></div>
               </div>
               {sDynInterval === "0" && (
                 <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
@@ -2848,7 +2848,7 @@ export default function App() {
                   { value: "3", label: t("3 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                   { value: "0", label: t("自定义"), sub: sInterval === "0" && (parseFloat(sCustVal) || 0) > 0 ? `${sCustVal} ${sCustUnit === "day" ? t("天") : sCustUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
-                ]} onChange={(v) => { setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div></div>
+                ]} onChange={(v) => { setSInterval(v); if (v === "0") return; saveParamSettings({ interval_hours: v }); }} /></div></div>
               {sInterval === "0" && (
               <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
                 <div style={{ paddingLeft: "2em" }}><div className="row" style={{ alignItems: "center" }}>
