@@ -136,10 +136,6 @@ function BellIcon({ size = 18 }: { size?: number }) {
   return (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>);
 }
 
-// 流量用量条颜色：绿 <80%、黄 ≥80%、红 ≥保护阈值，未知为灰。
-const usageColor = (rate: number | null | undefined, threshold: number) =>
-  rate == null ? "#9AA0A6" : rate >= threshold ? "#EA4335" : rate >= 80 ? "#FBBC04" : "#34A853";
-
 // 流量显示保留 2 位小数；IP 只显示 A.B 段，C.D 段用 * 代替。
 const fmtGb = (v: number | null | undefined) =>
   v == null ? "—" : (Math.round(v * 100) / 100).toFixed(2);
@@ -1640,9 +1636,11 @@ export default function App() {
       {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button> : null}
     </span>);
   };
-  // 概览视图：卡片 / 列表
+  // 概览视图：卡片 / 列表（运行概览）；实例列表另有 acctViewMode，各自独立
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [acctViewMode, setAcctViewMode] = useState<"card" | "list">("card");
+  // 圆点排序：只在概览（null=默认顺序）
+  const [dashSort, setDashSort] = useState<SortGroup | null>(null);
   // 域名管理页：正在编辑的行（null=无），行内表单
   const [editDomId, setEditDomId] = useState<number | null>(null);
   const [editDomName, setEditDomName] = useState("");
@@ -1787,6 +1785,33 @@ export default function App() {
   const dotEl = (dot: string | undefined, title?: string) => (
     <span className={`dot ${dotClass(dot)}`} title={title || ""}
       style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: dotColor(dot), marginRight: 6, verticalAlign: "middle" }} />
+  );
+  // 状态圆点排序：绿=在线/启动中，黄=排队，灰=离队/未参与/未知，红=停机/停止中。
+  // 点圆点把该组排前面（组内保持原顺序），再点一次恢复默认顺序；只改显示顺序。
+  type SortGroup = "green" | "yellow" | "gray" | "red";
+  const statusGroupOf = (dot: string | undefined): SortGroup =>
+    dot === "green" || dot === "green_pulse" ? "green"
+    : dot === "yellow" ? "yellow"
+    : dot === "red" || dot === "red_pulse" ? "red" : "gray";
+  const sortAccountsByGroup = (list: Any[], group: SortGroup | null) => {
+    if (!group) return list;
+    return [...list.filter((a) => statusGroupOf(a.status_dot) === group), ...list.filter((a) => statusGroupOf(a.status_dot) !== group)];
+  };
+  // 卡片/列表切换：单个按钮，显示当前视图，点一下切换。
+  const ViewToggle = ({ value, onToggle }: { value: "card" | "list"; onToggle: () => void }) => (
+    <button type="button" className={`view-toggle${value === "list" ? " view-toggle-list" : ""}`} onClick={onToggle}>
+      {value === "card" ? t("卡片") : t("列表")}
+    </button>
+  );
+  // 状态圆点排序按钮：绿/黄/灰/红（Φ5mm），激活态放大。
+  const StatusSortDots = ({ sort, onToggle }: { sort: SortGroup | null; onToggle: (g: SortGroup) => void }) => (
+    <div className="status-sort-dots">
+      {(["green", "yellow", "gray", "red"] as SortGroup[]).map((g) => (
+        <button key={g} type="button" className={`status-dot-btn${sort === g ? " active" : ""}`}
+          style={{ background: dotColor(g) }} title={g === "green" ? t("在线") : g === "yellow" ? t("排队") : g === "gray" ? t("离队") : t("停机")}
+          onClick={() => onToggle(g)} />
+      ))}
+    </div>
   );
   const load = async () => {
     try {
@@ -2392,38 +2417,35 @@ export default function App() {
               <div className="big">{costConverted ? `${costConverted.total.toFixed(2)} ${costConverted.cur}` : (Object.entries((status?.total_cost as Any) || {}).map(([c, v]) => `${fmtCost(v)} ${c}`).join(" / ") || "—")}</div>
             </div>
           </div>
-          <div className="card">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <h2 style={{ margin: 0 }}>{t("服务器")}</h2>
-              <Seg value={viewMode} options={[
-                { value: "card", label: t("卡片") },
-                { value: "list", label: t("列表") },
-              ]} onChange={(v) => setViewMode(v as "card" | "list")} />
-            </div>
+          <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <StatusSortDots sort={dashSort} onToggle={(g) => setDashSort(dashSort === g ? null : g)} />
+            <ViewToggle value={viewMode} onToggle={() => setViewMode(viewMode === "card" ? "list" : "card")} />
+          </div>
             {viewMode === "card" ? (
-              <div className="grid2" style={{ marginTop: 12 }}>
-                {accounts.map((a) => (
+              <div className="grid2">
+                {sortAccountsByGroup(accounts, dashSort).map((a) => (
                   <div className="card server-card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row server-card-head" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
-                      <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
+                      <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
+                        <span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>
+                      ))}{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
                     </div>
                     <div className="server-card-body">
-                      <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                       <div className="stats">
+                        <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
                         <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
-                        <div className="stat"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
+                        <div className="stat stat-ip"><span>IP</span><b><IpView a={a} copy={false} /></b></div>
                         <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                         <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</div>
                         <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                       </div>
-                      {a.status_detail ? <div className="muted status-detail" style={{ paddingTop: 6, color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : null}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="table-wrap"><table className="overview-table" style={{ marginTop: 12 }}><thead><tr><th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th></tr></thead>
-                <tbody>{accounts.map((a) => (
+              <div className="table-wrap"><table className="overview-table"><thead><tr><th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th><th>{t("阈值")}</th></tr></thead>
+                <tbody>{sortAccountsByGroup(accounts, dashSort).map((a) => (
                   <tr key={a.id as number}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
                     <td>{regionAbbr(a.region)}</td>
@@ -2431,20 +2453,17 @@ export default function App() {
                     <td>{a.site === "cn" ? t("中国站") : t("国际站")}</td>
                     <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</td>
                     <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
+                    <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
                   </tr>
                 ))}</tbody></table></div>
             )}
-          </div>
         </>
       )}
 
       {tab === "accounts" && (
         <>
           <div className="row" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
-            <Seg value={acctViewMode} options={[
-              { value: "card", label: t("卡片") },
-              { value: "list", label: t("列表") },
-            ]} onChange={(v) => setAcctViewMode(v as "card" | "list")} />
+            <ViewToggle value={acctViewMode} onToggle={() => setAcctViewMode(acctViewMode === "card" ? "list" : "card")} />
           </div>
           {editingId === "new" && (
             <InstanceForm account={null} settings={settings} count={accounts.length} groups={groups}
@@ -2466,7 +2485,6 @@ export default function App() {
                 </div>
               </div>
               <div className="server-card-body">
-                <div className="bar" style={{ marginTop: 10 }}><i style={{ width: `${a.usage_rate ?? 0}%`, background: usageColor(a.usage_rate, (a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95) as number) }} /></div>
                 <div className="stats">
                   <div className="stat stat-detail"><span>{t("实例")}</span><b><IdView a={a} /></b></div>
                   <div className="stat"><span>{t("区域")}</span><b>{regionAbbr(a.region)}</b></div>
@@ -2474,12 +2492,10 @@ export default function App() {
                   <div className="stat stat-detail"><span>{t("站点")}</span><b>{a.site === "cn" ? t("中国站") : t("国际站")}</b></div>
                   <div className="stat"><span>{t("流量")}</span><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</div>
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
-                  <div className="stat stat-detail"><span>{t("阈值")}</span><b>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</b></div>
                 </div>
                 {cardSettingsId === a.id && <CardSettings a={a} />}
               </div>
-              <div className="row server-card-foot" style={{ justifyContent: "space-between", paddingTop: 12, alignItems: "center" }}>
-                {a.status_detail ? <div className="muted status-detail" style={{ color: (a.status_dot === "green" || a.status_dot === "yellow") ? "var(--accent)" : undefined }}>{a.status_detail as string}</div> : <span className="spacer" />}
+              <div className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>
                 <div className="card-actions"><ActionButtons a={a} /></div>
               </div>
             </div>
