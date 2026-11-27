@@ -140,19 +140,18 @@ table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; 
    上固定失效、底色也盖不住滚过的内容；separate + border-spacing:0
    外观与 collapse 一致（只有单元格底边框）。 */
 .table-wrap { overflow-x:auto; }
-/* 首列固定：底色用 --card-solid（--card 的 100% 不透明版），滑动时下面
-   滚过的内容完全不透出来；保留毛玻璃 backdrop-filter（与其他卡片同款）。
-   thead 的 th 比 tbody 的 td 再高一级，表头盖过滚过的行。 */
-table th:first-child, table td:first-child { position:-webkit-sticky; position:sticky; left:0; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
-table thead th:first-child { z-index:3; }
+/* 固定列：只固定实例列表的 ⠿ 拖动列和域名表的首列；名称列不再固定，
+   横滑时跟着内容一起滚走（概览列表首列是名称、实例列表第二列是名称，
+   两处都不固定）。底色用 --card-solid（--card 的 100% 不透明版），
+   滑动时下面滚过的内容完全不透出来；保留毛玻璃 backdrop-filter
+   （与其他卡片同款）。thead 的 th 比 tbody 的 td 再高一级，表头盖过滚过的行。 */
+.accounts-table th:first-child, .accounts-table td:first-child,
+.domains-table th:first-child, .domains-table td:first-child { position:-webkit-sticky; position:sticky; left:0; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
+.accounts-table thead th:first-child, .domains-table thead th:first-child { z-index:3; }
 /* 跨列的展开行（如实例设置面板）不是数据列，不固定 */
 table td[colspan] { position:static; }
-/* 实例管理列表：首列是拖动排序列（⠿），第二列才是名称列。通用规则只固定
-   了首列，名称列仍会跟着滑走，所以两列都固定：拖动列定宽 32px 贴左，
-   名称列贴在拖动列右边（left:32px），底色同样 100% 不透明。 */
+/* 实例管理列表：首列是拖动排序列（⠿），定宽 32px 贴左。 */
 .accounts-table th:first-child, .accounts-table td:first-child { width:32px; min-width:32px; max-width:32px; }
-.accounts-table th:nth-child(2), .accounts-table td:nth-child(2) { position:-webkit-sticky; position:sticky; left:32px; background:var(--card-solid); backdrop-filter:blur(14px) saturate(1.2); -webkit-backdrop-filter:blur(14px) saturate(1.2); z-index:2; }
-.accounts-table thead th:nth-child(2) { z-index:3; }
 /* 列表值加粗，与卡片指标值（.stat b，14px/700）一致：只加粗两张列表的
    值列。表头 th 不动；拖动列（⠿）和操作列不是值，不加粗；跨列的展开行
    （实例设置面板）不是数据列，也不加粗。 */
@@ -161,6 +160,25 @@ table td[colspan] { position:static; }
 /* 区域/站点/流量/阈值这几列的值不加粗（名称、ID、IP、费用保持加粗）。 */
 .overview-table td:nth-child(2), .overview-table td:nth-child(4), .overview-table td:nth-child(5), .overview-table td:nth-child(7),
 .accounts-table td:nth-child(4), .accounts-table td:nth-child(6), .accounts-table td:nth-child(7), .accounts-table td:nth-child(9) { font-weight:400; }
+/* 列表改卡片样式：每行是一张卡片——行与行之间留 8px 间距，每行四边
+   描边、左右圆角（只有概览和实例管理这两张表，域名表不动）。表头 th
+   不描边；跨列的展开行也不描边。 */
+.overview-table, .accounts-table { border-spacing:0 8px; }
+.overview-table tbody td, .accounts-table tbody td { border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--card); }
+.overview-table tbody td:first-child, .accounts-table tbody td:first-child { border-left:1px solid var(--border); border-radius:10px 0 0 10px; }
+.overview-table tbody td:last-child, .accounts-table tbody td:last-child { border-right:1px solid var(--border); border-radius:0 10px 10px 0; }
+/* 服务器卡片与列表行：悬停和选中时放大、边框跟主题色（--accent，5 种
+   主题风格都跟）。卡片是 div，transform 直接生效；列表行是 tr，边框
+   颜色落在每格 td 上。顶部 4 张概览卡片（.dash-overview）不动。 */
+.server-card { transition:transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.server-card:hover, .server-card.selected { transform:scale(1.03); border-color:var(--accent); box-shadow:0 8px 24px rgba(0,0,0,.18); position:relative; z-index:1; }
+.overview-table tbody tr, .accounts-table tbody tr { transition:transform .15s ease; }
+.overview-table tbody tr:hover, .overview-table tbody tr.selected,
+.accounts-table tbody tr:hover, .accounts-table tbody tr.selected { transform:scale(1.02); }
+.overview-table tbody tr:hover td, .overview-table tbody tr.selected td,
+.accounts-table tbody tr:hover td, .accounts-table tbody tr.selected td { border-color:var(--accent); }
+/* 概览列表行可点选（实例列表行已有拖动 cursor:grab，内联样式优先）。 */
+.overview-table tbody tr { cursor:pointer; }
 /* 运行概览列表行距放宽：行高与列间距都比默认大，不显拥挤。 */
 .overview-table th, .overview-table td { padding:14px 12px; }
 /* 域名管理表格同样放宽（默认 10px 8px 太紧凑）。 */
@@ -208,10 +226,13 @@ html[data-theme="dark"] .switch.on { background:var(--accent); }
 .btn.theme-btn { width:30px; height:30px; min-height:30px; padding:0; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
 /* 页眉语言按钮：与图标按钮同大（30×30 圆角正方形），当前语言用主题色，未选的用灰色 */
 .btn.lang-btn { width:30px; height:30px; min-height:30px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }
-/* 页眉顶栏固定：站点名称、介绍与右上角三个图标按钮一起固定在页面顶部，
-   滑动时始终可见；导航仍随页面滚动。sticky 保留在文档流里，不用额外给
-   页面顶部留空间；底色用实色 --bg，滚动上来的内容不透出来。 */
-header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; }
+/* 页眉顶栏固定：站点名称、介绍、右上角三个图标按钮与导航菜单一起固定在
+   页面顶部，滑动时始终可见（导航放进页眉里才跟得住，之前在页眉外面，
+   往下滚就没了）。sticky 保留在文档流里，不用额外给页面顶部留空间；
+   底色用实色 --bg，滚动上来的内容不透出来。 */
+header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; padding-bottom:12px; }
+/* 导航在页眉里：底边距清掉，改由页眉的 padding-bottom 留白。 */
+header nav { margin-bottom:0; }
 /* 站点 logo：桌面端 48px（与登录页 logo 同高），手机端保持 36px */
 .site-logo { height:48px; max-width:140px; object-fit:contain; }
 /* 页脚固定在视口底部，不跟随页面滚动；带底色与上边框，与内容分隔 */

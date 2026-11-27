@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type DragEvent as ReactDragEvent, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { get, post, put, del, getToken, setToken, getRememberedUsername, setRememberedUsername } from "./api";
 import { getLang, translate, trStatus, useI18n } from "./i18n";
 import { groupMemberDot } from "./memberDot";
@@ -95,6 +95,30 @@ function Seg({ value, options, onChange }: {
           {o.sub ? <span className="seg-sub">{o.sub}</span> : null}
         </button>
       ))}
+    </div>
+  );
+}
+
+// 自定义值对话框：点“自定义”弹出；保存后隐藏对话框，再点“自定义”又弹出。
+// 保存有三处：点确定、点弹窗内非编辑区、点弹窗外（后两者都是保存并退出）；
+// 点取消只隐藏不保存。标题/标签/按钮文字由调用方传已翻译好的文案。
+function CustomValueDialog({ title, label, cancel, ok, onSave, onClose, children }: {
+  title: string; label: string; cancel: string; ok: string;
+  onSave: () => void; onClose: () => void; children: ReactNode;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onSave}>
+      <div className="modal" onClick={(e) => { e.stopPropagation(); if (isDragHandleTarget(e.target as HTMLElement)) onSave(); }}>
+        <h3>{title}</h3>
+        <div style={{ marginTop: 12 }}>
+          <label className="lbl">{label}</label>
+          {children}
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+          <button className="btn ghost" onClick={onClose}>{cancel}</button>
+          <button className="btn" onClick={onSave}>{ok}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -317,9 +341,10 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   if (savedSnapRef.current == null) savedSnapRef.current = snap();
   const isDirty = () => snap() !== savedSnapRef.current;
 
-  // 实例表单自动保存：改完失焦即存（300ms 防抖），不用点保存。没填完不存、
-  // 不报错；编辑已有账户存完不关闭表单；新建账户填完必填项后失焦即创建并关闭。
-  // 点按弹窗内非编辑区也会触发保存（见 flushSave）；没改过不存。
+  // 实例表单保存：点按弹窗内非编辑区即存（见 flushSave），点弹窗外先存
+  // 再退出（见 closeInstModalWithSave）。失焦不再自动存。没填完不存、
+  // 不报错；编辑已有账户存完不关闭表单；新建账户填完必填项后点按保存
+  // 即创建并关闭。没改过不存。
   const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
   useEffect(() => () => { if (autoTimer.current) clearTimeout(autoTimer.current); }, []);
@@ -374,13 +399,8 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
     }
     finally { savingRef.current = false; }
   };
-  const saveAuto = (ov?: { mode?: string; quota?: string; threshold?: string }) => {
-    if (autoTimer.current) clearTimeout(autoTimer.current);
-    autoTimer.current = setTimeout(() => { void saveAutoNow(ov); }, 300);
-  };
-
-  // 弹窗外点击时调用：先刷掉防抖里待保存的改动，再立即保存一次。
-  // 正在保存时等它落定（最多 2 秒）；仍在保存视为已在保存，允许关闭。
+  // 弹窗外点击/点按保存时调用：正在保存时等它落定（最多 2 秒）；仍在
+  // 保存视为已在保存，允许关闭。
   const flushSave = async (): Promise<"saved" | "skipped" | "error"> => {
     if (autoTimer.current) { clearTimeout(autoTimer.current); autoTimer.current = null; }
     for (let i = 0; i < 20 && savingRef.current; i++) await new Promise((r) => setTimeout(r, 100));
@@ -389,15 +409,15 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   };
   useEffect(() => { if (flushRef) flushRef.current = flushSave; });
 
-  // 参数模式切换：选跟随系统即存 NULL（两个输入框不显示）；从跟随系统
-  // 切到自定义时，先把全局值填入两个输入框再保存，不留空。
+  // 参数模式切换：选跟随系统即把额度/阈值置 NULL（两个输入框不显示）；
+  // 从跟随系统切到自定义时，先把全局值填入两个输入框，不留空。
+  // 只改状态，不立即存；保存等点按弹窗内非编辑区（或点弹窗外退出时）。
   const changeParamMode = (v: string) => {
     if (v === paramMode) return;
-    if (v === "follow") { setParamMode("follow"); saveAuto({ mode: "follow" }); return; }
+    if (v === "follow") { setParamMode("follow"); return; }
     const q = String(_globalQuota);
     const th = String(_globalThreshold);
     setQuota(q); setThreshold(th); setParamMode("custom");
-    saveAuto({ mode: "custom", quota: q, threshold: th });
   };
 
   const regionKnown = regions.some((r) => r.region_id === region);
@@ -407,17 +427,17 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
   return (
     <div className="instance-form">
       <div className="form2">
-        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => saveAuto()} placeholder={t("如 AliCloud-HK-1")} /></div>
-        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} onBlur={() => saveAuto()} placeholder="i-..." /></div>
-        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} onBlur={() => saveAuto()} placeholder="LTAI..." /></div>
-        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onFocus={() => { if (akSecret === SECRET_MASK) setAkSecret(""); }} onBlur={() => { if (!akSecret && account?.has_secret) setAkSecret(SECRET_MASK); saveAuto(); }} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
-        <div onBlur={() => saveAuto()}><label className="req">{t("站点类型 *")}</label>
+        <div><label className="req">{t("服务器名 *")}</label><input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("如 AliCloud-HK-1")} /></div>
+        <div><label className="req">{t("实例 ID *")}</label><input value={instanceId} onChange={(e) => setInstanceId(e.target.value)} placeholder="i-..." /></div>
+        <div><label className="req">{t("AccessKey ID *")}</label><input value={akId} onChange={(e) => setAkId(e.target.value)} placeholder="LTAI..." /></div>
+        <div><label className="req">{t("AccessKey Secret *")}</label><input type="password" value={akSecret} onChange={(e) => setAkSecret(e.target.value)} onFocus={() => { if (akSecret === SECRET_MASK) setAkSecret(""); }} onBlur={() => { if (!akSecret && account?.has_secret) setAkSecret(SECRET_MASK); }} placeholder={account?.has_secret ? t("已配置（留空保持不变）") : t("未配置，请填写")} /></div>
+        <div><label className="req">{t("站点类型 *")}</label>
           <Seg value={site} options={[
             { value: "global", label: t("国际站（USD）") },
             { value: "cn", label: t("国内站（CNY）") },
           ]} onChange={setSite} /></div>
         <div><label className="req">{t("区域 *")}</label>
-          <select value={regionCustom ? "__custom" : region} onBlur={() => saveAuto()} onChange={(e) => {
+          <select value={regionCustom ? "__custom" : region} onChange={(e) => {
             if (e.target.value === "__custom") { setRegionCustom(true); setRegionCustomVal(region); }
             else { setRegionCustom(false); setRegion(e.target.value); }
           }}>
@@ -432,12 +452,12 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
             {!regionKnown && !regionCustom && <option value={region}>{regionAbbr(region)}{t("（当前值）")}</option>}
             <option value="__custom">{t("自定义…")}</option>
           </select>
-          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} onBlur={() => saveAuto()} placeholder={t("区域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
+          {regionCustom && <input value={regionCustomVal} onChange={(e) => setRegionCustomVal(e.target.value)} placeholder={t("区域 ID，如 cn-hongkong")} style={{ marginTop: 6 }} />}
           <div className="row">
             <button className="btn ghost" onClick={autoDiscover} disabled={formBusy} title={t("自动发现")}>{t("自动发现")}</button>
             <button className="btn ghost" onClick={() => loadRegions(true)} disabled={formBusy}>{t("重新拉取区域列表")}</button>
           </div></div>
-        <div onBlur={() => saveAuto()}><label>{t("参数设置")}</label>
+        <div><label>{t("参数设置")}</label>
           <Seg value={paramMode} options={[
             { value: "follow", label: t("跟随系统"), title: t("流量额度和阈值继承全局设置") },
             { value: "custom", label: t("自定义") },
@@ -445,16 +465,16 @@ function InstanceForm({ account, settings, count, groups, onDone, onCancel, onAu
           {paramMode === "follow" && <div className="muted" style={{ marginTop: 6 }}>{t("跟随系统：流量额度 {quota} G，流量保护阈值 {threshold}%。", { quota: _globalQuota, threshold: _globalThreshold })}</div>}
         </div>
         {paramMode === "custom" && (<>
-          <div><label className="req">{t("月度流量额度 *（G）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} onBlur={() => saveAuto()} /></div>
-          <div><label className="req">{t("流量保护阈值 *（%）")}</label><input type="number" min={1} max={100} value={threshold} onChange={(e) => setThreshold(e.target.value)} onBlur={() => saveAuto()} /></div>
+          <div><label className="req">{t("月度流量额度 *（G）")}</label><input type="number" min={1} value={quota} onChange={(e) => setQuota(e.target.value)} /></div>
+          <div><label className="req">{t("流量保护阈值 *（%）")}</label><input type="number" min={1} max={100} value={threshold} onChange={(e) => setThreshold(e.target.value)} /></div>
         </>)}
       </div>
       <div style={{ marginTop: 12 }}>
-        <label className="check" onBlur={() => saveAuto()}><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
+        <label className="check"><input type="checkbox" checked={schedEnabled} onChange={(e) => setSchedEnabled(e.target.checked)} />{t("每日定时开关机")}</label>
         {schedEnabled && (
           <div className="form2">
-            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} onBlur={() => saveAuto()} /></div>
-            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} onBlur={() => saveAuto()} /></div>
+            <div><label>{t("每日开机时间")}</label><input type="time" value={onTime} onChange={(e) => setOnTime(e.target.value)} /></div>
+            <div><label>{t("每日关机时间")}</label><input type="time" value={offTime} onChange={(e) => setOffTime(e.target.value)} /></div>
           </div>
         )}
       </div>
@@ -779,6 +799,8 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
   const [custUnit, setCustUnit] = useState(_gcu);
   const [custVal, setCustVal] = useState(String(_gcu === "day" ? _gcm / 1440 : _gcu === "hour" ? _gcm / 60 : _gcm));
   const [startTime, setStartTime] = useState((g.interval_start_time as string) || "00:00:00");
+  // 轮巡周期自定义对话框：点“自定义”弹出，保存后隐藏，再点又弹出。
+  const [showIntervalCustom, setShowIntervalCustom] = useState(false);
   const [diffMode, setDiffMode] = useState((g.switch_diff_mode ?? settings.switch_diff_mode ?? "percent") as string);
   const [diffPct, setDiffPct] = useState(String(g.switch_diff_pct ?? settings.switch_diff_pct ?? 10));
   const [diffGb, setDiffGb] = useState(String(g.switch_diff_gb ?? settings.switch_diff_gb ?? 10));
@@ -892,18 +914,24 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
             const effCustUnit = wasFollow ? gu : custUnit;
             const effStart = wasFollow ? ((settings.interval_start_time as string) || "00:00:00") : startTime;
             if (wasFollow) { setCustUnit(effCustUnit); setCustVal(effCustVal); setStartTime(effStart); }
-            if (v === "0") { setInterval("0"); savePatch({ interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(effCustVal) || 0) * custMult(effCustUnit)), interval_start_time: effStart }); }
-            else { setInterval(v); savePatch({ interval_hours: Number(v) || 6, custom_interval_minutes: 0, interval_start_time: effStart }); }
+            // 点“自定义”只弹对话框（先把全局值填入输入框），不立即存；
+            // 保存时再把“自定义”选上并存入。
+            if (v === "0") { setShowIntervalCustom(true); return; }
+            setInterval(v); savePatch({ interval_hours: Number(v) || 6, custom_interval_minutes: 0, interval_start_time: effStart });
           }} />
-            {interval === "0" && (
-              <div className="row" style={{ alignItems: "center", marginTop: 8 }} onBlur={() => savePatch({ custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)) })}>
-                <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
-                <Seg value={custUnit} options={[
-                  { value: "minute", label: t("分钟") },
-                  { value: "hour", label: t("小时") },
-                  { value: "day", label: t("天") },
-                ]} onChange={changeCustUnit} />
-              </div>)}
+            {showIntervalCustom && (
+              <CustomValueDialog title={t("自定义轮巡周期")} label={t("自定义间隔")} cancel={t("取消")} ok={t("确定")}
+                onSave={() => { setInterval("0"); savePatch({ interval_hours: 6, custom_interval_minutes: Math.round((parseFloat(custVal) || 0) * custMult(custUnit)), interval_start_time: startTime }); setShowIntervalCustom(false); }}
+                onClose={() => setShowIntervalCustom(false)}>
+                <div className="row" style={{ alignItems: "center" }}>
+                  <input type="number" min={0} value={custVal} onChange={(e) => setCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
+                  <Seg value={custUnit} options={[
+                    { value: "minute", label: t("分钟") },
+                    { value: "hour", label: t("小时") },
+                    { value: "day", label: t("天") },
+                  ]} onChange={changeCustUnit} />
+                </div>
+              </CustomValueDialog>)}
           </div>
           {interval !== "follow" && (<>
           <div style={{ marginTop: 12 }}>
@@ -964,19 +992,11 @@ function GroupCard({ g, settings, accounts, domains, dotEl, run, setMsg, showSet
                   }} /></div></div>
               </div>
               {showDynCustom && (
-                <div className="modal-overlay" onClick={() => setShowDynCustom(false)}>
-                  <div className="modal" onClick={(e) => e.stopPropagation()}>
-                    <h3>{t("自定义动态切换间隔")}</h3>
-                    <div style={{ marginTop: 12 }}>
-                      <label className="lbl">{t("间隔（分钟，最少 30）")}</label>
-                      <input type="number" min={30} value={dynCustomVal} onChange={(e) => setDynCustomVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
-                    </div>
-                    <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
-                      <button className="btn ghost" onClick={() => setShowDynCustom(false)}>{t("取消")}</button>
-                      <button className="btn" onClick={() => { const v = Math.max(30, Number(dynCustomVal) || 30); setDynCustVal(String(v)); setDynInterval("0"); savePatch({ dynamic_interval_minutes: v }); setShowDynCustom(false); }}>{t("确定")}</button>
-                    </div>
-                  </div>
-                </div>
+                <CustomValueDialog title={t("自定义动态切换间隔")} label={t("间隔（分钟，最少 30）")} cancel={t("取消")} ok={t("确定")}
+                  onSave={() => { const v = Math.max(30, Number(dynCustomVal) || 30); setDynCustVal(String(v)); setDynInterval("0"); savePatch({ dynamic_interval_minutes: v }); setShowDynCustom(false); }}
+                  onClose={() => setShowDynCustom(false)}>
+                  <input type="number" min={30} value={dynCustomVal} onChange={(e) => setDynCustomVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
+                </CustomValueDialog>
               )}
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。")}</div>
             </div>
@@ -1366,7 +1386,8 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
     return `${n} B`;
   };
 
-  // WebDAV 配置随改随存（失焦保存）；密码只有填了新值才提交，掩码/留空保持不变。
+  // WebDAV 配置：点按弹窗内非编辑区保存，点弹窗外保存并退出；失焦不再
+  // 自动存。密码只有填了新值才提交，掩码/留空保持不变。
   const saveWd = () => {
     const patch: Any = {
       webdav_url: (document.getElementById("wd-url") as HTMLInputElement)?.value?.trim() || "",
@@ -1472,18 +1493,18 @@ function BackupCard({ settings, saveSettings, setMsg, load }: {
       {fileName && <p className="muted" style={{ paddingLeft: "2em" }}>{t("已选：{name}", { name: fileName })}</p>}
       {showWdDialog && (
         <div className="modal-overlay" onClick={async () => { if (Date.now() - wdDragEndAt.current < 200) return; await saveWd(); setShowWdDialog(false); }}>
-          <div className="modal modal-wd" onClick={(e) => e.stopPropagation()} onMouseDown={onWdDragStart} style={{ cursor: "grab", ...((wdPos.x || wdPos.y) ? { transform: `translate(${wdPos.x}px, ${wdPos.y}px)` } : {}) }}>
+          <div className="modal modal-wd" onClick={(e) => { e.stopPropagation(); if (Date.now() - wdDragEndAt.current < 200) return; if (isDragHandleTarget(e.target as HTMLElement)) void saveWd(); }} onMouseDown={onWdDragStart} style={{ cursor: "grab", ...((wdPos.x || wdPos.y) ? { transform: `translate(${wdPos.x}px, ${wdPos.y}px)` } : {}) }}>
             <h3 style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>
             <div style={{ marginTop: 12 }}>
               <div><label className="req" style={{ paddingLeft: "2em" }}>{t("* 地址")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} style={{ width: "100%" }} onBlur={saveWd} /></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-url" key={String(settings?.webdav_url || "")} defaultValue={settings?.webdav_url || ""} style={{ width: "100%" }} /></div>
                 <div className="muted" style={{ paddingLeft: "2em", fontSize: 12 }}>{t("WebDAV 连接 Alist 可参考官方文档")} <a href="https://alist.nn.ci/zh/guide/webdav.html" target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>↗ {t("快速跳转")}</a></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 用户名")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: "100%", maxWidth: 240 }} onBlur={saveWd} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-user" key={String(settings?.webdav_username || "")} defaultValue={settings?.webdav_username || ""} style={{ width: "100%", maxWidth: 240 }} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 密码")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: "100%", maxWidth: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); saveWd(); }} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="password" id="wd-pass" key={String(wdConfigured)} defaultValue={wdConfigured ? SECRET_MASK : ""} placeholder={t("留空保持不变")} style={{ width: "100%", maxWidth: 240 }} onFocus={secretFocus} onBlur={(e) => { secretBlurRestore(e, wdConfigured); }} /></div></div>
               <div style={{ marginTop: 12 }}><label className="req" style={{ paddingLeft: "2em" }}>{t("* 备份目录")}</label>
-                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} style={{ width: "100%" }} onBlur={saveWd} /></div></div>
+                <div style={{ paddingLeft: "2em" }}><input type="text" id="wd-dir" key={String(settings?.webdav_backup_dir || "")} defaultValue={settings?.webdav_backup_dir || ""} style={{ width: "100%" }} /></div></div>
             </div>
             <div className="row" style={{ paddingLeft: "2em", marginTop: 16 }}>
               <button className="btn" onClick={wdTest} disabled={busy} title={t("测试连接")}>{t("测试连接")}</button>
@@ -1666,7 +1687,7 @@ export default function App() {
     const ip = (a.public_ip as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
       <span>{maskIp(a.public_ip)}</span>
-      {copy && ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={() => void copyIp(ip)}>⧉</button> : null}
+      {copy && ip ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制 IP")} onClick={(e) => { e.stopPropagation(); void copyIp(ip); }}>⧉</button> : null}
     </span>);
   };
   // 实例 ID 显示：脱敏（i- + 6 位，后面 ***）+ 复制按钮（复制完整 ID，
@@ -1675,7 +1696,7 @@ export default function App() {
     const id = (a.instance_id as string) || "";
     return (<span style={{ display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
       <span>{maskInstanceId(id)}</span>
-      {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button> : null}
+      {id ? <button className="btn ghost" style={{ padding: "1px 6px", fontSize: 12, lineHeight: 1.4 }} title={t("复制实例 ID")} onClick={(e) => { e.stopPropagation(); void copyInstanceId(id); }}>⧉</button> : null}
     </span>);
   };
   // 概览视图：卡片 / 列表（运行概览）；实例列表另有 acctViewMode，各自独立
@@ -1685,6 +1706,12 @@ export default function App() {
   const [dashSort, setDashSort] = useState<SortGroup | null>(null);
   // 概览四张卡片选中（单选，点已选中的取消；选中后框体显示本卡颜色）
   const [selectedDash, setSelectedDash] = useState<string | null>(null);
+  // 服务器卡片/列表行选中（单选，点已选中的取消；悬停和选中时放大、
+  // 边框跟主题色，见 styles.css 里 .server-card 与列表行规则）
+  const [selectedCardId, setSelectedCardId] = useState<number | null>(null);
+  const toggleCardSelected = (id: number) => setSelectedCardId(selectedCardId === id ? null : id);
+  // 实例列表行点按守卫：拖动排序是 HTML5 拖拽，点按（没拖动）才切换选中。
+  const rowClickGuard = useRef<{ x: number; y: number } | null>(null);
   // 域名管理页：正在编辑的行（null=无），行内表单
   const [editDomId, setEditDomId] = useState<number | null>(null);
   const [editDomName, setEditDomName] = useState("");
@@ -1692,6 +1719,19 @@ export default function App() {
   // 添加域名对话框（点“+ 添加域名”弹出，填完确认才添加）
   const [showAddDom, setShowAddDom] = useState(false);
   const [addDomName, setAddDomName] = useState("");
+  // 添加域名弹窗：点弹窗内非编辑区保存（不关闭，可连续添加），点弹窗外
+  // 保存并退出；域名为空时点按不保存（点外直接关闭，点内不提示）。
+  const submitAddDomain = async (closeAfter: boolean) => {
+    const name = addDomName.trim();
+    if (!name) { if (closeAfter) setShowAddDom(false); return; }
+    setBusy(true); setMsg("");
+    try {
+      await post("/api/domains", { name, zone: (settings.cloudflare_zone as string) || name.split(".").slice(-2).join("."), priority: domains.length });
+      setMsg(t("域名已添加")); await load();
+      if (closeAfter) setShowAddDom(false); else setAddDomName("");
+    } catch (e) { showError(String((e as Error).message)); }
+    finally { setBusy(false); }
+  };
   const [acting, setActing] = useState<Record<number, string>>({});
 
   // 消息提示：成功类 5 秒后自动隐藏；错误类不自动消失，手动关闭。
@@ -2246,6 +2286,10 @@ export default function App() {
   const [sDynCustVal, setSDynCustVal] = useState("30");
   const [sRefresh, setSRefresh] = useState("5");
   const [sRefreshCustVal, setSRefreshCustVal] = useState("5");
+  // 全局自定义对话框：点“自定义”弹出，保存后隐藏，再点又弹出。
+  const [showSIntervalCustom, setShowSIntervalCustom] = useState(false);
+  const [showSDynCustom, setShowSDynCustom] = useState(false);
+  const [showSRefreshCustom, setShowSRefreshCustom] = useState(false);
   const [sCurrency, setSCurrency] = useState("USD");
   useEffect(() => {
     setSExcl(settings.exclusion_action ?? "none");
@@ -2543,12 +2587,14 @@ export default function App() {
           </div>
         </div>
         <p>{(settings?.site_intro as string)?.trim() ? (settings.site_intro as string) : (tab === "dash" ? t("掌握账户流量、VPS 状态和域名分配。") : tab === "accounts" ? t("管理中国站与国际站账户，按需覆盖全局调度参数。") : tab === "groups" ? t("一个分组只选一种切换模式，1 个分组最多绑定 1 个域名。") : tab === "domains" ? t("管理 Cloudflare 域名，保留现有分配并按需切换账户。") : subTab === "settings" ? t("设置调度规则。") : subTab === "account" ? t("登录与安全、备份与恢复。") : subTab === "notify" ? t("每日推送与事件通知。可同时启用 E-Mail 和 Telegram。") : subTab === "logs" ? t("最近的事件记录，最新的在前面。") : t("货币结算。"))}</p>
+        {/* 导航放进页眉里：和页眉一起固定在顶部，滚动时始终可见；手机端
+            仍是一行横向滑动（见 styles.css 里 nav 的手机端规则）。 */}
+        {authState === "authed" && (
+          <nav ref={navRef}>{TABS.map(([k, label]) => (
+            <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
+          ))}</nav>
+        )}
       </header>
-      {authState === "authed" && (
-        <nav ref={navRef}>{TABS.map(([k, label]) => (
-          <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{t(label)}</button>
-        ))}</nav>
-      )}
       {tab === "config" && (
         <div className="subtabs" ref={subtabsRef}>{SUB_TABS.map(([k, label]) => (
           <button key={k} className={subTab === k ? "active" : ""} onClick={() => setSubTab(k)}>{t(label)}</button>
@@ -2604,7 +2650,7 @@ export default function App() {
             {viewMode === "card" ? (
               <div className="grid2">
                 {sortAccountsByGroup(accounts, dashSort).map((a) => (
-                  <div className="card server-card" key={a.id as number} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
+                  <div className={`card server-card${selectedCardId === a.id ? " selected" : ""}`} key={a.id as number} onClick={() => toggleCardSelected(a.id as number)} style={{ marginBottom: 0, display: "flex", flexDirection: "column" }}>
                     <div className="row server-card-head" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
                       <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
                         <span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>
@@ -2626,7 +2672,7 @@ export default function App() {
             ) : (
               <div className="table-wrap"><table className="overview-table"><thead><tr><th>{t("服务器")}</th><th>{t("区域")}</th><th>IP</th><th>{t("站点")}</th><th>{t("已用 / 月度流量额度")}</th><th>{t("实时费用")}</th><th>{t("阈值")}</th></tr></thead>
                 <tbody>{sortAccountsByGroup(accounts, dashSort).map((a) => (
-                  <tr key={a.id as number}>
+                  <tr key={a.id as number} className={selectedCardId === a.id ? "selected" : ""} onClick={() => toggleCardSelected(a.id as number)}>
                     <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b></td>
                     <td>{regionAbbr(a.region)}</td>
                     <td><IpView a={a} copy={false} /></td>
@@ -2648,14 +2694,14 @@ export default function App() {
           {acctViewMode === "card" ? (
           <div className="grid2">
           {accounts.map((a) => (
-            <div className="card server-card" key={a.id as number}
+            <div className={`card server-card${selectedCardId === a.id ? " selected" : ""}`} key={a.id as number} onClick={() => toggleCardSelected(a.id as number)}
               style={{ marginTop: 0, marginBottom: 0, display: "flex", flexDirection: "column" }}>
               <div className="row server-card-head" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
                 <div style={{ minWidth: 0 }}>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b style={{ fontSize: 16, whiteSpace: "nowrap" }}>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{accountModeLabels(a).map((m) => (
                   <span key={m} className="pill blue" style={{ marginLeft: 4 }}>{m}</span>
                 ))}{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}{a.stop_reason_label ? <span className="pill gray" style={{ marginLeft: 6 }}>{a.stop_reason_label as string}</span> : null}</div>
                 <div className="row" style={{ gap: 6, flex: "none" }}>
-                  <button className="icon-btn blue" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
+                  <button className="icon-btn blue" title={t("卡片设置")} onClick={(e) => { e.stopPropagation(); setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number)); }}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                 </div>
               </div>
               <div className="server-card-body">
@@ -2668,7 +2714,7 @@ export default function App() {
                   <div className="stat"><span>{t("费用")}</span><b>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</b></div>
                 </div>
               </div>
-              <div className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>
+              <div className="row server-card-foot" onClick={(e) => e.stopPropagation()} style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>
                 <div className="card-actions"><ActionButtons a={a} /></div>
               </div>
             </div>
@@ -2679,6 +2725,9 @@ export default function App() {
             <tbody>{accounts.map((a) => (
               <Fragment key={a.id as number}>
               <tr {...dragProps("account", a.id as number)}
+                className={selectedCardId === a.id ? "selected" : ""}
+                onPointerDown={(e) => { rowClickGuard.current = { x: e.clientX, y: e.clientY }; }}
+                onClick={(e) => { const g = rowClickGuard.current; if (g && (Math.abs(e.clientX - g.x) > 6 || Math.abs(e.clientY - g.y) > 6)) return; toggleCardSelected(a.id as number); }}
                 style={{ cursor: "grab", ...(dragOverId === a.id && dragKind === "account" ? { outline: "2px solid var(--accent)", outlineOffset: 2 } : {}), ...(dragId === a.id && dragKind === "account" ? { opacity: 0.5 } : {}) }}>
                 <td title={t("拖动排序")}>⠿</td>
                 <td>{dotEl(a.status_dot, a.status_detail || a.status_label || "")}<b>{a.name as string}</b> <span className={statusPillClass(a.status_dot)}>{a.status_label ? trStatus(a.status_label, lang) : (a.instance_status || t("未知"))}</span>{a.evicted ? <span className="pill gray" style={{ marginLeft: 6 }}>{t("已跳出")}</span> : null}</td>
@@ -2689,8 +2738,8 @@ export default function App() {
                 <td style={{ whiteSpace: "nowrap" }}><b>{fmtGb(a.traffic_used_gb)}</b> / {a.quota_gb ?? 200} G{trafficPct(a)}</td>
                 <td>{fmtCost(a.billing_month_cost)} {a.billing_currency || ""}</td>
                 <td>{a.protection_threshold_pct ?? settings.protection_threshold_pct ?? 95}%</td>
-                <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" style={{ gap: 6, flexWrap: "nowrap" }}>
-                  <button className="icon-btn blue" title={t("卡片设置")} onClick={() => setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number))}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
+                <td style={{ whiteSpace: "nowrap" }}><div className="row list-actions" onClick={(e) => e.stopPropagation()} style={{ gap: 6, flexWrap: "nowrap" }}>
+                  <button className="icon-btn blue" title={t("卡片设置")} onClick={(e) => { e.stopPropagation(); setCardSettingsId(cardSettingsId === a.id ? null : (a.id as number)); }}><Ico label={t("卡片设置")}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Ico></button>
                   <ActionButtons a={a} />
                 </div></td>
               </tr>
@@ -2760,8 +2809,8 @@ export default function App() {
             <button className="btn" onClick={() => { setAddDomName(""); setShowAddDom(true); }}>{t("+ 添加域名")}</button>
           </div>
           {showAddDom && (
-            <div className="modal-overlay" onClick={() => setShowAddDom(false)}>
-              <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-overlay" onClick={() => void submitAddDomain(true)}>
+              <div className="modal" onClick={(e) => { e.stopPropagation(); if (isDragHandleTarget(e.target as HTMLElement)) void submitAddDomain(false); }}>
                 <h3>{t("+ 添加域名")}</h3>
                 <div style={{ marginTop: 12 }}>
                   <label className="req">{t("域名 *")}</label>
@@ -2770,10 +2819,8 @@ export default function App() {
                 <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                   <button className="btn ghost" onClick={() => setShowAddDom(false)}>{t("取消")}</button>
                   <button className="btn" title={t("添加")} onClick={() => {
-                    const name = addDomName.trim();
-                    if (!name) { setMsg(t("请填写域名")); return; }
-                    setShowAddDom(false);
-                    run(() => post("/api/domains", { name, zone: (settings.cloudflare_zone as string) || name.split(".").slice(-2).join("."), priority: domains.length }), t("域名已添加"));
+                    if (!addDomName.trim()) { setMsg(t("请填写域名")); return; }
+                    void submitAddDomain(true);
                   }}>{t("添加")}</button>
                 </div>
               </div>
@@ -2920,11 +2967,14 @@ export default function App() {
                     { value: "30", label: t("30 分钟") }, { value: "60", label: t("60 分钟") },
                     { value: "90", label: t("90 分钟") },
                     { value: "0", label: t("自定义"), sub: sDynInterval === "0" && (Number(sDynCustVal) || 0) > 0 ? `${sDynCustVal} ${t("分钟")}` : undefined },
-                  ]} onChange={(v) => { setSDynInterval(v); if (v === "0") return; saveParamSettings({ dynamic_interval_minutes: Number(v) }); }} /></div></div>
+                  ]} onChange={(v) => { if (v === "0") { setSDynCustVal(String(Math.max(30, Number(sDynCustVal) || 30))); setShowSDynCustom(true); return; } setSDynInterval(v); saveParamSettings({ dynamic_interval_minutes: Number(v) }); }} /></div></div>
               </div>
-              {sDynInterval === "0" && (
-                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔（分钟，最少 30）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} /></div></div>)}
+              {showSDynCustom && (
+                <CustomValueDialog title={t("自定义动态切换间隔")} label={t("自定义间隔（分钟，最少 30）")} cancel={t("取消")} ok={t("确定")}
+                  onSave={() => { const v = Math.max(30, Number(sDynCustVal) || 30); setSDynCustVal(String(v)); setSDynInterval("0"); saveParamSettings({ dynamic_interval_minutes: v }); setShowSDynCustom(false); }}
+                  onClose={() => setShowSDynCustom(false)}>
+                  <input type="number" min={30} value={sDynCustVal} onChange={(e) => setSDynCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
+                </CustomValueDialog>)}
               <div style={{ color: "var(--accent)", fontSize: 12, marginTop: 6, paddingLeft: "2em" }}>{t("每到间隔切到剩余流量最多的服务器，不看流量差值。分组未填间隔时继承这里。")}</div>
             </div>
             )}
@@ -2936,17 +2986,20 @@ export default function App() {
                   { value: "3", label: t("3 小时") },
                   { value: "6", label: t("6 小时") }, { value: "12", label: t("12 小时") },
                   { value: "0", label: t("自定义"), sub: sInterval === "0" && (parseFloat(sCustVal) || 0) > 0 ? `${sCustVal} ${sCustUnit === "day" ? t("天") : sCustUnit === "hour" ? t("小时") : t("分钟")}` : undefined },
-                ]} onChange={(v) => { setSInterval(v); if (v === "0") return; saveParamSettings({ interval_hours: v }); }} /></div></div>
-              {sInterval === "0" && (
-              <div onBlur={() => saveParamSettings()}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义间隔")}</label>
-                <div style={{ paddingLeft: "2em" }}><div className="row" style={{ alignItems: "center" }}>
-                  <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
-                  <Seg value={sCustUnit} options={[
-                    { value: "minute", label: t("分钟") },
-                    { value: "hour", label: t("小时") },
-                    { value: "day", label: t("天") },
-                  ]} onChange={changeCustUnit} />
-                </div></div></div>)}
+                ]} onChange={(v) => { if (v === "0") { setShowSIntervalCustom(true); return; } setSInterval(v); saveParamSettings({ interval_hours: v }); }} /></div></div>
+              {showSIntervalCustom && (
+                <CustomValueDialog title={t("自定义轮巡周期")} label={t("自定义间隔")} cancel={t("取消")} ok={t("确定")}
+                  onSave={() => { setSInterval("0"); saveParamSettings({ interval_hours: "0" }); setShowSIntervalCustom(false); }}
+                  onClose={() => setShowSIntervalCustom(false)}>
+                  <div className="row" style={{ alignItems: "center" }}>
+                    <input type="number" min={0} value={sCustVal} onChange={(e) => setSCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
+                    <Seg value={sCustUnit} options={[
+                      { value: "minute", label: t("分钟") },
+                      { value: "hour", label: t("小时") },
+                      { value: "day", label: t("天") },
+                    ]} onChange={changeCustUnit} />
+                  </div>
+                </CustomValueDialog>)}
             </div>)}
             <div style={{ marginTop: 12, paddingLeft: "2em" }}>
               <label className="lbl">{t("阈值动作")}</label>
@@ -2970,10 +3023,13 @@ export default function App() {
                 { value: "30", label: t("30 分钟") },
                 { value: "custom", label: t("自定义"), sub: sRefresh === "custom" && (Number(sRefreshCustVal) || 0) > 0 ? `${sRefreshCustVal} ${t("分钟")}` : undefined },
                 { value: "0", label: t("不刷新"), title: t("不刷新=暂停调度，选分钟数=恢复运行") },
-              ]} onChange={(v) => { setSRefresh(v); if (v !== "custom") saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
-              {sRefresh === "custom" && (
-                <div style={{ marginTop: 12 }} onBlur={() => saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" })}><label className="lbl" style={{ paddingLeft: "2em" }}>{t("自定义刷新时间（分钟）")}</label>
-                  <div style={{ paddingLeft: "2em" }}><input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} /></div></div>)}
+              ]} onChange={(v) => { if (v === "custom") { setShowSRefreshCustom(true); return; } setSRefresh(v); saveParamSettings({ api_refresh_minutes: v, scheduler_paused: v === "0" ? "1" : "0" }); }} /></div>
+              {showSRefreshCustom && (
+                <CustomValueDialog title={t("自定义刷新时间")} label={t("自定义刷新时间（分钟）")} cancel={t("取消")} ok={t("确定")}
+                  onSave={() => { setSRefresh("custom"); saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" }); setShowSRefreshCustom(false); }}
+                  onClose={() => setShowSRefreshCustom(false)}>
+                  <input type="number" min={1} value={sRefreshCustVal} onChange={(e) => setSRefreshCustVal(e.target.value)} style={{ width: "100%", maxWidth: 120 }} />
+                </CustomValueDialog>)}
             </div>
             </div>
           </div>
