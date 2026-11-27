@@ -133,7 +133,7 @@ python -m app.main            # 监听 0.0.0.0:1999，数据在 ./data
 - **实例状态 / 开机 / 停机 / 重启 / 查区域**：`AliyunECSFullAccess`；轻量服务器再加 `AliyunSWASOpenFullAccess`
 - **读取流量**：`AliyunCDTFullAccess`
 - **读取费用**：`AliyunBSSFullAccess`
-- **一键更换 EIP**：`AliyunVPCFullAccess`
+- **一键更换 EIP**：`AliyunEIPFullAccess`；旧 EIP 在共享带宽包里时再加 `AliyunVPCFullAccess`
 
 想最小权限就用自定义策略，只给这些操作：`ecs:DescribeInstances`、`ecs:StartInstance`、`ecs:StopInstance`、`ecs:RebootInstance`、`ecs:DescribeRegions`、`swas:ListInstances`、`swas:StartInstance`、`swas:StopInstance`、`swas:RebootInstance`、`cdt:ListCdtInternetTraffic`、`bss:DescribeInstanceBill`、`bss:QueryBillOverview`、`bss:QueryAccountBalance`、`vpc:DescribeEipAddresses`、`vpc:AllocateEipAddress`、`vpc:UnassociateEipAddress`、`vpc:AssociateEipAddress`、`vpc:ModifyEipAddressAttribute`、`vpc:ReleaseEipAddress`、`vpc:RemoveCommonBandwidthPackageIp`、`vpc:AddCommonBandwidthPackageIp`（后两个只在旧 EIP 在共享带宽包里时用）。
 
