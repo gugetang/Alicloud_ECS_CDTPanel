@@ -121,10 +121,13 @@ def test_mobile_server_card_no_inner_scroll():
     assert ".server-card-body { flex:1 1 auto; min-height:0; }" in block
     assert "overflow-y:auto" not in block
     assert ".server-card-foot { flex:none; }" in block
-    # 固定高度只在手机端媒体查询里，桌面端卡片高度不变
-    assert ".server-card" not in CSS.split("@media (max-width: 800px)")[0]
-    # 运行概览与实例管理两处服务器卡片：名称行 + 中间区
-    assert TSX.count('className="card server-card"') == 2
+    # 固定高度只在手机端媒体查询里，桌面端卡片高度不变；卡片本身的悬停/
+    # 选中放大特效（2026-11-27）在媒体查询之外，桌面与手机共用
+    assert ".server-card { height:260px" not in CSS.split("@media (max-width: 800px)")[0]
+    assert ".server-card:hover, .server-card.selected { transform:scale(1.03); border-color:var(--accent);" in CSS
+    # 运行概览与实例管理两处服务器卡片：名称行 + 中间区（卡片已支持点按选中，
+    # className 是带 selected 的模板字符串）
+    assert TSX.count("server-card${selectedCardId") == 2
     assert TSX.count('className="row server-card-head"') == 2
     assert TSX.count('<div className="server-card-body">') == 2
     # 底部按钮行只在实例管理卡片（运行概览卡片本来就没有操作按钮）
@@ -551,14 +554,17 @@ def test_webdav_dialog_opaque_drag_anywhere_click_outside_saves():
     assert 'html[data-theme="dark"] .modal.modal-wd { background:rgba(71,85,105,0.9); }' in css
     assert 'className="modal modal-wd"' in tsx
     # 对话框任意位置按住都可拖动，拖动绑在 .modal 上（不再只在标题上）；
-    # 点输入框/按钮等控件时不拖动，让控件正常聚焦/点击
-    assert 'className="modal modal-wd" onClick={(e) => e.stopPropagation()} onMouseDown={onWdDragStart}' in tsx
+    # 点输入框/按钮等控件时不拖动，让控件正常聚焦/点击；
+    # 点弹窗内非编辑区保存（拖过则不保存，见 wdDragEndAt 防误触）
+    assert 'className="modal modal-wd" onClick={(e) => { e.stopPropagation(); if (Date.now() - wdDragEndAt.current < 200) return; if (isDragHandleTarget(e.target as HTMLElement)) void saveWd(); }} onMouseDown={onWdDragStart}' in tsx
     assert 'if ((e.target as HTMLElement).closest("input, button, select, textarea, a, [contenteditable]")) return;' in tsx
     assert '<h3 style={{ cursor: "grab", userSelect: "none" }}>{t("云端备份设置")}</h3>' in tsx
-    # 点遮罩（对话框外）先自动保存再退出；其它对话框（动态自定义、添加域名）
-    # 不受影响，点遮罩只是取消/关闭，不保存
+    # 点遮罩（对话框外）先自动保存再退出；所有弹窗都一样（2026-11-27）：
+    # 动态自定义对话框、添加域名对话框点遮罩也是保存并退出，不再只是取消
     assert "await saveWd(); setShowWdDialog(false);" in tsx
-    assert 'onClick={() => setShowDynCustom(false)}' in tsx
+    assert 'onClick={() => void submitAddDomain(true)}' in tsx
+    assert 'CustomValueDialog title={t("自定义动态切换间隔")}' in tsx
+    assert 'onClose={() => setShowDynCustom(false)}' in tsx
     assert 'onClick={() => setShowAddDom(false)}' in tsx
 
 
@@ -616,11 +622,15 @@ def test_header_lang_dropdown_and_logout():
     # 双类选择器 .btn.lang-btn：单类会被后写的 .btn（7px 14px、14px 字）覆盖，
     # 中/En 按钮实际比图标按钮大；双类优先级更高才真正同大。
     # 三个按钮都是 30×30 圆角正方形（宽高相等、圆角 10px、内容居中）；
-    # 页眉顶栏（站点名称、介绍、三个图标）sticky 固定在页面顶部，导航仍随页面滚动。
+    # 页眉顶栏（站点名称、介绍、三个图标）sticky 固定在页面顶部，导航放进
+    # 页眉里一起固定（2026-11-27），手机端导航仍是一行横向滑动。
     assert ".btn.lang-btn { width:30px; height:30px; min-height:30px; padding:0; font-size:14px; line-height:1; display:inline-flex; align-items:center; justify-content:center; border-radius:10px; }" in css
     assert ".lang-on { color:var(--accent); }" in css
-    assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; }" in css
+    assert "header { position:-webkit-sticky; position:sticky; top:0; z-index:55; background:var(--bg); padding-top:16px; padding-bottom:12px; }" in css
+    assert "header nav { margin-bottom:0; }" in css
     assert "nav { position:sticky" not in css and "nav { position:fixed" not in css
+    # 导航在页眉里面（</header> 之后没有 nav）
+    assert tsx.index("<nav ref={navRef}>") < tsx.index("</header>")
     # 主题键图标与退出图标按 30px 按钮等比放大（主题 14→18px，页眉与登录页
     # 各一处；退出 9→16px，同样两处）；语言字 9→14px，不挤压；
     # .btn.theme-btn 同样是 30×30 圆角正方形；点主题键仍弹出亮色/暗色/跟随系统菜单
@@ -665,8 +675,9 @@ def test_theme_lines_alignment_dash_left_accounts_left():
     # 服务器卡片状态详情行已删，不再钉底也不在中间区
     assert 'marginTop: "auto", paddingTop: 6' not in tsx
     assert 'className="muted status-detail"' not in tsx
-    # 实例管理卡片：底部只剩操作按钮单独一行（右对齐），状态详情已删
-    assert 'className="row server-card-foot" style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>' in tsx
+    # 实例管理卡片：底部只剩操作按钮单独一行（右对齐），状态详情已删；
+    # 点卡片空白处不选中（操作按钮行拦住点击冒泡，见 stopPropagation）
+    assert 'className="row server-card-foot" onClick={(e) => e.stopPropagation()} style={{ justifyContent: "flex-end", paddingTop: 12, alignItems: "center" }}>' in tsx
     foot = tsx.split('className="row server-card-foot"')[1][:600]
     assert 'className="muted status-detail"' not in foot
     assert '<ActionButtons a={a} />' in foot
@@ -678,14 +689,18 @@ def test_theme_lines_alignment_dash_left_accounts_left():
 def test_group_card_custom_interval_and_start_time():
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
     group_card = tsx.split("function GroupCard")[1].split("function ChannelCard")[0]
-    # 轮巡周期有“自定义”选项（值 0），选自定义时数值输入直接跟在选项下面
-    # （数字 + 分钟/小时/天，可编辑），不再另起“自定义间隔”行；
-    # 自定义按钮带 sub 第二行数值（双行显示），所以选项行以 sub 结尾，不再是 label 后直接闭合
+    # 轮巡周期有“自定义”选项（值 0），点自定义弹出对话框（数字 + 分钟/
+    # 小时/天，可编辑），保存后对话框隐藏，再点又弹出；内联的数值输入行
+    # 已取消（失焦保存也随之取消）；自定义按钮带 sub 第二行数值（双行显示），
+    # 所以选项行以 sub 结尾，不再是 label 后直接闭合
     assert '{ value: "0", label: t("自定义"), sub: interval === "0"' in group_card
     assert 'interval === "0"' in group_card
-    assert 't("自定义间隔")' not in group_card
+    # “自定义间隔”只作为轮巡周期对话框的标签出现一次，不再是内联输入行
+    assert 'CustomValueDialog title={t("自定义轮巡周期")}' in group_card
+    assert group_card.count('t("自定义间隔")') == 1
+    assert 'onBlur={() => savePatch({ custom_interval_minutes:' not in group_card
     assert 'custom_interval_minutes' in group_card
-    # 自定义的数值输入在轮巡周期 Seg 之后、开始时间之前（同一缩进 div 内）
+    # 自定义的数值输入在轮巡周期 Seg 之后、开始时间之前（对话框跟在 Seg 后面）
     assert group_card.index('<Seg value={interval}') < group_card.index('value={custVal}') < group_card.index('t("开始时间")')
     # 开始时间默认 00:00:00，带秒的 time 输入，失焦自动保存
     assert 'interval_start_time: startTime || "00:00:00"' in group_card
@@ -1331,19 +1346,30 @@ def test_dynamic_mode_heading_not_bold():
 
 
 def test_global_custom_interval_tap_does_not_save_immediately():
-    # 全局设置里动态切换间隔 / 轮巡周期的“自定义”选项点不开（2026-11-26 报障）：
-    # 根因是点“自定义”时 onChange 一边显示输入框、一边立刻把当前值存了一次，
-    # 保存完成刷新 settings 后同步 effect 见存值是预设（30 / 6 小时）就把选项
-    # 弹回预设，输入框被卸载，用户来不及打字。修法：点“自定义”只显示输入框
-    # 不存，输完失焦再存（失焦保存本来就有）；输 45 这类非预设值存完仍留在自定义。
+    # 全局设置里动态切换间隔 / 轮巡周期 / API 刷新的“自定义”选项（2026-11-27
+    # 改成对话框）：点“自定义”只弹出对话框不存，保存（点确定 / 点弹窗内
+    # 非编辑区 / 点弹窗外）后对话框隐藏，再点“自定义”又弹出来；输 45 这类
+    # 非预设值存完仍留在自定义。旧的点选即存、内联输入行已取消。
     tsx = (ROOT / "web" / "src" / "App.tsx").read_text(encoding="utf-8")
-    assert 'onChange={(v) => { setSDynInterval(v); if (v === "0") return; saveParamSettings({ dynamic_interval_minutes: Number(v) }); }}' in tsx
-    assert 'onChange={(v) => { setSInterval(v); if (v === "0") return; saveParamSettings({ interval_hours: v }); }}' in tsx
+    # 点“自定义”只弹对话框，不立即存：动态间隔、轮巡周期、API 刷新三处
+    assert 'setShowSDynCustom(true); return; } setSDynInterval(v);' in tsx
+    assert 'setShowSIntervalCustom(true); return; } setSInterval(v);' in tsx
+    assert 'setShowSRefreshCustom(true); return; } setSRefresh(v);' in tsx
     # 旧的点选即存写法已删除
     assert 'dynamic_interval_minutes: v === "0" ? Math.max(30' not in tsx
-    # 失焦保存还在：动态自定义输入框失焦存分钟数，轮巡自定义区失焦存整组参数
-    assert 'onBlur={() => saveParamSettings({ dynamic_interval_minutes: Math.max(30, Number(sDynCustVal) || 30) })}' in tsx
-    assert '{sInterval === "0" && (' in tsx
+    assert 'onChange={(v) => { setSDynInterval(v); if (v === "0") return; saveParamSettings({ dynamic_interval_minutes: Number(v) }); }}' not in tsx
+    assert 'onChange={(v) => { setSInterval(v); if (v === "0") return; saveParamSettings({ interval_hours: v }); }}' not in tsx
+    # 内联输入行已取消，保存走对话框（CustomValueDialog，保存后隐藏）
+    assert '{sInterval === "0" && (' not in tsx
+    assert '{sDynInterval === "0" && (' not in tsx
+    assert '{sRefresh === "custom" && (' not in tsx
+    assert 'CustomValueDialog title={t("自定义动态切换间隔")}' in tsx
+    assert 'CustomValueDialog title={t("自定义轮巡周期")}' in tsx
+    assert 'CustomValueDialog title={t("自定义刷新时间")}' in tsx
+    # 保存发生在对话框的 onSave 里（不是点“自定义”时）
+    assert 'setSDynInterval("0"); saveParamSettings({ dynamic_interval_minutes: v }); setShowSDynCustom(false);' in tsx
+    assert 'setSInterval("0"); saveParamSettings({ interval_hours: "0" }); setShowSIntervalCustom(false);' in tsx
+    assert 'setSRefresh("custom"); saveParamSettings({ api_refresh_minutes: Number(sRefreshCustVal) || 5, scheduler_paused: "0" }); setShowSRefreshCustom(false);' in tsx
 
 
 def test_lang_button_same_size_as_icon_buttons_and_current_lang_accent():
@@ -1801,7 +1827,7 @@ def test_server_card_groups_modes_and_masked_instance_id():
     assert 'return id.startsWith("i-") ? `${id.slice(0, 8)}***` : `${id.slice(0, 6)}***`;' in tsx
     assert 'const IdView = ({ a }: { a: Any }) => {' in tsx
     assert '<span>{maskInstanceId(id)}</span>' in tsx
-    assert 'title={t("复制实例 ID")} onClick={() => void copyInstanceId(id)}>⧉</button>' in tsx
+    assert 'title={t("复制实例 ID")} onClick={(e) => { e.stopPropagation(); void copyInstanceId(id); }}>⧉</button>' in tsx
     assert 'const copyInstanceId = async (id: string) => { await copyText(id, t("实例 ID 已复制")); };' in tsx
     # 区域与站点是单独的指标（标签在上、数值在下，和运行概览卡片同款），
     # 不再是 ID / IP 后面的小字后缀；卡片指标顺序与列表一致：
@@ -2393,8 +2419,9 @@ def test_public_overview_and_login_modal():
     assert 'get("/api/public/status")' in tsx
     assert "const loadPublic = async () => {" in tsx
     assert 'useEffect(() => { if (authState === "public") loadPublic(); }, [authState]);' in tsx
-    # 未登录时页签只留概览：导航只在登录后渲染，tab 强制回概览
-    assert '{authState === "authed" && (\n        <nav ref={navRef}>' in tsx
+    # 未登录时页签只留概览：导航只在登录后渲染，tab 强制回概览；
+    # 导航放进页眉里，和页眉一起固定在顶部（2026-11-27）
+    assert '{authState === "authed" && (\n          <nav ref={navRef}>' in tsx
     # 铃铛（面板更新）未登录时隐藏
     assert '{authState === "authed" && (<div className="theme-menu">' in tsx
     # 右上角一个按钮：登录后退出登录，未登录时登录（点开登录弹窗）
