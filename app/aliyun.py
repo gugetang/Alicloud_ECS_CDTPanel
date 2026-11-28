@@ -352,13 +352,17 @@ class AliyunClient:
     def allocate_eip(self, bandwidth: int | None = None) -> dict:
         """申请一个新 EIP（按量付费、按流量计费）。返回
         {"allocation_id", "ip"}。bandwidth 给了就按旧 EIP 的带宽申请，
-        不给用接口默认值（5 Mbit/s）。"""
+        不给用接口默认值（5 Mbit/s）。
+        按流量计费时带宽只允许 1~200 Mbit/s；旧 EIP 在共享带宽包里时
+        这里读到的是包的带宽（如 1000），直接传会报
+        OperationFailed.SaleValidate，所以钳到 200。反正新 EIP 随后
+        会加进同一个共享带宽包，包的带宽说了算，单 EIP 带宽不重要。"""
         import json
         params: dict = {"RegionId": self.region,
                         "InstanceChargeType": "PostPaid",
                         "InternetChargeType": "PayByTraffic"}
         if bandwidth:
-            params["Bandwidth"] = str(bandwidth)
+            params["Bandwidth"] = str(min(int(bandwidth), 200))
         try:
             raw = self._common(_vpc_domain(self.region), VPC_VERSION,
                                "AllocateEipAddress", self.region, params)

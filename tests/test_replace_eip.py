@@ -319,6 +319,20 @@ def test_client_allocate_eip_params():
     assert params["Bandwidth"] == "5"
 
 
+def test_client_allocate_eip_clamps_bandwidth_to_pay_by_traffic_max():
+    # 旧 EIP 在共享带宽包里时读到的是包的带宽（如 1000），按流量计费
+    # 只允许 1~200，直接传会报 OperationFailed.SaleValidate，钳到 200。
+    c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
+                      "instance_id": "i-eip123"}, "y")
+    with patch.object(c, "_common", return_value=json.dumps(
+            {"AllocationId": NEW_ALLOC, "EipAddress": NEW_IP})) as m:
+        out = c.allocate_eip(bandwidth=1000)
+    assert out == {"allocation_id": NEW_ALLOC, "ip": NEW_IP}
+    _, _, action, _, params = m.call_args.args
+    assert action == "AllocateEipAddress"
+    assert params["Bandwidth"] == "200"
+
+
 def test_client_describe_eip_parses():
     c = AliyunClient({"access_key_id": "x", "region": "cn-hongkong",
                       "instance_id": "i-eip123"}, "y")
