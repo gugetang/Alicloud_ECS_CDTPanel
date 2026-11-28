@@ -32,6 +32,13 @@ _wake = threading.Event()
 _last_run: dict = {}
 _lock = threading.Lock()
 _thread_lock = threading.Lock()
+# 成员变更触发的立即对比：置位后由调度线程下一轮消费（_lock 串行，
+# 避免与正常轮次并发跑两轮）；消费时只用库里已有数据重算，不调 API。
+_immediate_compare = False
+# 立即对比的防抖延迟（秒）：连续改多个成员时，只在最后一次改动后
+# 延迟这么久比一次，避免来回切 DNS 抖动。
+IMMEDIATE_COMPARE_DELAY_SECONDS = 5.0
+_immediate_compare_timer: threading.Timer | None = None
 
 
 def _tz():
@@ -459,10 +466,12 @@ class _DnsOps(engine.DnsOps):
 
 
 def run_once(dry_run: bool = False, refresh: bool = True,
-             quiet: bool = False) -> dict:
+             quiet: bool = False, force_dynamic: bool = False) -> dict:
     """跑一轮调度。dry_run=True 时不调 VPS/DNS，只返回 Plan（试算）。
     quiet=True：DDNS 检查用，不写“调度完成”事件、不建 job、不更新
-    _last_run，避免每分钟一条日志刷屏。"""
+    _last_run，避免每分钟一条日志刷屏。
+    force_dynamic=True：成员变更触发的立即对比——动态模式本轮视同间隔
+    到点，直接按剩余流量选最优成员。"""
     settings = db.get_settings()
     now = _now()
     # 刷新前快照：用来判断本轮哪些停机标记是被 API 流量刷新解除的
@@ -506,7 +515,8 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                                  night_done_by_group=night_by_group,
                                  fixed_done_by_group=fixed_by_group,
                                  last_switch_by_group=anchor_by_group,
-                                 previously_evicted_ids=prev_evicted)
+                                 previously_evicted_ids=prev_evicted,
+                                 force_dynamic=force_dynamic)
     # 流量更新后重新加入的实例：本轮随即拉起的 start 动作原因改成
     # keepalive_rejoin，推送里写清“流量更新后重新加入”，而不是只写
     # “保活拉起”。只改原因/detail，不改动作本身；dry_run 也同样体现。
@@ -1214,10 +1224,14 @@ def _loop() -> None:
             log.exception("数据清理检查失败: %s", exc)
         # DDNS 检查固定每分钟一次（无后端设置）；完整轮次（带 API 刷新）
         # 按 API 刷新时间跑。第一次立即跑完整轮次。
+        # 成员变更的立即对比优先：只用库里已有数据（不等 API 刷新），动态
+        # 模式本轮视同间隔到点；跑完后下次循环仍按正常间隔跑完整轮次。
         now_ts = time.time()
         full_interval = _refresh_minutes(settings) * 60
         try:
-            if now_ts - last_full >= full_interval:
+            if _take_immediate_compare():
+                run_once(refresh=False, quiet=True, force_dynamic=True)
+            elif now_ts - last_full >= full_interval:
                 run_once()
                 last_full = time.time()
             else:
@@ -1259,3 +1273,36 @@ def stop(timeout: float = 30) -> None:
 
 def wake() -> None:
     _wake.set()
+
+
+def _fire_immediate_compare() -> None:
+    """防抖到期：置位并唤醒调度线程，下一轮做立即对比。"""
+    global _immediate_compare
+    with _lock:
+        _immediate_compare = True
+    wake()
+
+
+def request_immediate_compare() -> None:
+    """成员变更后立即对比一次：5 秒防抖（连续改多个成员只比一次，
+    以最后一次改动为准），到期后调度线程下一轮直接用库里已有数据
+    重算分配并同步 DNS（不等 API 刷新），动态模式本轮视同间隔到点。
+    实际对比仍由调度线程跑，不与正常轮次并发；暂停时标志保留，恢复后跑。"""
+    global _immediate_compare_timer
+    with _lock:
+        if _immediate_compare_timer is not None:
+            _immediate_compare_timer.cancel()
+        _immediate_compare_timer = threading.Timer(
+            IMMEDIATE_COMPARE_DELAY_SECONDS, _fire_immediate_compare)
+        _immediate_compare_timer.daemon = True
+        _immediate_compare_timer.start()
+
+
+def _take_immediate_compare() -> bool:
+    """调度线程消费一次立即对比请求（置位即返回 True 并清位）。"""
+    global _immediate_compare
+    with _lock:
+        if _immediate_compare:
+            _immediate_compare = False
+            return True
+        return False

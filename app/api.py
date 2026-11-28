@@ -962,6 +962,7 @@ def update_account(aid: int, body: dict, _: bool = Depends(_admin_required)):
     if data.get("access_key_secret"):
         data["access_key_secret_enc"] = encrypt_secret(data.pop("access_key_secret"))
     old = db.get_account(aid)
+    old_gids = set(db.get_account_group_ids(aid)) if old else set()
     try:
         row = db.update_account(aid, data)
     except ValueError as e:
@@ -972,6 +973,13 @@ def update_account(aid: int, body: dict, _: bool = Depends(_admin_required)):
     if old and data.get("name") and (old.get("name") or "").strip() != (row.get("name") or "").strip():
         db.add_event("account", "服务器改名",
                      f"{old.get('name')} → {row.get('name')}", account_id=aid)
+    # 成员变更后立即对比一次：请求调度线程下一轮直接用库里已有数据
+    # 重算分配并同步 DNS（不等 API 刷新），动态模式本轮视同间隔到点，
+    # 池内有效 IP 立即按各自规则生效（只在成员真的变了时触发，
+    # 同值重保存不触发）。
+    if "group_ids" in data or "group_id" in data:
+        if set(db.get_account_group_ids(aid)) != old_gids:
+            scheduler.request_immediate_compare()
     return _public_account(row)
 
 

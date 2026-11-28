@@ -575,13 +575,16 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
                  last_time_switch_at: dt.datetime | None = None,
                  grouped: bool = False,
                  previously_evicted_ids: set[int] | None = None,
-                 group_name: str = "默认分组") -> Plan:
+                 group_name: str = "默认分组",
+                 force_dynamic: bool = False) -> Plan:
     """单个调度单元（一个分组，或 legacy 的全量）的排班。
     grouped=True 时 1 分组=1 域名：只调度该组优先级最高的 1 个域名，
     目标永远是池内用量最低的可分配 IP，不循环；grouped=False（legacy）
     保留多域名按优先级循环分配。
     previously_evicted_ids：上一轮已踢出的账户（调度器经 flags 传入），
-    用于恢复滞后判断。"""
+    用于恢复滞后判断。
+    force_dynamic：成员变更触发的立即对比——动态模式本轮视同间隔到点，
+    直接按剩余流量选最优成员，不等下一个动态间隔。"""
     night_done_dates = night_done_dates or set()
     fixed_done_dates = fixed_done_dates or set()
     previously_evicted_ids = previously_evicted_ids or set()
@@ -634,9 +637,10 @@ def _plan_single(accounts: list[AccountView], domains: list[DomainView],
     # 动态切换（dynamic）：按动态间隔切到剩余流量最多的服务器（池首位），
     # 不看差值阈值。间隔取动态间隔（默认 30 分钟，最少 30 分钟），与 time
     # 的间隔共用 last_time_switch 锚点；首次检查建锚点，本轮不切。
+    # force_dynamic（成员变更触发的立即对比）时本轮视同间隔到点。
     dynamic_due_flag = False
     if dynamic_enabled:
-        if interval_due(now, last_time_switch_at, cfg):
+        if force_dynamic or interval_due(now, last_time_switch_at, cfg):
             dynamic_due_flag = True
         elif last_time_switch_at is None:
             plan.interval_anchor_at = interval_anchor_for(now, cfg) or now
@@ -895,6 +899,7 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
                    fixed_done_by_group: dict[int, set[str]] | None = None,
                    last_switch_by_group: dict[int, dt.datetime | None] | None = None,
                    previously_evicted_ids: set[int] | None = None,
+                   force_dynamic: bool = False,
                    ) -> Plan:
     """排班入口（保持向后兼容）。
     groups=None：legacy 单组全量路径，使用全局 switch_mode（含 both），
@@ -906,13 +911,15 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
       兼容测试）。group_id 为 None 的账户/域名归默认分组（id=1）。
     previously_evicted_ids：上一轮已踢出的账户 id（调度器经 flags 传入），
       用于阈值恢复滞后判断（恢复线=阈值-2%）。
+    force_dynamic：成员变更触发的立即对比——动态模式本轮视同间隔到点。
     阈值踢出/保活/首次分配/备用地址在各组、各模式下都生效。"""
     if groups is None:
         return _plan_single(accounts, domains, cfg, now,
                             night_done_dates, fixed_done_dates,
                             last_time_switch_at, grouped=False,
                             previously_evicted_ids=previously_evicted_ids,
-                            group_name="默认分组")
+                            group_name="默认分组",
+                            force_dynamic=force_dynamic)
     by_gid: dict[int, GroupView] = {g.id: g for g in groups}
     if 1 not in by_gid:
         by_gid[1] = GroupView(id=1, name="默认分组", switch_mode="load_balance")
@@ -944,7 +951,8 @@ def plan_reconcile(accounts: list[AccountView], domains: list[DomainView],
                          else last_time_switch_at, gid, None)
         sub = _plan_single(gaccs, gdoms, gcfg, now, nd, fd, anchor, grouped=True,
                            previously_evicted_ids=previously_evicted_ids,
-                           group_name=group.name)
+                           group_name=group.name,
+                           force_dynamic=force_dynamic)
         merged.assignments.update(sub.assignments)
         merged.actions.extend(sub.actions)
         merged.notifications.extend(sub.notifications)
