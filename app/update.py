@@ -1,12 +1,14 @@
-"""面板在线更新：查 GitHub 最新版本，并用 Docker socket 拉镜像重建容器。
+"""面板在线更新：查 GitHub 最新已发布版本，并用 Docker socket 拉镜像重建容器。
 
 版本来源：镜像构建时注入的环境变量 CDT_VERSION（Dockerfile 里
 CDT_VERSION=$VERSION，工作流用 git describe --tags --always 算出，
 如 v1.1.0、v1.1.0-2-g53f14a3；未注入时为 "dev"，此时无法判断是否有
-更新，status 会如实返回 update_available=false）。更新判断不用显示
-版本号，而用提交 SHA：CDT_COMMIT_SHA（工作流传 git rev-parse HEAD），
-与 GitHub 最新提交比对，显示版与判断版分开。
-最新版本来源：GitHub API（GET /repos/gugetang/Alicloud_ECS_CDTPanel/commits/main），
+更新，status 会如实返回 update_available=false）。
+最新版本来源：GitHub API（GET /repos/gugetang/Alicloud_ECS_CDTPanel/releases/latest），
+只取已发布的正式版本（不含草稿和预发布），再按 tag 取提交得 SHA。
+更新判断只认已发布版本：main 上有了新提交但还没发版时不算有更新，
+不推更新通知，铃铛也不亮——因为 :latest 镜像只在 v* tag 构建时才推，
+没发版就没有新镜像可更新。
 直连 HTTPS（不走通知代理），失败只影响状态显示、绝不让接口报错；结果
 在内存里缓存 1 小时（未登录 GitHub 限额 60 次/小时）。
 在线更新：走 Docker socket（/var/run/docker.sock，需 compose 挂载）拉取
@@ -27,7 +29,8 @@ import requests
 REPO = "gugetang/Alicloud_ECS_CDTPanel"
 IMAGE_REPO = "ghcr.io/gugetang/alicloud_ecs_cdtpanel"
 IMAGE_TAG = "latest"
-GITHUB_API = f"https://api.github.com/repos/{REPO}/commits/main"
+RELEASES_API = f"https://api.github.com/repos/{REPO}/releases/latest"
+COMMITS_API = f"https://api.github.com/repos/{REPO}/commits"
 MANUAL_CMD = "docker compose pull && docker compose up -d"
 _CACHE_TTL = 3600  # GitHub 未登录限额 60 次/小时，缓存 1 小时够用
 
@@ -45,21 +48,70 @@ def current_commit() -> str:
     return os.environ.get("CDT_COMMIT_SHA", "dev")
 
 
-def _fetch_latest() -> dict[str, Any]:
+def _get_json(url: str) -> dict[str, Any]:
     r = requests.get(
-        GITHUB_API,
+        url,
         headers={"Accept": "application/vnd.github+json",
                  "User-Agent": "Alicloud-ECS-CDTPanel"},
         timeout=10,
     )
     r.raise_for_status()
-    j = r.json() or {}
-    commit = j.get("commit") or {}
+    return r.json() or {}
+
+
+def _fetch_latest() -> dict[str, Any]:
+    """取最新已发布版本：releases/latest 只返回正式发布的版本
+    （GitHub 自动排除草稿和预发布），再按 tag 取提交得 SHA。
+    尚无已发布版本时 releases/latest 返回 404，返回空版本（不是报错，
+    只表示没有可更新的版本）。"""
+    try:
+        rel = _get_json(RELEASES_API)
+    except requests.HTTPError as exc:
+        resp = getattr(exc, "response", None)
+        if resp is not None and resp.status_code == 404:
+            return {"tag": None, "sha": None, "message": "", "date": ""}
+        raise
+    tag = (rel.get("tag_name") or "").strip() or None
+    if not tag:
+        return {"tag": None, "sha": None, "message": "", "date": ""}
+    commit = _get_json(f"{COMMITS_API}/{tag}")
+    body = (rel.get("body") or "").strip()
+    message = body.splitlines()[0] if body else (rel.get("name") or "")
+    committer = (commit.get("commit") or {}).get("committer") or {}
     return {
-        "sha": j.get("sha"),
-        "message": commit.get("message", ""),
-        "date": (commit.get("committer") or {}).get("date", ""),
+        "tag": tag,
+        "sha": commit.get("sha"),
+        "message": message,
+        "date": rel.get("published_at") or committer.get("date", ""),
     }
+
+
+def _parse_version(tag: str | None) -> tuple[int, ...] | None:
+    """解析 vX.Y.Z（或 X.Y.Z）为 (X, Y, Z)；git describe 的
+    vX.Y.Z-N-gSHA 只取基线 vX.Y.Z。解析失败返回 None。"""
+    if not tag:
+        return None
+    s = str(tag).strip().lstrip("vV").split("-")[0]
+    parts = s.split(".")
+    if len(parts) != 3 or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _is_newer_release(latest_tag: str | None, latest_sha: str | None,
+                      current_version: str, current_commit: str) -> bool:
+    """最新已发布版本是否比当前新。当前是 dev（未注入版本标记）时无法
+    比较，不谎报有更新。tag 能解析成版本号时按版本号比（main 超前于
+    最新发布版时也不算有更新）；解析失败时退回 SHA 比对。"""
+    if not latest_tag and not latest_sha:
+        return False  # 尚无已发布版本
+    if not current_commit or current_commit == "dev":
+        return False
+    rel_ver = _parse_version(latest_tag)
+    cur_ver = _parse_version(current_version)
+    if rel_ver is not None and cur_ver is not None:
+        return rel_ver > cur_ver
+    return bool(latest_sha and latest_sha != current_commit)
 
 
 def check_latest(force: bool = False) -> dict[str, Any]:
@@ -82,13 +134,15 @@ def status() -> dict[str, Any]:
     commit = current_commit()
     res = check_latest()
     latest = res.get("latest") or {}
+    latest_tag = latest.get("tag")
     latest_sha = latest.get("sha")
-    # 更新判断用提交 SHA（显示版本号是标签版，如 v1.1.0-2-g53f14a3，不能直接比 SHA）；
-    # 提交 SHA 是 "dev"（镜像未注入）时无法比较，不谎报有更新
-    update_available = bool(commit and commit != "dev" and latest_sha and commit != latest_sha)
+    # 更新判断只认已发布版本：最新 release 的 tag 比当前版本新才算有更新；
+    # main 上有新提交但没发版时不算。显示用版本号（tag），tag 缺失时
+    # 退回 SHA 前 7 位；提交 SHA 是 "dev"（镜像未注入）时无法比较，不谎报有更新
+    update_available = _is_newer_release(latest_tag, latest_sha, cur, commit)
     return {
         "current_version": cur,
-        "latest_version": latest_sha,
+        "latest_version": latest_tag or (latest_sha[:7] if latest_sha else ""),
         "latest_message": latest.get("message"),
         "latest_date": latest.get("date"),
         "update_available": update_available,

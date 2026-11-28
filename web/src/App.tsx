@@ -2458,7 +2458,7 @@ export default function App() {
                         <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true" style={{ marginLeft: "auto", color: "var(--muted)" }}><circle cx="2.5" cy="3" r="1.3" /><circle cx="7.5" cy="3" r="1.3" /><circle cx="2.5" cy="8" r="1.3" /><circle cx="7.5" cy="8" r="1.3" /><circle cx="2.5" cy="13" r="1.3" /><circle cx="7.5" cy="13" r="1.3" /></svg>
                       </div>
                       <div className="muted" style={{ marginTop: 4 }}>{t("当前版本")}：{shortVersion(upd?.current_version) || "—"}</div>
-                      <div className="muted">{t("最新版本")}：{(upd?.latest_version || "").slice(0, 7) || "—"}</div>
+                      <div className="muted">{t("最新版本")}：{shortVersion(upd?.latest_version) || "—"}</div>
                       {upd?.latest_message && <div className="muted" style={{ marginTop: 4, whiteSpace: "normal" }}>{String(upd.latest_message).split("\n")[0]}</div>}
                       {upd?.latest_date && <div className="muted">{new Date(upd.latest_date).toLocaleString(lang === "zh" ? "zh-CN" : "en-US")}</div>}
                     </div>

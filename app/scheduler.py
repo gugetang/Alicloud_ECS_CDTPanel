@@ -957,14 +957,15 @@ def _persist_threshold_recovery(settings: dict, accounts: list[dict],
 
 
 def _maybe_notify_update(settings: dict) -> bool:
-    """发现面板新版本时推送一次到 TG/Email（每个版本只推一次）。
+    """发现面板新版本时推送一次到 TG/Email（每个已发布版本只推一次）。
 
     每轮（60 秒）都检查一次：update.status() 自带 1 小时 GitHub 缓存，
     开销只是一次字典查找。满足以下条件才推：
-    - update_available 为真（当前版本不是 dev 且与最新 SHA 不同）；
+    - update_available 为真（最新已发布版本的 tag 比当前版本新；
+      main 上有新提交但没发版时不算有更新）；
     - 该最新版本还没推过（flags.update_notified_version != latest）。
-    推完把最新 SHA 记到 flags.update_notified_version；下次再有更新
-    （SHA 变了）才再推。开关关闭时不推也不记（Notifier.send 会拦）。
+    推完把最新版本记到 flags.update_notified_version；下次再有更新
+    （版本变了）才再推。开关关闭时不推也不记（Notifier.send 会拦）。
     调度暂停时也检查（与每日财报同款位置），只为让更新通知不受调度影响。
     返回 True 表示本次推送了更新通知。
     """
@@ -984,8 +985,8 @@ def _maybe_notify_update(settings: dict) -> bool:
         return False
     title = "面板有新版本"
     body = (
-        f"当前版本：{(st.get('current_version') or '')[:7] or '—'}\n"
-        f"最新版本：{latest[:7]}\n"
+        f"当前版本：{(st.get('current_version') or '') or '—'}\n"
+        f"最新版本：{latest}\n"
         f"{(st.get('latest_message') or '').splitlines()[0] if st.get('latest_message') else ''}\n"
         "请到面板右上角铃铛点“立即更新”。"
     ).strip()
