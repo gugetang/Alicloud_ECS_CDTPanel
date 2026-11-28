@@ -1059,31 +1059,58 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
                  notify_fn=None, dry_run: bool = False) -> dict:
     """三段式执行，强制顺序 start → dns/dns_fallback → stop：
     停机永远在 DNS 切换之后（即使 Plan 动作顺序被打乱），dry_run 直接返回，
-    不调任何外部接口。"""
+    不调任何外部接口。
+    单个动作失败不中断整轮：失败的动作记进 failed（调用方决定是否记事件），
+    其余动作继续执行——保活拉起失败（如实例已过期）不能卡住 DNS 切换，
+    也不能让整轮以“调度异常”收场。
+    """
     if dry_run:
-        return {"executed": [], "dry_run": True, "summary": plan.summary}
+        return {"executed": [], "failed": [], "dry_run": True, "summary": plan.summary}
     by_acc = {a.id: a for a in accounts}
     by_dom = {d.id: d for d in domains}
     executed: list[str] = []
+    failed: list[dict] = []
+
+    def _brief(exc: Exception) -> str:
+        msg = str(exc).strip()
+        # 阿里云错误尾巴是 RequestID，去掉；太长截断
+        if "RequestID" in msg:
+            msg = msg.split("RequestID")[0].strip()
+        return msg[:200] or exc.__class__.__name__
+
     # 1) 保活拉起
     for act in plan.actions:
         if act.kind == "start" and act.account_id in by_acc:
-            cloud.start(by_acc[act.account_id])
-            executed.append(f"start:{by_acc[act.account_id].name}")
+            acc = by_acc[act.account_id]
+            try:
+                cloud.start(acc)
+            except Exception as exc:  # noqa: BLE001 - 单动作失败不中断整轮
+                failed.append({"kind": "start", "account_id": acc.id,
+                               "domain_id": act.domain_id, "name": acc.name,
+                               "error": _brief(exc)})
+                continue
+            executed.append(f"start:{acc.name}")
             # 推送：实例启动（可开关，默认开）。原因用 Action 已有的
             # reason/detail，不编造新分类；域名写清楚是为哪个域名拉起。
             dom = by_dom.get(act.domain_id) if act.domain_id else None
             plan.notifications.append(
                 ("instance_start", "实例启动",
-                 f"{by_acc[act.account_id].name} 已启动"
+                 f"{acc.name} 已启动"
                  + (f"（{act.detail}）" if act.detail else "")
                  + (f"，域名：{dom.name}" if dom else "")
                  + f"，原因：{_reason_label(act.reason, '保活拉起')}"))
     # 2) DNS 切换 / 备用地址
     for act in plan.actions:
         if act.kind in ("dns", "dns_fallback") and act.domain_id in by_dom:
-            changed = dns.set_record(by_dom[act.domain_id], act.target_ip)
-            executed.append(f"{act.kind}:{by_dom[act.domain_id].name}->{act.target_ip}"
+            dom = by_dom[act.domain_id]
+            try:
+                changed = dns.set_record(dom, act.target_ip)
+            except Exception as exc:  # noqa: BLE001 - 单动作失败不中断整轮
+                failed.append({"kind": act.kind, "account_id": None,
+                               "domain_id": dom.id, "name": dom.name,
+                               "error": _brief(exc)})
+                continue
+            executed.append(f"{act.kind}:{dom.name}->{act.target_ip}"
                             f"{' changed' if changed else ' unchanged'}")
             # 日志缺口：IP 变化后重新同步、分组暂停指向 0.0.0.0 这两类
             # DNS 动作原来没有通知/日志，调度完成里只剩“动作 1 条”。
@@ -1092,14 +1119,20 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
             if act.kind == "dns" and act.reason in ("ip_changed", "group_paused"):
                 plan.notifications.append(
                     ("dns_change", "DNS 指向变化",
-                     act.detail or f"{by_dom[act.domain_id].name} → {act.target_ip}"
+                     act.detail or f"{dom.name} → {act.target_ip}"
                      f"（{act.reason}）"))
     # 3) 排除停机（最后，且仅当 Plan 里有 stop 动作，即排除操作 != none）
     for act in plan.actions:
         if act.kind == "stop" and act.account_id in by_acc:
             acc = by_acc[act.account_id]
             stop_charging = act.stop_charging
-            cloud.stop(acc, stop_charging=stop_charging)
+            try:
+                cloud.stop(acc, stop_charging=stop_charging)
+            except Exception as exc:  # noqa: BLE001 - 单动作失败不中断整轮
+                failed.append({"kind": "stop", "account_id": acc.id,
+                               "domain_id": act.domain_id, "name": acc.name,
+                               "error": _brief(exc)})
+                continue
             executed.append(f"stop:{acc.name}")
             # 推送：实例停机（可开关，默认开）。原因用 Action 已有的
             # reason/detail：节省停机/普通停机按 stop_charging 区分，
@@ -1114,4 +1147,4 @@ def execute_plan(plan: Plan, accounts: list[AccountView], domains: list[DomainVi
     if notify_fn:
         for event, title, body in plan.notifications:
             notify_fn(event, title, body)
-    return {"executed": executed, "dry_run": False, "summary": plan.summary}
+    return {"executed": executed, "failed": failed, "dry_run": False, "summary": plan.summary}

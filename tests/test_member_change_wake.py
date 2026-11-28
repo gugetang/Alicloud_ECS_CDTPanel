@@ -245,3 +245,208 @@ def test_immediate_compare_debounces_rapid_changes(monkeypatch):
     assert scheduler._take_immediate_compare() is False  # 已消费
     # 清掉模块里的定时器引用，避免影响其它测试
     scheduler._immediate_compare_timer = None
+
+
+def test_execute_failure_does_not_block_dns_switch(tmpdb, monkeypatch):
+    """保活拉起失败（如实例已过期）不卡住 DNS 切换，且失败只记一次事件。
+
+    线上问题（2026-11-29）：保活拉起已过期实例抛 InstanceExpired，
+    execute_plan 无 try/except，整轮以“调度异常”收场，DNS 切换从未执行，
+    域名一直指向已移出分组的旧实例。
+    """
+    from app import scheduler
+    _FakeDns.calls = []
+    g, a1, a2, d = _setup_pool(tmpdb)
+    # A3：已停机、无停机原因，保活每轮都会尝试拉起
+    a3 = tmpdb.create_account({"name": "A3"})
+    tmpdb.update_account(a3["id"], {"traffic_used_gb": 50.0,
+                                    "instance_status": "Stopped",
+                                    "public_ip": "203.0.113.3"})
+    # A2 入池且更优（20G vs 160G），DNS 应切到 A2
+    client = TestClient(create_app())
+    assert client.put(f"/api/accounts/{a2['id']}",
+                      json={"group_ids": [g["id"]]}).status_code == 200
+
+    class _FailingCloud(_FakeCloud):
+        def start(self, account):
+            raise RuntimeError(
+                "HTTP Status: 403 Error:InstanceExpired The prePaid instance "
+                "has been expired. RequestID: 01A222EC")
+
+    monkeypatch.setattr("app.scheduler._CloudOps", _FailingCloud)
+    monkeypatch.setattr("app.scheduler._DnsOps", _FakeDns)
+    scheduler.run_once(refresh=False, quiet=True)
+    # DNS 切换照常执行（不被失败的拉起卡住）
+    assert ("premium.example.xyz", "203.0.113.2") in _FakeDns.calls
+    assert tmpdb.get_domain(d["id"])["current_account_id"] == a2["id"]
+    # 失败记一条 error 事件
+    evs = [e for e in tmpdb.list_events() if e.get("title") == "执行失败"]
+    assert len(evs) == 1
+    assert "A3" in evs[0]["detail"] and "InstanceExpired" in evs[0]["detail"]
+    # 再跑一轮：同一失败不重复记事件
+    scheduler.run_once(refresh=False, quiet=True)
+    evs = [e for e in tmpdb.list_events() if e.get("title") == "执行失败"]
+    assert len(evs) == 1
+    # 拉起恢复成功后清标记：下次再失败可再记
+    monkeypatch.setattr("app.scheduler._CloudOps", _FakeCloud)
+    scheduler.run_once(refresh=False, quiet=True)
+    assert not tmpdb.get_flag(f"action_failed_logged:start:{a3['id']}")
+    monkeypatch.setattr("app.scheduler._CloudOps", _FailingCloud)
+    scheduler.run_once(refresh=False, quiet=True)
+    evs = [e for e in tmpdb.list_events() if e.get("title") == "执行失败"]
+    assert len(evs) == 2
+
+
+# ---------------------------------------------------------------------------
+# 触发面扩展：改运行模式 / 切换模式 / 动态间隔、实例停机 / 拉起后也立即对比
+# ---------------------------------------------------------------------------
+
+def test_group_mode_change_requests_immediate_compare(tmpdb, monkeypatch):
+    from app import scheduler
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    client = TestClient(create_app())
+    # 运行模式 load_balance → dynamic：触发一次
+    r = client.put(f"/api/groups/{g['id']}", json={"switch_mode": "dynamic"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+
+
+def test_group_rename_does_not_request(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    client = TestClient(create_app())
+    # 只改名：不触发
+    r = client.put(f"/api/groups/{g['id']}", json={"name": "Premium-new"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 0
+
+
+def test_group_diff_mode_and_interval_change_requests(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    client = TestClient(create_app())
+    # 切换模式 percent → gb：触发一次
+    r = client.put(f"/api/groups/{g['id']}", json={"switch_diff_mode": "gb"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+    # 动态切换间隔 30 → 60：再触发一次
+    r = client.put(f"/api/groups/{g['id']}",
+                   json={"dynamic_interval_minutes": 60})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 2
+
+
+def test_global_settings_mode_change_requests(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    client = TestClient(create_app())
+    # 全局运行模式改了：触发一次
+    r = client.put("/api/settings", json={"switch_mode": "time"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+
+
+def test_global_settings_other_change_does_not_request(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    client = TestClient(create_app())
+    # 改一个与切换规则无关的设置：不触发
+    r = client.put("/api/settings", json={"api_refresh_minutes": "2"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 0
+
+
+class _FakeAliyunForPower:
+    """开关机测试用假阿里云：start/stop 成功，刷新返回 Running。"""
+
+    def __init__(self, account, secret):
+        self.account = account
+
+    def describe_instance(self):
+        return {"status": "Running", "public_ip": "203.0.113.10",
+                "instance_type": "ecs.t6-c1m1.large"}
+
+    def get_traffic_gb(self):
+        return 42.0
+
+    def get_billing(self, timezone="Asia/Shanghai", force_refresh=False):
+        return None
+
+    def start_instance(self):
+        pass
+
+    def stop_instance(self, stop_charging=False):
+        pass
+
+    def reboot_instance(self):
+        pass
+
+
+def _power_account(tmpdb, client, name, group_id=None):
+    """经 API 建一个带 AK 的账户（可开关机），可选加入分组。
+    分组关系直接写库（不走 PUT /api/accounts，避免成员变更触发立即对比，
+    干扰开关机触发的计数）。"""
+    a = client.post("/api/accounts", json={
+        "name": name, "site": "global", "region": "cn-hongkong",
+        "access_key_id": "LTAI-test", "access_key_secret": "secret-test",
+        "instance_id": f"i-{name.lower()}", "quota_gb": 200}).json()
+    if group_id is not None:
+        tmpdb.set_account_groups(a["id"], [group_id])
+    return a
+
+
+def _patch_aliyun(monkeypatch):
+    monkeypatch.setattr("app.aliyun.AliyunClient", _FakeAliyunForPower)
+    monkeypatch.setattr("app.scheduler.AliyunClient", _FakeAliyunForPower)
+
+
+def test_start_member_requests_immediate_compare(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    _patch_aliyun(monkeypatch)
+    client = TestClient(create_app())
+    member = _power_account(tmpdb, client, "P-Member", group_id=g["id"])
+    r = client.post(f"/api/accounts/{member['id']}/start")
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+
+
+def test_start_non_member_does_not_request(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    _patch_aliyun(monkeypatch)
+    client = TestClient(create_app())
+    # 不在任何分组里：拉起也不判断。新建账户默认进了默认分组，先清掉，
+    # 还原成“不在选中实例内”的状态。
+    outsider = _power_account(tmpdb, client, "P-Outsider")
+    tmpdb.set_account_groups(outsider["id"], [])
+    r = client.post(f"/api/accounts/{outsider['id']}/start")
+    assert r.status_code == 200, r.text
+    assert len(calls) == 0
+
+
+def test_stop_member_requests_immediate_compare(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    _patch_aliyun(monkeypatch)
+    client = TestClient(create_app())
+    member = _power_account(tmpdb, client, "P-Member2", group_id=g["id"])
+    r = client.post(f"/api/accounts/{member['id']}/stop",
+                    json={"stop_charging": False})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+
+
+def test_stop_non_member_does_not_request(tmpdb, monkeypatch):
+    g, a1, a2, d = _setup_pool(tmpdb)
+    calls = _request_recorder(monkeypatch)
+    _patch_aliyun(monkeypatch)
+    client = TestClient(create_app())
+    # 不在任何分组里：停机也不判断。新建账户默认进了默认分组，先清掉。
+    outsider = _power_account(tmpdb, client, "P-Outsider2")
+    tmpdb.set_account_groups(outsider["id"], [])
+    r = client.post(f"/api/accounts/{outsider['id']}/stop",
+                    json={"stop_charging": False})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 0

@@ -571,6 +571,26 @@ def run_once(dry_run: bool = False, refresh: bool = True,
                                    _to_domain_views(domains),
                                    _CloudOps(settings), _DnsOps(settings),
                                    notify_fn=_notify, dry_run=False)
+    # 执行失败的动作：记一条 error 事件，但同一（动作，实例/域名）只记一次，
+    # 避免每分钟刷屏；动作恢复成功后清标记，下次再失败可再记。
+    # （保活拉起失败——如实例已过期——不能卡住整轮，更不能卡住 DNS 切换。）
+    _failed_keys: set[str] = set()
+    for _f in executed.get("failed") or []:
+        _fid = _f.get("account_id") or _f.get("domain_id")
+        _key = f"action_failed_logged:{_f['kind']}:{_fid}"
+        _failed_keys.add(_key)
+        if db.get_flag(_key):
+            continue
+        db.set_flag(_key, "1")
+        _label = {"start": "启动", "stop": "停机", "dns": "DNS 切换",
+                  "dns_fallback": "DNS 备用切换"}.get(_f["kind"], _f["kind"])
+        db.add_event("error", "执行失败",
+                     f"{_f.get('name') or _fid} {_label}失败：{_f.get('error', '')}",
+                     account_id=_f.get("account_id"), domain_id=_f.get("domain_id"))
+    for _act in plan.actions:
+        _k = f"action_failed_logged:{_act.kind}:{_act.account_id or _act.domain_id}"
+        if _k not in _failed_keys and db.get_flag(_k):
+            db.delete_flag(_k)
     # 停机原因标记流转（保活用）：
     # - Plan 里拉起成功的实例 → 清标记（保活恢复默认拉起）；
     # - Plan 里执行的阈值停机（exclusion）→ 记 threshold，保活不再拉起；

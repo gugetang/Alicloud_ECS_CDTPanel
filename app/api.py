@@ -753,12 +753,20 @@ def create_group(body: dict, _: bool = Depends(_admin_required)):
 
 @router.put("/groups/{gid}")
 def update_group(gid: int, body: dict, _: bool = Depends(_admin_required)):
+    old = db.get_group(gid)
     try:
         row = db.update_group(gid, body)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not row:
         raise HTTPException(404, "分组不存在")
+    # 运行模式 / 切换模式（差值规则与阈值）/ 动态切换间隔变了 → 立即对比一次，
+    # 重新判断池内已选中的实例谁该服务（不等调度刷新）。
+    if old is not None:
+        _mode_keys = ("switch_mode", "switch_diff_mode", "switch_diff_pct",
+                      "switch_diff_gb", "dynamic_interval_minutes")
+        if any(old.get(k) != row.get(k) for k in _mode_keys):
+            scheduler.request_immediate_compare()
     return _public_group(row)
 
 
@@ -1046,6 +1054,9 @@ def start_account(aid: int, _: bool = Depends(_admin_required)):
     row = scheduler.refresh_one_account(aid)
     # 手动启动成功 → 清停机原因标记，保活恢复默认拉起
     db.clear_stop_reason(aid)
+    # 选中的实例被拉起/开机 → 立即对比一次，重新判断谁该服务
+    if db.get_account_group_ids(aid):
+        scheduler.request_immediate_compare()
     return _public_row(db.get_account(aid))
 
 
@@ -1081,6 +1092,9 @@ def stop_account(aid: int, body: dict | None = None, _: bool = Depends(_admin_re
     # 手动停机成功 → 记 manual，保活不拉起，直到手动启动/定时开机/
     # 阈值恢复拉起/刷新发现 Running/下一次 API 刷新显示用量在阈值内时清除。
     db.set_stop_reason(aid, "manual")
+    # 选中的实例被停机 → 立即对比一次，重新判断谁该服务
+    if db.get_account_group_ids(aid):
+        scheduler.request_immediate_compare()
     return _public_row(db.get_account(aid))
 
 
@@ -1339,7 +1353,14 @@ def put_settings(body: dict, _: bool = Depends(_admin_required)):
         "cloudflare_token", "telegram_token", "email_password"}
     data = {k: str(v) for k, v in body.items() if k in allowed}
     _validate_settings(data)
-    return _mask(db.set_settings(data))
+    old = db.get_settings()
+    new = db.set_settings(data)
+    # 全局运行模式 / 切换模式 / 动态切换间隔变了 → 立即对比一次
+    _mode_keys = ("switch_mode", "switch_diff_mode", "switch_diff_pct",
+                  "switch_diff_gb", "dynamic_interval_minutes")
+    if any(old.get(k) != new.get(k) for k in _mode_keys):
+        scheduler.request_immediate_compare()
+    return _mask(new)
 
 
 # 站点 logo：上传/读取/删除。文件存在数据目录（site_logo.*），

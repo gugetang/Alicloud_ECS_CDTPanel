@@ -203,6 +203,109 @@ def test_stop_always_after_dns_switch():
 
 
 # ---------------------------------------------------------------------------
+# 细化：单个动作失败不中断整轮（保活拉起失败不能卡住 DNS 切换）
+# 2026-11-29 线上问题：保活拉起已过期实例抛 InstanceExpired，execute_plan
+# 无 try/except，整轮以“调度异常”收场，DNS 切换从未执行，域名一直指向
+# 已移出分组的旧实例。
+# ---------------------------------------------------------------------------
+
+class _FailingCloud(FakeCloud):
+    """指定动作抛错的 cloud：fail_on={"start": {account_id}, "stop": {...}}。"""
+
+    def __init__(self, fail_on=None):
+        super().__init__()
+        self.fail_on = fail_on or {}
+
+    def start(self, account):
+        if account.id in self.fail_on.get("start", set()):
+            raise RuntimeError(
+                "HTTP Status: 403 Error:InstanceExpired The prePaid instance "
+                "has been expired. RequestID: 01A222EC")
+        return super().start(account)
+
+    def stop(self, account, stop_charging):
+        if account.id in self.fail_on.get("stop", set()):
+            raise RuntimeError("stop failed for test")
+        return super().stop(account, stop_charging)
+
+
+class _FailingDns(FakeDns):
+    def set_record(self, domain, ip):
+        raise RuntimeError("dns failed for test")
+
+
+def _plan_with_start_dns_stop():
+    from app.engine import Plan
+    return Plan(
+        assignments={1: 2},
+        actions=[
+            Action("start", domain_id=1, account_id=3, reason="keepalive",
+                   detail="A3 已停机，保活拉起"),
+            Action("dns", domain_id=1, account_id=2, target_ip="203.0.113.2",
+                   reason="initial_assign", detail="切到 A2"),
+            Action("stop", domain_id=1, account_id=1, reason="exclusion",
+                   detail="A1 排除停机", stop_charging=True),
+        ],
+        summary="测试",
+    )
+
+
+def test_execute_plan_start_failure_does_not_block_dns():
+    accounts = [acc(1, 190), acc(2, 20), acc(3, 50, status="Stopped")]
+    plan = _plan_with_start_dns_stop()
+    cloud = _FailingCloud(fail_on={"start": {3}})
+    dns = FakeDns()
+    res = execute_plan(plan, accounts, [dom(1, current=1, ip="203.0.113.1")],
+                       cloud, dns, dry_run=False)
+    # 保活拉起失败不抛错，DNS 切换照常执行，停机也照常执行
+    assert dns.calls == [("www1.example.xyz", "203.0.113.2")]
+    assert ("stop", 1, True) in cloud.calls
+    assert res["failed"] == [{"kind": "start", "account_id": 3, "domain_id": 1,
+                              "name": "A3",
+                              "error": "HTTP Status: 403 Error:InstanceExpired "
+                                       "The prePaid instance has been expired."}]
+    assert any(e.startswith("dns:") for e in res["executed"])
+    assert not any(e.startswith("start:") for e in res["executed"])
+
+
+def test_execute_plan_dns_failure_does_not_block_stop():
+    accounts = [acc(1, 190), acc(2, 20), acc(3, 50, status="Stopped")]
+    plan = _plan_with_start_dns_stop()
+    cloud = FakeCloud()
+    dns = _FailingDns()
+    res = execute_plan(plan, accounts, [dom(1, current=1, ip="203.0.113.1")],
+                       cloud, dns, dry_run=False)
+    assert ("stop", 1, True) in cloud.calls
+    assert ("start", 3) in cloud.calls
+    assert len(res["failed"]) == 1
+    assert res["failed"][0]["kind"] == "dns"
+    assert res["failed"][0]["domain_id"] == 1
+    assert "dns failed" in res["failed"][0]["error"]
+
+
+def test_execute_plan_stop_failure_is_recorded():
+    accounts = [acc(1, 190), acc(2, 20), acc(3, 50, status="Stopped")]
+    plan = _plan_with_start_dns_stop()
+    cloud = _FailingCloud(fail_on={"stop": {1}})
+    dns = FakeDns()
+    res = execute_plan(plan, accounts, [dom(1, current=1, ip="203.0.113.1")],
+                       cloud, dns, dry_run=False)
+    assert dns.calls == [("www1.example.xyz", "203.0.113.2")]
+    assert ("start", 3) in cloud.calls
+    assert res["failed"] == [{"kind": "stop", "account_id": 1, "domain_id": 1,
+                              "name": "A1", "error": "stop failed for test"}]
+
+
+def test_execute_plan_dry_run_failed_is_empty():
+    accounts = [acc(1, 190), acc(2, 20)]
+    plan = _plan_with_start_dns_stop()
+    res = execute_plan(plan, accounts, [dom(1, current=1)], FakeCloud(),
+                       FakeDns(), dry_run=True)
+    assert res["dry_run"] is True
+    assert res["failed"] == []
+
+
+# ---------------------------------------------------------------------------
 # 细化 2：按时间切换 — 间隔 / 固定时刻
 # ---------------------------------------------------------------------------
 
